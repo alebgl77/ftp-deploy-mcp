@@ -1,0 +1,23 @@
+{
+  "defaultServer": "prod",
+  "servers": {
+    "prod": {
+      "protocol": "sftp",
+      "host": "ssh.example.com",
+      "port": 22,
+      "user": "deploy",
+      "privateKeyPath": "~/.ssh/id_ed25519",
+      "root": "/var/www/site",
+      "readOnly": false
+    },
+    "ovh": {
+      "protocol": "ftps",
+      "host": "ftp.cluster0xx.hosting.ovh.net",
+      "port": 21,
+      "user": "mysite",
+      "password": "${ENV:OVH_FTP_PASSWORD}",
+      "root": "/www",
+      "insecureTLS": false
+    }
+  }
+}

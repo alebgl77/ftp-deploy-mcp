@@ -1,0 +1,295 @@
+// Configuration discovery, parsing and validation.
+//
+// A guiding principle: loading NEVER throws. The MCP server must always start
+// and expose its tools even when the config is missing or broken, so clients
+// don't see a dead server. Any problem is captured in the returned object and
+// surfaced later, per tool call, as a helpful message.
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const PROTOCOLS = new Set(["ftp", "ftps", "sftp"]);
+
+// Expand a leading "~" to the user's home directory.
+export function expandHome(p) {
+  if (typeof p !== "string" || p.length === 0) return p;
+  if (p === "~") return os.homedir();
+  if (p.startsWith("~/") || p.startsWith("~\\")) {
+    return path.join(os.homedir(), p.slice(2));
+  }
+  return p;
+}
+
+// Ordered list of candidate config locations. `configFlag` is the value of the
+// --config CLI option, if any.
+export function configCandidates(configFlag) {
+  const out = [];
+  if (configFlag) out.push(path.resolve(configFlag));
+  if (process.env.FTP_MCP_CONFIG) out.push(path.resolve(process.env.FTP_MCP_CONFIG));
+  out.push(path.resolve(process.cwd(), "ftp-servers.json"));
+  out.push(path.join(os.homedir(), ".ftp-mcp", "servers.json"));
+  return out;
+}
+
+// Replace ${ENV:NAME} occurrences in a string. Unset variables are recorded in
+// `errors` and left as empty strings.
+function substituteEnv(value, errors, ctx) {
+  if (typeof value !== "string") return value;
+  return value.replace(/\$\{ENV:([^}]+)\}/g, (_m, rawName) => {
+    const name = rawName.trim();
+    const v = process.env[name];
+    if (v === undefined) {
+      errors.push(`environment variable "${name}" is not set (referenced by ${ctx})`);
+      return "";
+    }
+    return v;
+  });
+}
+
+function walkSubstitute(obj, errors, ctx) {
+  if (Array.isArray(obj)) {
+    return obj.map((v, i) => walkSubstitute(v, errors, `${ctx}[${i}]`));
+  }
+  if (obj && typeof obj === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      out[k] = walkSubstitute(v, errors, ctx ? `${ctx}.${k}` : k);
+    }
+    return out;
+  }
+  return substituteEnv(obj, errors, ctx);
+}
+
+function nonEmptyString(v) {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+// Validate the parsed+substituted config. Returns an error string, or null.
+function validate(parsed) {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return "config root must be a JSON object with a `servers` field";
+  }
+  const servers = parsed.servers;
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
+    return "config is missing a `servers` object";
+  }
+  const names = Object.keys(servers);
+  if (names.length === 0) {
+    return "no servers configured (the `servers` object is empty)";
+  }
+  for (const name of names) {
+    const s = servers[name];
+    if (!s || typeof s !== "object" || Array.isArray(s)) {
+      return `server "${name}": must be a JSON object`;
+    }
+    if (!nonEmptyString(s.protocol)) {
+      return `server "${name}": missing required field "protocol" (one of ftp, ftps, sftp)`;
+    }
+    if (!PROTOCOLS.has(s.protocol)) {
+      return `server "${name}": unknown protocol "${s.protocol}" (use ftp, ftps or sftp)`;
+    }
+    if (!nonEmptyString(s.host)) {
+      return `server "${name}": missing required field "host"`;
+    }
+    if (!nonEmptyString(s.user)) {
+      return `server "${name}": missing required field "user"`;
+    }
+    if (s.port !== undefined && (typeof s.port !== "number" || !Number.isInteger(s.port) || s.port <= 0)) {
+      return `server "${name}": field "port" must be a positive integer`;
+    }
+    const hasPassword = nonEmptyString(s.password);
+    const hasKey = nonEmptyString(s.privateKeyPath);
+    if (!hasPassword && !hasKey) {
+      return `server "${name}": no authentication method — provide "password" or "privateKeyPath"`;
+    }
+  }
+  if (parsed.defaultServer !== undefined) {
+    if (!nonEmptyString(parsed.defaultServer)) {
+      return `"defaultServer" must be a non-empty string`;
+    }
+    if (!names.includes(parsed.defaultServer)) {
+      return `"defaultServer" is "${parsed.defaultServer}" but that server is not configured (available: ${names.join(", ")})`;
+    }
+  }
+  return null;
+}
+
+// Normalize a server entry into what adapters expect (default ports, expanded
+// key path, effective root).
+export function normalizeServer(name, s) {
+  const protocol = s.protocol;
+  const implicitTLS = protocol === "ftps" && s.implicitTLS === true;
+  const defaultPort = protocol === "sftp" ? 22 : implicitTLS ? 990 : 21;
+  const port = s.port ?? defaultPort;
+  return {
+    name,
+    protocol,
+    host: s.host,
+    port,
+    user: s.user,
+    password: nonEmptyString(s.password) ? s.password : undefined,
+    privateKeyPath: nonEmptyString(s.privateKeyPath) ? expandHome(s.privateKeyPath) : undefined,
+    passphrase: nonEmptyString(s.passphrase) ? s.passphrase : undefined,
+    root: nonEmptyString(s.root) ? s.root : "/",
+    readOnly: s.readOnly === true,
+    insecureTLS: s.insecureTLS === true,
+    implicitTLS,
+  };
+}
+
+// Load configuration. Always returns an object; never throws.
+//   { found, path, searched, error, config, serverNames, defaultServer }
+export function loadConfig(configFlag) {
+  const searched = configCandidates(configFlag);
+  let filePath = null;
+  for (const c of searched) {
+    try {
+      if (fs.existsSync(c) && fs.statSync(c).isFile()) {
+        filePath = c;
+        break;
+      }
+    } catch {
+      // ignore inaccessible candidates
+    }
+  }
+
+  if (!filePath) {
+    return {
+      found: false,
+      path: null,
+      searched,
+      error: null,
+      config: null,
+      serverNames: [],
+      defaultServer: null,
+    };
+  }
+
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch (err) {
+    return errorResult(filePath, searched, `cannot read config file: ${err.message}`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return errorResult(filePath, searched, `invalid JSON in config file ${filePath}: ${err.message}`);
+  }
+
+  const envErrors = [];
+  const substituted = walkSubstitute(parsed, envErrors, "");
+  if (envErrors.length > 0) {
+    return errorResult(filePath, searched, envErrors.join("; "));
+  }
+
+  const validationError = validate(substituted);
+  if (validationError) {
+    return errorResult(filePath, searched, validationError);
+  }
+
+  const serverNames = Object.keys(substituted.servers);
+  const config = {
+    defaultServer: substituted.defaultServer ?? null,
+    servers: substituted.servers,
+  };
+
+  return {
+    found: true,
+    path: filePath,
+    searched,
+    error: null,
+    config,
+    serverNames,
+    defaultServer: config.defaultServer,
+  };
+}
+
+function errorResult(filePath, searched, message) {
+  return {
+    found: true,
+    path: filePath,
+    searched,
+    error: message,
+    config: null,
+    serverNames: [],
+    defaultServer: null,
+  };
+}
+
+// Resolve which server a tool call should use.
+//   requested -> config.defaultServer -> the sole server -> error
+// Returns { server } (normalized) or throws with a helpful message.
+export function resolveServer(loaded, requested) {
+  if (!loaded.config) {
+    // Caller should have handled the no-config case already; be defensive.
+    throw new Error("no usable configuration is loaded");
+  }
+  const names = loaded.serverNames;
+  let name;
+  if (nonEmptyString(requested)) {
+    if (!names.includes(requested)) {
+      throw new Error(
+        `unknown server "${requested}". Available servers: ${names.join(", ")}`
+      );
+    }
+    name = requested;
+  } else if (loaded.defaultServer) {
+    name = loaded.defaultServer;
+  } else if (names.length === 1) {
+    name = names[0];
+  } else {
+    throw new Error(
+      `no server specified and no default set. Pass "server" as one of: ${names.join(", ")}`
+    );
+  }
+  return { name, server: normalizeServer(name, loaded.config.servers[name]) };
+}
+
+// The text shown when no config is found (or it failed to load). Explains the
+// lookup locations and provides a minimal example.
+export function configHelpText(loaded) {
+  const lines = [];
+  if (loaded.error) {
+    lines.push(`The configuration at ${loaded.path} could not be loaded:`);
+    lines.push(`  ${loaded.error}`);
+    lines.push("");
+    lines.push("Fix the file, then retry.");
+  } else {
+    lines.push("No FTP/SFTP server configuration was found.");
+    lines.push("");
+    lines.push("Create a JSON config at one of these locations (first found wins):");
+  }
+  lines.push("");
+  lines.push("Searched locations:");
+  for (const p of loaded.searched) lines.push(`  - ${p}`);
+  lines.push("  (or pass --config <path> / set FTP_MCP_CONFIG=<path>)");
+  lines.push("");
+  lines.push("Minimal example (ftp-servers.json):");
+  lines.push(EXAMPLE_CONFIG);
+  return lines.join("\n");
+}
+
+export const EXAMPLE_CONFIG = `{
+  "defaultServer": "prod",
+  "servers": {
+    "prod": {
+      "protocol": "sftp",
+      "host": "ssh.example.com",
+      "port": 22,
+      "user": "deploy",
+      "privateKeyPath": "~/.ssh/id_ed25519",
+      "root": "/var/www/site"
+    },
+    "ovh": {
+      "protocol": "ftps",
+      "host": "ftp.example.com",
+      "user": "web",
+      "password": "\${ENV:OVH_FTP_PASSWORD}",
+      "root": "/www"
+    }
+  }
+}`;

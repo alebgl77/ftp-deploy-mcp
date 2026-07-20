@@ -1,0 +1,64 @@
+{
+  "name": "ftp-deploy-mcp",
+  "version": "0.1.0",
+  "description": "MCP stdio server to push/pull files to your own FTP/FTPS/SFTP servers from AI coding agents. FileZilla as MCP tools: deploy, upload, download, list, read, rename, delete — with a security root jail and multi-server config.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Alexandre Beguel",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alebgl77/ftp-deploy-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/alebgl77/ftp-deploy-mcp/issues"
+  },
+  "homepage": "https://github.com/alebgl77/ftp-deploy-mcp#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "ftp-deploy-mcp": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/smoke.test.js",
+    "setup": "node src/index.js setup",
+    "doctor": "node src/index.js doctor"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "README.fr.md",
+    "ftp-servers.example.json",
+    "LICENSE",
+    "install.cmd",
+    "install.sh",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "mcp",
+    "ftp",
+    "sftp",
+    "ftps",
+    "deploy",
+    "filezilla",
+    "model-context-protocol",
+    "claude",
+    "cursor",
+    "windsurf"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "basic-ftp": "^6.0.1",
+    "picomatch": "^4",
+    "ssh2-sftp-client": "^12.1.1",
+    "zod": "^3.25"
+  },
+  "devDependencies": {
+    "ftp-srv": "^4.6.3",
+    "ssh2": "^1.17.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,9 @@
+node_modules/
+ftp-servers.json
+*.log
+.env
+.env.*
+.ftp-mcp/
+launch-kit/
+assets/_preview/
+.claude/

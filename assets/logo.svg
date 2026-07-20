@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="ftp-deploy-mcp">
+  <title>ftp-deploy-mcp</title>
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366F1"/>
+      <stop offset="100%" stop-color="#22D3EE"/>
+    </linearGradient>
+    <linearGradient id="hiGrad" x1="0" y1="0" x2="0" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="roundedClip">
+      <rect x="0" y="0" width="256" height="256" rx="56" ry="56"/>
+    </clipPath>
+  </defs>
+
+  <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="url(#bgGrad)"/>
+
+  <g clip-path="url(#roundedClip)">
+    <rect x="0" y="0" width="256" height="150" fill="url(#hiGrad)"/>
+  </g>
+
+  <!-- glyph: upward arrow into a server-rack base -->
+  <path d="M128 65 L160 101 L142 101 L142 141 L114 141 L114 101 L96 101 Z" fill="#FFFFFF"/>
+  <rect x="76" y="155" width="104" height="14" rx="7" fill="#FFFFFF"/>
+  <circle cx="168" cy="162" r="4" fill="url(#bgGrad)"/>
+  <rect x="76" y="177" width="104" height="14" rx="7" fill="#FFFFFF"/>
+  <circle cx="168" cy="184" r="4" fill="url(#bgGrad)"/>
+</svg>

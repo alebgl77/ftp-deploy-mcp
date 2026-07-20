@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" viewBox="0 0 960 420" width="960" height="420" role="img" aria-label="ftp-deploy-mcp terminal demo: dry-run then deploy 42 files, then read a remote file">
+  <title>ftp-deploy-mcp demo</title>
+  <style>
+    <![CDATA[
+    /* Base state is fully visible: renderers that ignore CSS animations
+       (npm README, static previews, reduced-motion) show the complete
+       conversation instead of an empty terminal. */
+    .ln { opacity: 1; }
+
+    @keyframes l1 {
+      0%, 1.07%   { opacity: 0; transform: translateY(6px); }
+      3.57%       { opacity: 1; transform: translateY(0); }
+      99.9%       { opacity: 1; transform: translateY(0); }
+      100%        { opacity: 0; transform: translateY(6px); }
+    }
+    @keyframes l2 {
+      0%, 11.79%  { opacity: 0; transform: translateY(6px); }
+      14.29%      { opacity: 1; transform: translateY(0); }
+      99.9%       { opacity: 1; transform: translateY(0); }
+      100%        { opacity: 0; transform: translateY(6px); }
+    }
+    @keyframes l3 {
+      0%, 22.5%   { opacity: 0; transform: translateY(6px); }
+      25%         { opacity: 1; transform: translateY(0); }
+      99.9%       { opacity: 1; transform: translateY(0); }
+      100%        { opacity: 0; transform: translateY(6px); }
+    }
+    @keyframes l4 {
+      0%, 33.21%  { opacity: 0; transform: translateY(6px); }
+      35.71%      { opacity: 1; transform: translateY(0); }
+      99.9%       { opacity: 1; transform: translateY(0); }
+      100%        { opacity: 0; transform: translateY(6px); }
+    }
+    @keyframes l5 {
+      0%, 43.93%  { opacity: 0; transform: translateY(6px); }
+      46.43%      { opacity: 1; transform: translateY(0); }
+      99.9%       { opacity: 1; transform: translateY(0); }
+      100%        { opacity: 0; transform: translateY(6px); }
+    }
+    @keyframes l6 {
+      0%, 54.64%  { opacity: 0; transform: translateY(6px); }
+      57.14%      { opacity: 1; transform: translateY(0); }
+      99.9%       { opacity: 1; transform: translateY(0); }
+      100%        { opacity: 0; transform: translateY(6px); }
+    }
+    @keyframes l7a {
+      0%, 65.36%  { opacity: 0; transform: translateY(6px); }
+      67.86%      { opacity: 1; transform: translateY(0); }
+      99.9%       { opacity: 1; transform: translateY(0); }
+      100%        { opacity: 0; transform: translateY(6px); }
+    }
+    @keyframes l7b {
+      0%, 76.07%  { opacity: 0; transform: translateY(6px); }
+      78.57%      { opacity: 1; transform: translateY(0); }
+      99.9%       { opacity: 1; transform: translateY(0); }
+      100%        { opacity: 0; transform: translateY(6px); }
+    }
+
+    .l1  { animation: l1 14s linear infinite; }
+    .l2  { animation: l2 14s linear infinite; }
+    .l3  { animation: l3 14s linear infinite; }
+    .l4  { animation: l4 14s linear infinite; }
+    .l5  { animation: l5 14s linear infinite; }
+    .l6  { animation: l6 14s linear infinite; }
+    .l7a { animation: l7a 14s linear infinite; }
+    .l7b { animation: l7b 14s linear infinite; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ln { animation: none !important; }
+    }
+    ]]>
+  </style>
+
+  <rect x="0" y="0" width="960" height="420" fill="#0B1120"/>
+
+  <!-- terminal chrome -->
+  <rect x="20" y="20" width="920" height="380" rx="16" fill="#111A2E" stroke="#1E293B" stroke-width="1.5"/>
+  <line x1="20" y1="64" x2="940" y2="64" stroke="#1E293B" stroke-width="1"/>
+  <circle cx="44" cy="42" r="6" fill="#94A3B8" opacity="0.45"/>
+  <circle cx="68" cy="42" r="6" fill="#94A3B8" opacity="0.65"/>
+  <circle cx="92" cy="42" r="6" fill="#94A3B8" opacity="0.85"/>
+
+  <g font-family="ui-monospace, 'Cascadia Code', Consolas, Menlo, monospace" font-size="17">
+    <g class="ln l1"><text x="44" y="96" fill="#E2E8F0">you  &#8250; Deploy ./dist to prod &#8212; dry-run first</text></g>
+    <g class="ln l2"><text x="44" y="130" fill="#22D3EE">agent&#8250; ftp_deploy(server:"prod", dir:"./dist", dry_run:true)</text></g>
+    <g class="ln l3"><text x="44" y="164" fill="#94A3B8">       42 files, 1.3 MB &#8594; /www  (node_modules, .env, *.log excluded)</text></g>
+    <g class="ln l4"><text x="44" y="198" fill="#E2E8F0">you  &#8250; ship it</text></g>
+    <g class="ln l5"><text x="44" y="232" fill="#22D3EE">agent&#8250; ftp_deploy(server:"prod", dir:"./dist")</text></g>
+    <g class="ln l6"><text x="44" y="266" fill="#34D399">       &#10003; uploaded 42 files in 8.2 s</text></g>
+    <g class="ln l7a"><text x="44" y="300" fill="#E2E8F0">you  &#8250; read /www/.htaccess</text></g>
+    <g class="ln l7b"><text x="44" y="334" fill="#34D399">agent&#8250; &#10003; 14 lines &#8212; RewriteEngine On &#8230;</text></g>
+  </g>
+</svg>
