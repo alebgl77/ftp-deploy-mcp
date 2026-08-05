@@ -48,7 +48,8 @@ Claude Code · Claude Desktop · Cursor · Windsurf · Trae · Antigravity → v
 | **Auto-configuration** | Configure automatiquement 5+ clients MCP, avec sauvegardes horodatées |
 | **Doctor** | Diagnostic en lecture seule de Node, de la config, des serveurs et du branchement client |
 | **Zéro build** | JavaScript ESM pur — stdlib de Node + 5 petites dépendances |
-| **Testé en conditions réelles** | 189 assertions e2e contre de vrais serveurs FTP + SFTP locaux |
+| **Sûr par défaut** | FTP en clair / TLS non vérifié refusés sauf autorisation explicite par serveur |
+| **Testé en conditions réelles** | 209 assertions e2e contre de vrais serveurs FTP + SFTP locaux |
 | **Aucune télémétrie** | Rien ne quitte votre machine hormis les appels vers vos propres serveurs |
 
 ## Démarrage rapide
@@ -175,15 +176,16 @@ Créez un fichier `ftp-servers.json`. Le serveur cherche la configuration dans c
     "prod": {
       "protocol": "sftp",           // REQUIS : "ftp" | "ftps" | "sftp"
       "host": "ssh.example.com",    // REQUIS
-      "port": 22,                    // optionnel (défauts : ftp/ftps 21, sftp 22)
+      "port": 22,                    // optionnel (défauts : ftp/ftps 21, ftps implicite 990, sftp 22)
       "user": "deploy",             // REQUIS
       "password": "${ENV:PROD_PW}", // optionnel : mot de passe (ou placeholder d'env)
       "privateKeyPath": "~/.ssh/id_ed25519", // optionnel (sftp) : le "~" est étendu
       "passphrase": "…",            // optionnel : passphrase de la clé privée
       "root": "/var/www/site",      // optionnel (défaut "/") : TOUTES les opérations y sont confinées
       "readOnly": false,             // optionnel : bloque upload/deploy/mkdir/rename/delete
-      "insecureTLS": false,           // optionnel (ftps) : accepte un certificat auto-signé
-      "implicitTLS": false           // optionnel (ftps) : TLS implicite (port 990, serveurs legacy)
+      "insecureTLS": false,           // optionnel (ftps) : désactive la vérification du certificat — exige "allowInsecure"
+      "implicitTLS": false,          // optionnel (ftps) : TLS implicite (port 990, serveurs legacy)
+      "allowInsecure": false         // optionnel : opt-in explicite REQUIS pour "ftp" en clair ou "insecureTLS"
     }
   }
 }
@@ -205,6 +207,11 @@ renvoie une erreur claire nommant la variable manquante.
 
 ### Conseils de sécurité
 
+- **Privilégiez SFTP.** Le `ftp` en clair et le `ftps` avec `insecureTLS: true` sont
+  **refusés par défaut** : sur ces transports, un attaquant réseau peut capturer ou
+  altérer identifiants et fichiers. Pour en utiliser un malgré tout, vous devez poser
+  explicitement `"allowInsecure": true` sur ce serveur — et chaque démarrage comme chaque
+  résultat d'outil affichera alors un avertissement de sécurité bien visible.
 - **Ajoutez `ftp-servers.json` à votre `.gitignore`** (c'est déjà le cas dans ce dépôt).
 - Restreignez les droits du fichier (`chmod 600 ftp-servers.json` sous Unix).
 - Privilégiez les **variables d'environnement** (`${ENV:…}`) ou une **clé SSH** plutôt
@@ -248,6 +255,11 @@ base64 sont décodés ; les sites sans mot de passe reçoivent un placeholder
 > **Attention** : le fichier généré contient des mots de passe déchiffrés en clair —
 > gardez-le hors du contrôle de version (`.gitignore`) et restreignez ses droits
 > (`chmod 600`).
+
+> **Sites en FTP simple** : les serveurs importés en `"protocol": "ftp"` (comme l'exemple
+> ci-dessus) sont **refusés à la connexion** tant que vous ne les passez pas en
+> `sftp`/`ftps` ou que vous ne posez pas explicitement `"allowInsecure": true` dessus —
+> l'import affiche un avertissement pour chacun. Voir [Sécurité](#8-sécurité).
 
 ---
 
@@ -414,6 +426,11 @@ exclu aussi.
 
 ## 8. Sécurité
 
+- **Transports sûrs par défaut** : le FTP en clair et le FTPS avec vérification du
+  certificat désactivée (`insecureTLS: true`) sont **refusés** sauf si l'entrée du serveur
+  pose explicitement `"allowInsecure": true`. Même autorisé, un avertissement de sécurité
+  s'affiche au démarrage, dans `ftp_list_servers`, dans `doctor`, et est ajouté à chaque
+  résultat d'outil pour ce serveur.
 - **Jail de racine** : chaque opération est normalisée puis vérifiée pour rester sous le
   `root` du serveur. Toute tentative de sortie (`../…`) est refusée, y compris quand le
   `root` est `/`.
@@ -433,8 +450,14 @@ exclu aussi.
   pare-feu. Vérifiez que les ports passifs de votre serveur sont ouverts.
 - **Auth SFTP par clé** : renseignez `privateKeyPath` (le `~` est étendu) et, si la clé
   est chiffrée, `passphrase`. Vérifiez les droits de la clé.
-- **FTPS auto-signé** : mettez `insecureTLS: true` pour accepter un certificat non vérifié
-  (à réserver aux serveurs de confiance).
+- **« INSECURE CONNECTION REFUSED »** : le serveur utilise du FTP en clair, ou du FTPS
+  avec la vérification du certificat désactivée. Passez-le en `sftp` (ou en `ftps` avec un
+  certificat valide), ou — seulement si vous acceptez pleinement le risque d'interception —
+  posez `"allowInsecure": true` sur ce serveur.
+- **FTPS auto-signé** : `insecureTLS: true` accepte un certificat non vérifié. Cela
+  désactive la protection contre l'homme du milieu, donc exige aussi
+  `"allowInsecure": true` et affiche un avertissement de sécurité à chaque appel.
+  Privilégiez l'installation d'un certificat valide.
 - **FTPS implicite (port 990)** : mettez `implicitTLS: true` (protocole `ftps`) pour les
   serveurs legacy qui chiffrent dès la connexion, sans commande `AUTH TLS`.
 - **« aucun serveur configuré »** : le fichier n'a été trouvé à aucun des 4 emplacements.

@@ -78,5 +78,5 @@
     <text x="724" y="393" fill="#FBBF24">      &#8211; .env, node_modules excluded (jail: /www)</text>
   </g>
 
-  <text x="1190" y="600" text-anchor="end" font-family="ui-sans-serif, 'Segoe UI', Helvetica, Arial, sans-serif" font-weight="400" font-size="14" fill="#94A3B8">MIT &#183; 189 e2e tests &#183; no telemetry</text>
+  <text x="1190" y="600" text-anchor="end" font-family="ui-sans-serif, 'Segoe UI', Helvetica, Arial, sans-serif" font-weight="400" font-size="14" fill="#94A3B8">MIT &#183; 209 e2e tests &#183; no telemetry</text>
 </svg>

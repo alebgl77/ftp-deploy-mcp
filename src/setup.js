@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import * as readline from "node:readline/promises";
 
-import { configCandidates, normalizeServer } from "./config.js";
+import { configCandidates, normalizeServer, insecureTransport, insecureLabel } from "./config.js";
 import { parseSiteManager, buildConfig } from "./filezilla.js";
 import { resolveRemote } from "./remote-path.js";
 import { getClients, buildEntry, applyClient, mergeConfigFile } from "./clients.js";
@@ -294,6 +294,9 @@ async function testOneServer(name, srv) {
 
 function connectionHint(err) {
   const msg = err && err.message ? err.message : String(err);
+  if (/INSECURE CONNECTION REFUSED/.test(msg)) {
+    return 'switch this server to sftp, or explicitly set "allowInsecure": true to accept the risk';
+  }
   if (/auth/i.test(msg)) return "check the user / password / key";
   if (/timed out|timeout|firewall|passive/i.test(msg)) return "check the firewall or passive-mode settings";
   if (/not found|ENOTFOUND|getaddrinfo/i.test(msg)) return "check the host name";
@@ -313,7 +316,8 @@ async function runConnectionTests(servers, W) {
     const proto = srv.protocol || "?";
     const res = await testOneServer(name, srv);
     if (res.ok) {
-      W(`  ✓ ${name} (${proto}://${srv.host})`);
+      const insecure = insecureTransport(normalizeServer(name, srv));
+      W(`  ✓ ${name} (${proto}://${srv.host})${insecure ? "  ⚠ INSECURE transport" : ""}`);
     } else {
       const short = (res.error && res.error.message ? res.error.message : String(res.error)).split("[")[0].trim();
       W(`  ✗ ${name} — ${short} — ${connectionHint(res.error)}`);
@@ -419,19 +423,37 @@ async function askMasked(rl, query) {
   }
 }
 
-// Manual server-entry loop. Returns a config object { defaultServer?, servers }.
+// Manual server-entry loop. Returns { config: { defaultServer?, servers } },
+// the same shape importFileZilla produces.
 async function manualEntry(rl, W) {
   const servers = {};
   let first = null;
   for (;;) {
     const name = await ask(rl, "Server name", `server-${Object.keys(servers).length + 1}`);
-    const protocol = (await ask(rl, "Protocol (sftp/ftp/ftps)", "sftp")).toLowerCase();
+    let protocol = (await ask(rl, "Protocol (sftp/ftp/ftps)", "sftp")).toLowerCase();
+    let allowInsecure = false;
+    if (protocol === "ftp") {
+      // Plain FTP needs an explicit, deliberate confirmation — SFTP is the default.
+      W("");
+      W("  ⚠ SECURITY WARNING: plain FTP is NOT encrypted — credentials and files can be");
+      W("  intercepted or altered by anyone on the network. SFTP is strongly recommended.");
+      const confirm = (
+        await ask(rl, '  Type "insecure" to keep plain FTP anyway, or press Enter to use sftp', "sftp")
+      ).toLowerCase();
+      if (confirm === "insecure") {
+        allowInsecure = true;
+      } else {
+        protocol = "sftp";
+        W("  → using sftp.");
+      }
+    }
     const host = await ask(rl, "Host", "");
     const defPort = protocol === "sftp" ? "22" : "21";
     const portStr = await ask(rl, "Port", defPort);
     const user = await ask(rl, "User", "");
     const authKind = (await ask(rl, "Auth (password/key)", "password")).toLowerCase();
     const entry = { protocol, host, user };
+    if (allowInsecure) entry.allowInsecure = true;
     const port = Number(portStr);
     if (Number.isInteger(port) && String(port) !== defPort) entry.port = port;
     if (authKind.startsWith("k")) {
@@ -450,7 +472,57 @@ async function manualEntry(rl, W) {
     const more = (await ask(rl, "Add another server?", "N")).toLowerCase();
     if (!more.startsWith("y")) break;
   }
-  return { defaultServer: first, servers };
+  return { config: { defaultServer: first, servers } };
+}
+
+// The effective config may contain insecure transports: plain FTP, or FTPS
+// with certificate checks disabled. Those connections are refused at runtime
+// unless the server entry carries "allowInsecure": true — surface all of that
+// NOW, loudly, and let an interactive user explicitly accept the risk per
+// server. Non-interactive runs only warn (fail closed: nothing is ever
+// auto-allowed). Must run on the config that will actually be USED (after any
+// merge), because grants mutate the entries in place. Returns the number of
+// servers the user explicitly allowed.
+async function reviewInsecureServers(config, rl, W) {
+  const entries = Object.entries((config && config.servers) || {});
+  const insecure = [];
+  const allowed = [];
+  for (const [name, srv] of entries) {
+    const n = normalizeServer(name, srv);
+    const reason = insecureTransport(n);
+    if (!reason) continue;
+    (n.allowInsecure ? allowed : insecure).push({ name, srv, reason });
+  }
+  if (allowed.length > 0) {
+    W("");
+    W('⚠ SECURITY WARNING — insecure transports explicitly allowed ("allowInsecure": true):');
+    for (const { name, reason } of allowed) {
+      W(`  - ${name}: ${insecureLabel(reason)} — prefer switching to sftp`);
+    }
+  }
+  if (insecure.length === 0) return 0;
+  W("");
+  W("⚠ SECURITY WARNING — insecure server transport(s) in this config:");
+  for (const { name, reason } of insecure) {
+    W(`  - ${name}: ${insecureLabel(reason)}`);
+  }
+  W("  Credentials and files on these connections can be intercepted on the network,");
+  W("  so they are REFUSED by default. Prefer switching them to sftp (or verified ftps).");
+  if (!rl) {
+    W('  To accept the risk for a server anyway, set "allowInsecure": true on it in the config file.');
+    return 0;
+  }
+  let granted = 0;
+  for (const { name, srv } of insecure) {
+    const a = (
+      await ask(rl, `  Allow INSECURE connections to "${name}" anyway? Type "insecure" to accept the risk`, "no")
+    ).toLowerCase();
+    if (a === "insecure") {
+      srv.allowInsecure = true;
+      granted += 1;
+    }
+  }
+  return granted;
 }
 
 // ---- setup -----------------------------------------------------------------
@@ -583,6 +655,19 @@ export async function runSetup(argv) {
       effectiveConfig = raw ? safeParse(raw) || { servers: {} } : { servers: {} };
       configPathForEntry = keptPath;
       W(`Using existing config at ${keptPath}`);
+    }
+
+    // Loudly review insecure transports on the config that will actually be
+    // used (post-merge — the merge keeps existing entries, so a grant taken on
+    // the pre-merge input would be silently discarded). Interactive users can
+    // explicitly accept the risk per server; grants are persisted immediately.
+    const granted = await reviewInsecureServers(
+      effectiveConfig,
+      interactive && !opts.dryRun ? rl : null,
+      W
+    );
+    if (granted > 0 && !opts.dryRun) {
+      fs.writeFileSync(configPathForEntry, JSON.stringify(effectiveConfig, null, 2) + "\n");
     }
 
     const isDefaultDest = path.resolve(configPathForEntry) === path.resolve(defaultDest);
@@ -721,6 +806,16 @@ export async function runDoctor(argv) {
         const ro = s.readOnly === true ? "read-only" : "read-write";
         const auth = nonEmpty(s.privateKeyPath) ? "key" : nonEmpty(s.password) ? "password" : "none";
         W(`    - ${name}: ${proto}://${s.host}:${port}  root=${root}  ${ro}  auth=${auth}`);
+        const insecure = insecureTransport(normalizeServer(name, s));
+        if (insecure) {
+          W(
+            `        ⚠ INSECURE: ${insecureLabel(insecure)} — ${
+              s.allowInsecure === true
+                ? 'explicitly allowed ("allowInsecure": true); prefer sftp'
+                : 'connections are REFUSED (switch to sftp, or set "allowInsecure": true to accept the risk)'
+            }`
+          );
+        }
         for (const varName of unresolvedEnvVars(s)) {
           W(`        ! env var ${varName} not set!`);
         }

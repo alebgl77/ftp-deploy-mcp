@@ -11,6 +11,8 @@ import { Writable } from "node:stream";
 import path from "node:path";
 import fs from "node:fs";
 
+import { insecureTransport, insecureBlockedMessage } from "../config.js";
+
 const posix = path.posix;
 
 function toISO(fileInfo) {
@@ -55,6 +57,14 @@ function friendlyError(err, ctx) {
 }
 
 export async function connect(serverCfg) {
+  // Insecure transports (plain FTP, or FTPS with certificate verification
+  // disabled) are refused BEFORE any network I/O unless the server entry
+  // explicitly opts in with "allowInsecure": true.
+  const insecureReason = insecureTransport(serverCfg);
+  if (insecureReason && serverCfg.allowInsecure !== true) {
+    throw new Error(insecureBlockedMessage(serverCfg.name ?? serverCfg.host, insecureReason));
+  }
+
   const ctx = { host: serverCfg.host, port: serverCfg.port, user: serverCfg.user };
   const client = new Client(30000);
   client.ftp.verbose = false;
@@ -71,7 +81,7 @@ export async function connect(serverCfg) {
     password: serverCfg.password ?? "",
     secure,
   };
-  if (serverCfg.protocol === "ftps" && serverCfg.insecureTLS) {
+  if (serverCfg.protocol === "ftps" && serverCfg.insecureTLS && serverCfg.allowInsecure === true) {
     access.secureOptions = { rejectUnauthorized: false };
   }
 

@@ -19,7 +19,7 @@ import FtpSrv from "ftp-srv";
 import { startSftpServer } from "./sftp-server.js";
 import { resolveRemote, isRootPath, normalizeRoot } from "../src/remote-path.js";
 import { parseSiteManager, decodeRemoteDir } from "../src/filezilla.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig, normalizeServer, insecureTransport } from "../src/config.js";
 import { getClients, mergeConfigFile, applyClient, buildEntry } from "../src/clients.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -431,6 +431,13 @@ async function partH() {
     contains(r1.stdout, "Trae", "setup H.1: stdout mentions Trae");
     contains(r1.stdout, '"mcpServers"', "setup H.1: stdout has the paste block");
     notContains(r1.stdout, "hunter2FTP", "setup H.1: stdout never leaks the fixture password");
+    contains(r1.stdout, "SECURITY WARNING", "setup H.1: warns loudly about insecure imported servers");
+    contains(r1.stdout, "allowInsecure", "setup H.1: names the explicit opt-in flag");
+    ok(
+      !("allowInsecure" in (cfg.servers[Object.keys(cfg.servers)[0]] || {})) &&
+        Object.values(cfg.servers).every((s) => s.allowInsecure !== true),
+      "setup H.1: non-interactive setup never auto-allows insecure servers (fail closed)"
+    );
 
     // H.2 re-run idempotent
     const r2 = await runCli(setupArgs, { cwd: neutralCwd });
@@ -469,6 +476,7 @@ async function partH() {
     contains(d.stdout, "backup-sftp", "doctor H.5: lists backup-sftp");
     contains(d.stdout, "implicit-ftps", "doctor H.5: lists implicit-ftps");
     notContains(d.stdout, "hunter2FTP", "doctor H.5: never prints the fixture password");
+    contains(d.stdout, "INSECURE", "doctor H.5: flags the plain-FTP server as insecure");
     contains(d.stdout, "Cursor", "doctor H.5: reports Cursor");
     contains(d.stdout, "Windsurf", "doctor H.5: reports Windsurf");
     contains(d.stdout, "Antigravity", "doctor H.5: reports Antigravity");
@@ -582,6 +590,17 @@ async function main() {
   ok(envCfg.config && envCfg.config.servers.e.password === "envpw-value", "config: ${ENV:...} substitution resolves", envCfg.error);
   const envMissing = loadConfig(cfgPath("envmiss.json", { servers: { e: { protocol: "ftp", host: "h", user: "u", password: "${ENV:__FTPMCP_UNSET__}" } } }));
   ok(envMissing.error && envMissing.error.includes("__FTPMCP_UNSET__"), "config: unset env var reported by name", envMissing.error);
+  const badBool = loadConfig(cfgPath("badbool.json", { servers: { x: { protocol: "ftps", host: "h", user: "u", password: "p", insecureTLS: "true" } } }));
+  ok(badBool.error && badBool.error.includes("insecureTLS"), "config: non-boolean insecureTLS rejected", badBool.error);
+  const badAllow = loadConfig(cfgPath("badallow.json", { servers: { x: { protocol: "ftp", host: "h", user: "u", password: "p", allowInsecure: "yes" } } }));
+  ok(badAllow.error && badAllow.error.includes("allowInsecure"), "config: non-boolean allowInsecure rejected", badAllow.error);
+  // Case-variant protocols must not slip past the insecure gate (setup/doctor
+  // feed raw JSON.parse'd entries straight into normalizeServer).
+  const upNorm = normalizeServer("x", { protocol: "FTP", host: "h", user: "u", password: "p" });
+  ok(upNorm.protocol === "ftp", "config: normalizeServer canonicalizes protocol case", upNorm.protocol);
+  ok(insecureTransport(upNorm) === "plain-ftp", "config: case-variant FTP still hits the insecure gate", String(insecureTransport(upNorm)));
+  const upTls = normalizeServer("x", { protocol: " FTPS ", host: "h", user: "u", password: "p", insecureTLS: true });
+  ok(insecureTransport(upTls) === "unverified-tls", "config: case-variant FTPS+insecureTLS still hits the insecure gate", String(insecureTransport(upTls)));
 
   // ===== PART B: FTP server =====
   const ftpPort = await getFreePort();
@@ -609,9 +628,13 @@ async function main() {
   const configPath = path.join(baseDir, "ftp-servers.json");
   const config = {
     servers: {
-      localftp: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/" },
+      localftp: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/", allowInsecure: true },
       localsftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/jail" },
-      ro: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/", readOnly: true },
+      ro: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/", readOnly: true, allowInsecure: true },
+      // Insecure transports WITHOUT the explicit "allowInsecure" opt-in: any
+      // connection attempt must be refused before touching the network.
+      blockedftp: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/" },
+      blockedtls: { protocol: "ftps", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/", insecureTLS: true },
     },
   };
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
@@ -678,6 +701,35 @@ async function main() {
 
   r = await client.callTool("ftp_test", { server: "does-not-exist" });
   ok(r.isError && r.text.includes("does-not-exist") && r.text.includes("localftp"), "bad server name lists available servers", r.text);
+
+  // ===== PART F2: insecure-transport policy =====
+  r = await client.callTool("ftp_test", { server: "blockedftp" });
+  ok(
+    r.isError && r.text.includes("INSECURE CONNECTION REFUSED") && r.text.includes("allowInsecure"),
+    "plain FTP without allowInsecure is refused with an explicit-consent message",
+    r.text
+  );
+  r = await client.callTool("ftp_test", { server: "blockedtls" });
+  ok(
+    r.isError && r.text.includes("INSECURE CONNECTION REFUSED") && r.text.includes("insecureTLS"),
+    "unverified FTPS without allowInsecure is refused before any network I/O",
+    r.text
+  );
+  r = await client.callTool("ftp_deploy", { server: "blockedftp", local_dir: sampleDir });
+  ok(r.isError && r.text.includes("INSECURE CONNECTION REFUSED"), "deploy to a blocked insecure server is refused", r.text);
+  r = await client.callTool("ftp_deploy", { server: "blockedftp", local_dir: sampleDir, dry_run: true });
+  ok(!r.isError && r.text.includes("REFUSED"), "dry_run on a blocked insecure server warns the real deploy will be refused", r.text);
+  r = await client.callTool("ftp_read", { server: "localftp", path: "no/such/file.txt" });
+  ok(r.isError && r.text.includes("SECURITY WARNING"), "error results on an allowed-insecure server still carry the warning", r.text);
+  r = await client.callTool("ftp_test", { server: "localftp" });
+  contains(r.text, "SECURITY WARNING", "allowed plain FTP appends a visible security warning");
+  contains(r.text, "allowInsecure", "the warning names the opt-in flag");
+  r = await client.callTool("ftp_test", { server: "localsftp" });
+  notContains(r.text, "SECURITY WARNING", "sftp output carries no security warning");
+  r = await client.callTool("ftp_list_servers", {});
+  contains(r.text, "INSECURE", "list_servers flags insecure servers");
+  contains(r.text, "REFUSED", "list_servers says blocked insecure servers are refused");
+  contains(r.text, "explicitly allowed", "list_servers distinguishes explicitly-allowed insecure servers");
 
   // ===== global checks =====
   const leaked = allToolTexts.some((t) => t.includes(TEST_PASS));

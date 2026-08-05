@@ -12,7 +12,14 @@ import fs from "node:fs";
 import path from "node:path";
 import picomatch from "picomatch";
 
-import { resolveServer, configHelpText, normalizeServer } from "./config.js";
+import {
+  resolveServer,
+  configHelpText,
+  normalizeServer,
+  insecureTransport,
+  insecureLabel,
+  insecureWarningText,
+} from "./config.js";
 import { resolveRemote, isRootPath, normalizeRoot } from "./remote-path.js";
 import * as ftpAdapter from "./adapters/ftp.js";
 import * as sftpAdapter from "./adapters/sftp.js";
@@ -56,6 +63,25 @@ function openAdapter(serverCfg) {
   return mod.connect(serverCfg);
 }
 
+// Append a loud, visible security warning to a tool result when the server
+// uses an explicitly-allowed insecure transport. Secure servers pass through.
+function withInsecureNotice(result, server) {
+  const warn = insecureWarningText(server);
+  if (!warn || !result || !Array.isArray(result.content)) return result;
+  return { ...result, content: [...result.content, { type: "text", text: warn }] };
+}
+
+// Same for the error path: guard() renders thrown errors as isError results,
+// so the warning must ride inside the message — an op that failed may still
+// have sent credentials over the insecure transport.
+function withInsecureError(err, server) {
+  const warn = insecureWarningText(server);
+  if (!warn) return err;
+  const msg = err && err.message ? err.message : String(err);
+  if (msg.includes(warn)) return err;
+  return new Error(`${msg}\n\n${warn}`);
+}
+
 // Thrown when config is missing/broken; carries the help text.
 class ConfigError extends Error {}
 
@@ -71,16 +97,20 @@ async function withServer(loaded, requestedServer, opts, run) {
   const write = opts && opts.write;
   requireConfig(loaded);
   const { name, server } = resolveServer(loaded, requestedServer);
-  if (write && server.readOnly) {
-    throw new Error(
-      `server "${name}" is read-only — upload, deploy, mkdir, rename and delete are blocked`
-    );
-  }
-  const adapter = await openAdapter(server);
   try {
-    return await run({ name, server, adapter });
-  } finally {
-    await adapter.close();
+    if (write && server.readOnly) {
+      throw new Error(
+        `server "${name}" is read-only — upload, deploy, mkdir, rename and delete are blocked`
+      );
+    }
+    const adapter = await openAdapter(server);
+    try {
+      return withInsecureNotice(await run({ name, server, adapter }), server);
+    } finally {
+      await adapter.close();
+    }
+  } catch (err) {
+    throw withInsecureError(err, server);
   }
 }
 
@@ -188,15 +218,24 @@ export function registerTools(server, loaded) {
         const isDefault =
           loaded.defaultServer === name || (!loaded.defaultServer && names.length === 1);
         const auth = s.privateKeyPath ? "key" : "password";
+        const insecure = insecureTransport(s);
         const flags = [];
         if (isDefault) flags.push("default");
         if (s.readOnly) flags.push("read-only");
+        if (insecure) flags.push("⚠ INSECURE");
         const suffix = flags.length ? `  [${flags.join(", ")}]` : "";
         lines.push(`- ${name}${suffix}`);
         const protoLabel = s.implicitTLS ? `${s.protocol} (implicit)` : s.protocol;
         lines.push(
           `    ${protoLabel}://${s.host}:${s.port}   root=${normalizeRoot(s.root)}   auth=${auth}`
         );
+        if (insecure) {
+          lines.push(
+            s.allowInsecure
+              ? `    ⚠ ${insecureLabel(insecure)} — explicitly allowed by "allowInsecure": true; prefer sftp`
+              : `    ⚠ ${insecureLabel(insecure)} — connections are REFUSED until "allowInsecure": true is set; prefer sftp`
+          );
+        }
       }
       return textResult(lines.join("\n"));
     })
@@ -365,111 +404,125 @@ export function registerTools(server, loaded) {
     guard(async (args) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
-      const localDirAbs = path.resolve(process.cwd(), args.local_dir);
-      let dstat;
       try {
-        dstat = fs.statSync(localDirAbs);
-      } catch {
-        throw new Error(`local directory not found: ${localDirAbs}`);
-      }
-      if (!dstat.isDirectory()) throw new Error(`not a directory: ${localDirAbs}`);
-
-      const files = selectDeployFiles(localDirAbs, args.include, args.exclude);
-      const remoteBase = resolveRemote(s.root, args.remote_dir ?? "");
-      const totalBytes = files.reduce((a, f) => a + f.size, 0);
-
-      if (args.dry_run) {
-        // dry_run performs zero network I/O, so it's allowed even on a
-        // read-only server — only a real deploy is blocked below.
-        const lines = [
-          `Dry run — would upload ${files.length} files (${formatSize(totalBytes)}) to ${remoteBase} on "${name}". No connection was made.`,
-          "",
-        ];
-        const shown = files.slice(0, 100);
-        for (const f of shown) lines.push(`  ${f.rel} (${formatSize(f.size)})`);
-        if (files.length > 100) lines.push(`  ... and ${files.length - 100} more`);
-        if (files.length === 0) lines.push("  (nothing matches — check include/exclude globs)");
-        if (s.readOnly) {
-          lines.push("");
-          lines.push(`Note: server "${name}" is read-only — a real deploy will be refused.`);
+        const localDirAbs = path.resolve(process.cwd(), args.local_dir);
+        let dstat;
+        try {
+          dstat = fs.statSync(localDirAbs);
+        } catch {
+          throw new Error(`local directory not found: ${localDirAbs}`);
         }
-        return textResult(lines.join("\n"));
-      }
+        if (!dstat.isDirectory()) throw new Error(`not a directory: ${localDirAbs}`);
 
-      if (s.readOnly) {
-        throw new Error(
-          `server "${name}" is read-only — upload, deploy, mkdir, rename and delete are blocked`
-        );
-      }
+        const files = selectDeployFiles(localDirAbs, args.include, args.exclude);
+        const remoteBase = resolveRemote(s.root, args.remote_dir ?? "");
+        const totalBytes = files.reduce((a, f) => a + f.size, 0);
 
-      if (files.length === 0) {
-        return textResult(
-          `Nothing to deploy to ${remoteBase} on "${name}" — no files matched (check include/exclude globs).`
-        );
-      }
+        if (args.dry_run) {
+          // dry_run performs zero network I/O, so it's allowed even on a
+          // read-only server — only a real deploy is blocked below.
+          const lines = [
+            `Dry run — would upload ${files.length} files (${formatSize(totalBytes)}) to ${remoteBase} on "${name}". No connection was made.`,
+            "",
+          ];
+          const shown = files.slice(0, 100);
+          for (const f of shown) lines.push(`  ${f.rel} (${formatSize(f.size)})`);
+          if (files.length > 100) lines.push(`  ... and ${files.length - 100} more`);
+          if (files.length === 0) lines.push("  (nothing matches — check include/exclude globs)");
+          if (s.readOnly) {
+            lines.push("");
+            lines.push(`Note: server "${name}" is read-only — a real deploy will be refused.`);
+          }
+          const insecure = insecureTransport(s);
+          if (insecure && !s.allowInsecure) {
+            lines.push("");
+            lines.push(
+              `Note: server "${name}" uses ${insecureLabel(insecure)} without "allowInsecure": true — a real deploy will be REFUSED. Prefer sftp.`
+            );
+          }
+          return withInsecureNotice(textResult(lines.join("\n")), s);
+        }
 
-      const t0 = Date.now();
-      const created = new Set();
-      const uploadedList = [];
-      const failures = [];
-      let bytes = 0;
-      let consecutive = 0;
-      let abortedEarly = false;
+        if (s.readOnly) {
+          throw new Error(
+            `server "${name}" is read-only — upload, deploy, mkdir, rename and delete are blocked`
+          );
+        }
 
-      const adapter = await openAdapter(s);
-      try {
-        for (const f of files) {
-          const relForRemote = args.remote_dir
-            ? posix.join(String(args.remote_dir).replace(/\\/g, "/"), f.rel)
-            : f.rel;
-          let target;
-          try {
-            target = resolveRemote(s.root, relForRemote);
-            const parent = posix.dirname(target);
-            if (parent && parent !== "/" && !created.has(parent)) {
-              await adapter.mkdirp(parent);
-              created.add(parent);
-            }
-            await adapter.uploadFile(f.abs, target);
-            uploadedList.push(f.rel);
-            bytes += f.size;
-            consecutive = 0;
-          } catch (err) {
-            failures.push(`${f.rel}: ${err.message}`);
-            consecutive += 1;
-            if (consecutive > 5) {
-              abortedEarly = true;
-              break;
+        if (files.length === 0) {
+          return withInsecureNotice(
+            textResult(
+              `Nothing to deploy to ${remoteBase} on "${name}" — no files matched (check include/exclude globs).`
+            ),
+            s
+          );
+        }
+
+        const t0 = Date.now();
+        const created = new Set();
+        const uploadedList = [];
+        const failures = [];
+        let bytes = 0;
+        let consecutive = 0;
+        let abortedEarly = false;
+
+        const adapter = await openAdapter(s);
+        try {
+          for (const f of files) {
+            const relForRemote = args.remote_dir
+              ? posix.join(String(args.remote_dir).replace(/\\/g, "/"), f.rel)
+              : f.rel;
+            let target;
+            try {
+              target = resolveRemote(s.root, relForRemote);
+              const parent = posix.dirname(target);
+              if (parent && parent !== "/" && !created.has(parent)) {
+                await adapter.mkdirp(parent);
+                created.add(parent);
+              }
+              await adapter.uploadFile(f.abs, target);
+              uploadedList.push(f.rel);
+              bytes += f.size;
+              consecutive = 0;
+            } catch (err) {
+              failures.push(`${f.rel}: ${err.message}`);
+              consecutive += 1;
+              if (consecutive > 5) {
+                abortedEarly = true;
+                break;
+              }
             }
           }
+        } finally {
+          await adapter.close();
         }
-      } finally {
-        await adapter.close();
-      }
 
-      const secs = ((Date.now() - t0) / 1000).toFixed(1);
-      const lines = [];
-      lines.push(
-        `Deployed ${uploadedList.length}/${files.length} files (${formatSize(bytes)}) to ${remoteBase} on "${name}" in ${secs}s.`
-      );
-      if (abortedEarly) {
-        lines.push("ABORTED after more than 5 consecutive failures — this is a partial deploy.");
-      }
-      lines.push("");
-      lines.push("Uploaded:");
-      const shown = uploadedList.slice(0, 100);
-      for (const r of shown) lines.push(`  ${r}`);
-      if (uploadedList.length > 100) lines.push(`  ... and ${uploadedList.length - 100} more`);
-      if (uploadedList.length === 0) lines.push("  (none)");
-      if (failures.length) {
+        const secs = ((Date.now() - t0) / 1000).toFixed(1);
+        const lines = [];
+        lines.push(
+          `Deployed ${uploadedList.length}/${files.length} files (${formatSize(bytes)}) to ${remoteBase} on "${name}" in ${secs}s.`
+        );
+        if (abortedEarly) {
+          lines.push("ABORTED after more than 5 consecutive failures — this is a partial deploy.");
+        }
         lines.push("");
-        lines.push(`Failures (${failures.length}):`);
-        for (const fmsg of failures.slice(0, 100)) lines.push(`  ${fmsg}`);
-        if (failures.length > 100) lines.push(`  ... and ${failures.length - 100} more`);
+        lines.push("Uploaded:");
+        const shown = uploadedList.slice(0, 100);
+        for (const r of shown) lines.push(`  ${r}`);
+        if (uploadedList.length > 100) lines.push(`  ... and ${uploadedList.length - 100} more`);
+        if (uploadedList.length === 0) lines.push("  (none)");
+        if (failures.length) {
+          lines.push("");
+          lines.push(`Failures (${failures.length}):`);
+          for (const fmsg of failures.slice(0, 100)) lines.push(`  ${fmsg}`);
+          if (failures.length > 100) lines.push(`  ... and ${failures.length - 100} more`);
+        }
+        const text = lines.join("\n");
+        if (uploadedList.length === 0) return withInsecureNotice(errorResult(text), s);
+        return withInsecureNotice(textResult(text), s);
+      } catch (err) {
+        throw withInsecureError(err, s);
       }
-      const text = lines.join("\n");
-      if (uploadedList.length === 0) return errorResult(text);
-      return textResult(text);
     })
   );
 

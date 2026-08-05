@@ -48,7 +48,8 @@ Claude Code · Claude Desktop · Cursor · Windsurf · Trae · Antigravity → y
 | **Auto-setup** | Configures 5+ MCP clients automatically, with timestamped config backups |
 | **Doctor** | Read-only diagnostic of Node, config, servers and client wiring |
 | **Zero build** | Plain ESM JavaScript — Node stdlib + 5 small dependencies |
-| **Battle-tested** | 189 e2e assertions against real local FTP + SFTP servers |
+| **Secure by default** | Plain FTP / unverified TLS refused unless explicitly allowed per server |
+| **Battle-tested** | 209 e2e assertions against real local FTP + SFTP servers |
 | **No telemetry** | Nothing leaves your machine except calls to your own servers |
 
 ## Quickstart
@@ -171,15 +172,16 @@ wins):
     "prod": {
       "protocol": "sftp",           // REQUIRED: "ftp" | "ftps" | "sftp"
       "host": "ssh.example.com",    // REQUIRED
-      "port": 22,                    // optional (defaults: ftp/ftps 21, sftp 22)
+      "port": 22,                    // optional (defaults: ftp/ftps 21, implicit ftps 990, sftp 22)
       "user": "deploy",             // REQUIRED
       "password": "${ENV:PROD_PW}", // optional: password (or an env placeholder)
       "privateKeyPath": "~/.ssh/id_ed25519", // optional (sftp); "~" is expanded
       "passphrase": "…",            // optional: private-key passphrase
       "root": "/var/www/site",      // optional (default "/"): ALL ops are jailed under it
       "readOnly": false,             // optional: blocks upload/deploy/mkdir/rename/delete
-      "insecureTLS": false,           // optional (ftps): accept a self-signed certificate
-      "implicitTLS": false           // optional (ftps): implicit TLS (port 990, legacy servers)
+      "insecureTLS": false,           // optional (ftps): skip certificate checks — requires "allowInsecure"
+      "implicitTLS": false,          // optional (ftps): implicit TLS (port 990, legacy servers)
+      "allowInsecure": false         // optional: explicit opt-in REQUIRED for plain "ftp" or "insecureTLS"
     }
   }
 }
@@ -200,6 +202,10 @@ the missing variable.
 
 ### Security tips
 
+- **Prefer SFTP.** Plain `ftp` and `ftps` with `insecureTLS: true` are **refused by
+  default**: on those transports a network attacker can capture or alter credentials and
+  files. To use one anyway you must explicitly set `"allowInsecure": true` on that server —
+  and every startup log and tool result will then carry a visible security warning.
 - **Add `ftp-servers.json` to your `.gitignore`** (already done in this repo).
 - Restrict the file permissions (`chmod 600 ftp-servers.json` on Unix).
 - Prefer **environment variables** (`${ENV:…}`) or an **SSH key** over a plaintext
@@ -242,6 +248,11 @@ yourself). Example output:
 
 > **Heads-up**: the generated file contains decoded plaintext passwords — keep it out of
 > version control (`.gitignore`) and restrict its permissions (`chmod 600`).
+
+> **Plain-FTP sites**: imported `"protocol": "ftp"` servers (like the example above) are
+> **refused at connection time** until you either switch them to `sftp`/`ftps` or
+> explicitly set `"allowInsecure": true` on them — the import prints a warning for each
+> one. See [Security](#8-security).
 
 ---
 
@@ -406,6 +417,10 @@ depth (gitignore-like): a nested `apps/api/.env` is excluded too.
 
 ## 8. Security
 
+- **Secure transports by default**: plain FTP and FTPS with certificate verification
+  disabled (`insecureTLS: true`) are **refused** unless the server entry explicitly sets
+  `"allowInsecure": true`. When allowed, a security warning is shown at startup, in
+  `ftp_list_servers`, in `doctor`, and appended to every tool result for that server.
 - **Root jail**: every operation is normalized then verified to stay under the server
   `root`. Any breakout attempt (`../…`) is refused, even when `root` is `/`.
 - **Read-only**: `readOnly: true` blocks every write (upload, deploy, mkdir, rename,
@@ -424,8 +439,13 @@ depth (gitignore-like): a nested `apps/api/.env` is excluded too.
   Make sure your server's passive ports are reachable.
 - **SFTP key auth**: set `privateKeyPath` (`~` is expanded) and, if the key is encrypted,
   `passphrase`. Check the key's permissions.
-- **Self-signed FTPS**: set `insecureTLS: true` to accept an unverified certificate (only
-  for servers you trust).
+- **"INSECURE CONNECTION REFUSED"**: the server uses plain FTP, or FTPS with certificate
+  verification disabled. Switch it to `sftp` (or `ftps` with a valid certificate), or —
+  only if you fully accept the interception risk — set `"allowInsecure": true` on that
+  server.
+- **Self-signed FTPS**: `insecureTLS: true` accepts an unverified certificate. This
+  disables man-in-the-middle protection, so it also requires `"allowInsecure": true` and
+  prints a security warning on every call. Prefer installing a valid certificate.
 - **Implicit FTPS (port 990)**: set `implicitTLS: true` (`ftps` protocol) for legacy
   servers that encrypt from the first byte, without an `AUTH TLS` command.
 - **"no server configured"**: the file was not found at any of the 4 locations. Create
