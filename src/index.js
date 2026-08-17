@@ -13,7 +13,7 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import { loadConfig } from "./config.js";
+import { loadConfig, normalizeServer, insecureTransport, insecureRiskText } from "./config.js";
 import { registerTools } from "./tools.js";
 import { runImport } from "./filezilla.js";
 
@@ -82,6 +82,24 @@ async function startServer(configFlag) {
   console.error(`ftp-deploy-mcp v${VERSION} — config: ${configDesc}, servers: ${serversDesc}`);
   if (loaded.error) {
     console.error(`ftp-deploy-mcp: configuration problem — ${loaded.error}`);
+  }
+  if (loaded.config) {
+    for (const name of loaded.serverNames) {
+      const s = normalizeServer(name, loaded.config.servers[name]);
+      const reason = insecureTransport(s);
+      if (!reason) continue;
+      if (s.allowInsecure) {
+        console.error(
+          `ftp-deploy-mcp: ⚠ SECURITY WARNING — ${insecureRiskText(name, reason)}. ` +
+            `Explicitly allowed by "allowInsecure": true — switch to sftp as soon as possible.`
+        );
+      } else {
+        console.error(
+          `ftp-deploy-mcp: ⚠ ${insecureRiskText(name, reason)}. ` +
+            `Connections to this server will be REFUSED — switch it to sftp, or set "allowInsecure": true to accept the risk.`
+        );
+      }
+    }
   }
 
   const server = new McpServer({ name: "ftp-deploy-mcp", version: VERSION });

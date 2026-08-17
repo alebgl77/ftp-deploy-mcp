@@ -170,6 +170,13 @@ export function parseSiteManager(xml) {
 
     if (remoteDir) entry.root = remoteDir;
 
+    if (protocol === "ftp") {
+      warnings.push(
+        `"${rawName}": plain FTP is NOT encrypted — connections will be refused until you ` +
+          `switch this server to sftp/ftps or explicitly set "allowInsecure": true on it`
+      );
+    }
+
     servers[key] = entry;
     if (!defaultServer) defaultServer = key;
   }

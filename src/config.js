@@ -103,6 +103,11 @@ function validate(parsed) {
     if (!hasPassword && !hasKey) {
       return `server "${name}": no authentication method — provide "password" or "privateKeyPath"`;
     }
+    for (const flag of ["readOnly", "insecureTLS", "implicitTLS", "allowInsecure"]) {
+      if (s[flag] !== undefined && typeof s[flag] !== "boolean") {
+        return `server "${name}": field "${flag}" must be true or false (got ${JSON.stringify(s[flag])})`;
+      }
+    }
   }
   if (parsed.defaultServer !== undefined) {
     if (!nonEmptyString(parsed.defaultServer)) {
@@ -116,9 +121,13 @@ function validate(parsed) {
 }
 
 // Normalize a server entry into what adapters expect (default ports, expanded
-// key path, effective root).
+// key path, effective root). The protocol is canonicalized to lowercase: every
+// downstream comparison (adapter routing, TLS mode, the insecure-transport
+// gate) is case-sensitive, and setup/doctor feed raw JSON.parse'd entries in
+// here without going through validate() — a case-variant "FTP" must not slip
+// past the gate onto a plaintext connection.
 export function normalizeServer(name, s) {
-  const protocol = s.protocol;
+  const protocol = typeof s.protocol === "string" ? s.protocol.trim().toLowerCase() : s.protocol;
   const implicitTLS = protocol === "ftps" && s.implicitTLS === true;
   const defaultPort = protocol === "sftp" ? 22 : implicitTLS ? 990 : 21;
   const port = s.port ?? defaultPort;
@@ -135,7 +144,64 @@ export function normalizeServer(name, s) {
     readOnly: s.readOnly === true,
     insecureTLS: s.insecureTLS === true,
     implicitTLS,
+    allowInsecure: s.allowInsecure === true,
   };
+}
+
+// ---- insecure-transport policy --------------------------------------------
+// Plain FTP sends credentials and files in cleartext; FTPS with certificate
+// verification disabled lets any network attacker impersonate the server.
+// Both are REFUSED at connection time unless the server entry explicitly opts
+// in with "allowInsecure": true — and even then, every surface (startup log,
+// tool results, ftp_list_servers, doctor) shows a loud warning.
+
+// Why a server's transport is insecure: "plain-ftp", "unverified-tls", or null.
+export function insecureTransport(server) {
+  if (server.protocol === "ftp") return "plain-ftp";
+  if (server.protocol === "ftps" && server.insecureTLS === true) return "unverified-tls";
+  return null;
+}
+
+// Short label for listings (ftp_list_servers, doctor, setup).
+export function insecureLabel(reason) {
+  return reason === "plain-ftp"
+    ? "plain FTP (unencrypted)"
+    : 'FTPS certificate verification disabled ("insecureTLS")';
+}
+
+// One sentence describing the concrete risk, shared by refusals and warnings.
+export function insecureRiskText(name, reason) {
+  if (reason === "plain-ftp") {
+    return (
+      `server "${name}" uses plain FTP — the connection is NOT encrypted, so credentials ` +
+      `and files can be read or altered by anyone on the network path`
+    );
+  }
+  return (
+    `server "${name}" disables FTPS certificate verification ("insecureTLS": true) — the ` +
+    `server's identity is NOT checked, so a network attacker can impersonate it and ` +
+    `capture credentials and files`
+  );
+}
+
+// The error message used when an insecure transport has no explicit opt-in.
+export function insecureBlockedMessage(name, reason) {
+  return (
+    `INSECURE CONNECTION REFUSED: ${insecureRiskText(name, reason)}. ` +
+    `Use "sftp" (recommended) or "ftps" with a valid certificate instead. ` +
+    `If you fully accept this risk, explicitly set "allowInsecure": true on server "${name}" in your config.`
+  );
+}
+
+// Warning shown when the user HAS opted in; null for secure servers.
+// Takes a normalized server (needs .name / .protocol / .insecureTLS / .allowInsecure).
+export function insecureWarningText(server) {
+  const reason = insecureTransport(server);
+  if (!reason || server.allowInsecure !== true) return null;
+  return (
+    `⚠ SECURITY WARNING: ${insecureRiskText(server.name, reason)}. ` +
+    `Allowed because "allowInsecure": true is set — switch to SFTP (or FTPS with a valid certificate) as soon as possible.`
+  );
 }
 
 // Load configuration. Always returns an object; never throws.

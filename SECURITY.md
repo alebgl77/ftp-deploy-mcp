@@ -18,6 +18,9 @@ and click **"Report a vulnerability"**.
 
 - **Path-jail bypass** — any way to read, write, or delete outside a server's
   configured `root`.
+- **Insecure-transport opt-in bypass** — any way to open a plain-FTP or
+  unverified-TLS connection without the explicit per-server
+  `"allowInsecure": true` acknowledgment.
 - **Credential leakage into tool output** — passwords, passphrases, or private
   keys appearing in a tool's response, logs, or error messages.
 - **Config-file corruption** — `setup` or any other command corrupting or

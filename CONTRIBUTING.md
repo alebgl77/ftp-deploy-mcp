@@ -46,7 +46,7 @@ opening a PR.
 
 ## PR checklist
 
-- [ ] `npm test` passes (189/189 or the current total).
+- [ ] `npm test` passes (209/209 or the current total).
 - [ ] No new runtime dependency, or it was discussed in an issue first.
 - [ ] New/changed behavior has matching smoke-test assertions.
 - [ ] Docs updated in both `README.md` (English) and `README.fr.md` (French) if
