@@ -5,7 +5,10 @@
 # ftp-deploy-mcp
 
 **The deploy button for AI coding agents.**
-Claude Code · Claude Desktop · Cursor · Windsurf · Trae · Antigravity → your own FTP / FTPS / SFTP servers.
+
+Give Claude Code, Claude Desktop, Cursor, Windsurf, Trae, Antigravity, or any
+MCP client a focused way to list, read, upload, download, and deploy files on
+your own FTP, FTPS, and SFTP servers.
 
 *Version française → [README.fr.md](./README.fr.md)*
 
@@ -13,265 +16,185 @@ Claude Code · Claude Desktop · Cursor · Windsurf · Trae · Antigravity → y
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Node >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](./package.json)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-8A2BE2.svg)](https://modelcontextprotocol.io)
-[![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](./CONTRIBUTING.md)
 
 <img src="assets/banner.svg" width="100%" alt="ftp-deploy-mcp banner">
 
 </div>
 
-<div align="center">
+Purpose-built deployment controls keep credentials out of tool responses,
+support read-only servers and dry runs, and limit local file access with
+`localRoot`. The repository is covered by an extensive end-to-end suite that
+runs against local FTP and SFTP servers. There is no telemetry.
 
-<img src="assets/demo.svg" width="100%" alt="ftp-deploy-mcp demo">
+> **Availability:** install from source today. The npm package and MCP registry
+> entry have **not been published yet**, so `npx -y ftp-deploy-mcp` and
+> registry-based installation will not work until the first release is
+> announced. Existing Glama and MCP Index pages are discovery listings, not
+> proof that an installable package is available. Package and server metadata
+> remain at 0.1.0 until the release process is completed.
 
-*Your agent runs the deploy — you just ask.*
+## First source install
 
-</div>
+1. Install Node.js 18 or newer.
+2. Run `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, then
+   `cd ftp-deploy-mcp`.
+3. Run `npm install`.
+4. Run `npm run setup`, then edit the generated server config: set an absolute
+   `localRoot`, replace credentials, and configure the SFTP host-key pin or the
+   FTP/FTPS safety acknowledgments described below.
+5. Restart the MCP client and try a dry run:
 
----
-
-## Why
-
-- Every web project ends the same way: **"now put it on the server."**
-- AI agents write great code, but most have no safe way to ship it to classic hosting — OVH, Ionos, Hostinger, o2switch and the rest of the shared-hosting world still run on FTP/SFTP, not `git push`.
-- `ftp-deploy-mcp` gives **any MCP client** a deploy path to your own infrastructure, in the same conversation where the code was written.
-- Unlike generic SSH-exec MCP servers, this one is purpose-built for file deployment: a **path jail**, a **read-only mode**, **dry-run**, and credentials that **never enter the model's context**.
-
-## Features
-
-| Feature | Description |
-|---|---|
-| **Multi-server** | FTP / FTPS / SFTP, any number of servers in one config |
-| **One-command deploy** | Recursive directory deploy, gitignore-like excludes at any depth, dry-run |
-| **Path jail** | Every operation confined under a per-server `root` |
-| **Read-only mode** | Block every write on servers that must stay untouched |
-| **FileZilla import** | Convert your existing `sitemanager.xml` sites in one command |
-| **Auto-setup** | Configures 5+ MCP clients automatically, with timestamped config backups |
-| **Doctor** | Read-only diagnostic of Node, config, servers and client wiring |
-| **Zero build** | Plain ESM JavaScript — Node stdlib + 5 small dependencies |
-| **Secure by default** | Plain FTP / unverified TLS refused unless explicitly allowed per server |
-| **Battle-tested** | 209 e2e assertions against real local FTP + SFTP servers |
-| **No telemetry** | Nothing leaves your machine except calls to your own servers |
-
-## Quickstart
-
-1. `git clone https://github.com/alebgl77/ftp-deploy-mcp.git && cd ftp-deploy-mcp`
-2. Run **`install.cmd`** (double-click, Windows) or **`./install.sh`** (macOS / Linux).
-3. Restart your IDE and ask your agent: *"Deploy ./dist to prod."*
-
-## How it works
-
-```mermaid
-flowchart LR
-subgraph agents [AI agents]
-  A[Claude Code]; B[Cursor]; C[Windsurf]; D[Trae]; E[Antigravity]
-end
-agents -- MCP stdio --> S[ftp-deploy-mcp<br/>10 tools · path jail · read-only guard]
-S -- FTP / FTPS --> F[(your web hosts)]
-S -- SFTP --> G[(your servers)]
-K[ftp-servers.json<br/>credentials stay local] -.-> S
+```text
+Call ftp_deploy with:
+{"server":"prod","local_dir":"dist","remote_dir":"/","dry_run":true}
 ```
 
----
+Windows users can run `install.cmd` and macOS/Linux users can run
+`./install.sh` instead of steps 3–4. Review every generated server entry before
+the first connection.
 
-## 1. What it is
+## Protocol and security matrix
 
-An **MCP** (Model Context Protocol) server that runs over `stdio` and exposes 10 tools to
-your coding agent. Credentials live in a local config file and **never travel through the
-LLM context**. Every remote operation is confined under a `root` you choose per server.
+| Protocol | Transport identity | Remote-root behavior | Recommended use |
+|---|---|---|---|
+| **SFTP** | Encrypted. `hostKeySha256` is required unless `allowUnknownHostKey: true` explicitly accepts impersonation risk. | `realpath`/`lstat` checks refuse symlink components and keep operations below `root`. A malicious or changing server can still create a race between validation and use. | Preferred. Pin a fingerprint verified out of band. |
+| **FTPS** | Encrypted when certificate verification succeeds. `insecureTLS: true` also requires `allowInsecure: true` and disables MITM protection. | A client-side sub-root cannot be a reliable anti-symlink jail. `root` other than `/` is refused unless `allowUnsafeRemoteRoot: true`. | Use a dedicated, server-side chrooted account whose visible root is `/`. |
+| **FTP** | Plaintext. Refused unless `allowInsecure: true` accepts interception and credential exposure. | Same limitation as FTPS: the real boundary is the server account/chroot, not lexical client path checks. | Legacy-only, on a trusted network, with a dedicated chrooted account. |
 
-Requires Node.js **>= 18**. No native dependency to compile.
+All three protocols also enforce `localRoot` for `ftp_upload`, `ftp_deploy`,
+and `ftp_download`. This limits which local files the MCP server can access.
 
----
+## What you get
 
-## 2. Installation
+- Ten focused MCP tools for server discovery, testing, listing, reading,
+  uploading, recursive deploys, downloading, creating directories, renaming,
+  and deleting.
+- Multiple named servers in one local configuration.
+- Gitignore-like deploy exclusions, dry-run, and per-server `readOnly` mode.
+- FileZilla import, an interactive setup wizard, and a read-only `doctor`
+  command.
+- Credentials loaded locally from the config, environment variables, or SSH
+  keys and never intentionally returned to the model.
 
-### ⚡ One-command install (recommended)
+## Server configuration
 
-```bash
-git clone https://github.com/alebgl77/ftp-deploy-mcp.git
-cd ftp-deploy-mcp
-```
+The first configuration found wins:
 
-Then launch the wizard:
-
-- **Windows**: double-click **`install.cmd`**.
-- **macOS / Linux**: `./install.sh` (run `chmod +x install.sh` first if needed).
-- **Or manually**: `npm install && npm run setup`.
-
-The `setup` wizard does everything for you:
-
-- **builds or imports** your server configuration (including a **FileZilla import**
-  of your existing sites);
-- **tests the connection** to each server;
-- **automatically writes** the config files of the detected MCP clients (Claude Code,
-  Claude Desktop, Cursor, Windsurf, Antigravity) — with a **`.backup-<date>`** backup
-  before modifying any existing file;
-- **prints (and copies) a paste-ready block** for Trae, which is configured from its UI.
-
-Then **restart your IDE** and ask your agent, e.g. "*List my FTP servers*".
-
-### Diagnostics and options
-
-At any time, a **read-only** diagnostic (writes nothing):
-
-```bash
-npm run doctor          # or: node src/index.js doctor
-```
-
-It prints the Node version, which config file is in use, the server list (**never**
-passwords), and — per client — whether the `ftp` entry is wired to this install.
-
-`setup` options (`node src/index.js setup [options]`):
-
-| Option | Effect |
-|--------|--------|
-| `--yes` | Non-interactive (keeps the existing config, or imports with `--from-filezilla`). |
-| `--clients <all\|none\|id,id>` | Clients to configure (default: all detected). |
-| `--from-filezilla [path]` | Import from FileZilla (path optional → default location). |
-| `--config-dest <path>` | Config file destination (default `~/.ftp-mcp/servers.json`). |
-| `--skip-test` | Skip the connection tests. |
-| `--dry-run` | Print the planned actions and write **nothing**. |
-| `--force` | Replace an existing but different `ftp` entry. |
-
-### (b) Global install
-
-```bash
-npm install -g .
-```
-
-The `ftp-deploy-mcp` command is now on your `PATH`; use it instead of
-`node .../src/index.js`.
-
-### (c) Publish to npm (for `npx -y` usage)
-
-If you publish this package to npm **under your own name**, clients can run it with no
-prior install:
-
-```json
-{ "command": "npx", "args": ["-y", "your-package-name"] }
-```
-
----
-
-## 3. Server configuration
-
-Create an `ftp-servers.json` file. The server looks for it in this order (first found
-wins):
-
-1. `--config <path>` (command-line flag)
-2. `FTP_MCP_CONFIG` environment variable (path to the JSON)
-3. `./ftp-servers.json` (process working directory)
+1. `--config <path>`
+2. `FTP_MCP_CONFIG`
+3. `./ftp-servers.json`
 4. `~/.ftp-mcp/servers.json`
 
-### Full schema
+The teaching example below is JSON with comments. Real configuration files
+must be strict JSON; start from
+[ftp-servers.example.json](./ftp-servers.example.json).
 
 ```jsonc
 {
-  "defaultServer": "prod",          // optional: used when "server" is not given
+  "defaultServer": "prod",
   "servers": {
     "prod": {
-      "protocol": "sftp",           // REQUIRED: "ftp" | "ftps" | "sftp"
-      "host": "ssh.example.com",    // REQUIRED
-      "port": 22,                    // optional (defaults: ftp/ftps 21, implicit ftps 990, sftp 22)
-      "user": "deploy",             // REQUIRED
-      "password": "${ENV:PROD_PW}", // optional: password (or an env placeholder)
-      "privateKeyPath": "~/.ssh/id_ed25519", // optional (sftp); "~" is expanded
-      "passphrase": "…",            // optional: private-key passphrase
-      "root": "/var/www/site",      // optional (default "/"): ALL ops are jailed under it
-      "readOnly": false,             // optional: blocks upload/deploy/mkdir/rename/delete
-      "insecureTLS": false,           // optional (ftps): skip certificate checks — requires "allowInsecure"
-      "implicitTLS": false,          // optional (ftps): implicit TLS (port 990, legacy servers)
-      "allowInsecure": false         // optional: explicit opt-in REQUIRED for plain "ftp" or "insecureTLS"
-    }
-  }
-}
-```
-
-> The block above uses `//` comments for teaching only. The **real** file must be **strict
-> JSON** (no comments). See [`ftp-servers.example.json`](./ftp-servers.example.json).
-
-### Environment-variable substitution
-
-Any string value may contain `${ENV:VARIABLE_NAME}`. It is replaced with the environment
-variable's value at startup. If the variable is unset, tools return a clear error naming
-the missing variable.
-
-```json
-"password": "${ENV:OVH_FTP_PASSWORD}"
-```
-
-### Security tips
-
-- **Prefer SFTP.** Plain `ftp` and `ftps` with `insecureTLS: true` are **refused by
-  default**: on those transports a network attacker can capture or alter credentials and
-  files. To use one anyway you must explicitly set `"allowInsecure": true` on that server —
-  and every startup log and tool result will then carry a visible security warning.
-- **Add `ftp-servers.json` to your `.gitignore`** (already done in this repo).
-- Restrict the file permissions (`chmod 600 ftp-servers.json` on Unix).
-- Prefer **environment variables** (`${ENV:…}`) or an **SSH key** over a plaintext
-  password.
-- Use `readOnly: true` for servers the agent must never write to.
-- Set `root` as narrow as possible: the jail prevents any `../` breakout.
-
----
-
-## 4. Import from FileZilla
-
-Already have your sites in FileZilla? Convert them:
-
-```bash
-# Auto-detect the default sitemanager.xml location…
-node src/index.js import-filezilla
-
-# …or an explicit file, written to an ftp-servers.json
-node src/index.js import-filezilla --file /path/sitemanager.xml --out ./ftp-servers.json
-```
-
-Without `--out`, the JSON is printed to stdout. Base64-encoded passwords are decoded; sites
-without a stored password get a `${ENV:<NAME>_PASSWORD}` placeholder (you set the variable
-yourself). Example output:
-
-```json
-{
-  "defaultServer": "my-site",
-  "servers": {
-    "my-site": {
-      "protocol": "ftp",
-      "host": "ftp.example.com",
+      "protocol": "sftp",
+      "host": "ssh.example.com",
+      "port": 22,
       "user": "deploy",
-      "password": "…",
-      "root": "/www/html"
+      "password": "${ENV:PROD_PASSWORD}",
+      "privateKeyPath": "~/.ssh/id_ed25519",
+      "passphrase": "${ENV:PROD_KEY_PASSPHRASE}",
+      "localRoot": "/home/alice/projects/site",
+      "root": "/var/www/site",
+      "hostKeySha256": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "readOnly": false
     }
   }
 }
 ```
 
-> **Heads-up**: the generated file contains decoded plaintext passwords — keep it out of
-> version control (`.gitignore`) and restrict its permissions (`chmod 600`).
+Replace the all-`A` fingerprint; it is deliberately non-functional for a real
+host. Use `hostKeySha256` as an array during a controlled key rotation:
 
-> **Plain-FTP sites**: imported `"protocol": "ftp"` servers (like the example above) are
-> **refused at connection time** until you either switch them to `sftp`/`ftps` or
-> explicitly set `"allowInsecure": true` on them — the import prints a warning for each
-> one. See [Security](#8-security).
+```json
+"hostKeySha256": [
+  "SHA256:old_verified_43_character_base64_value_here",
+  "SHA256:new_verified_43_character_base64_value_here"
+]
+```
 
----
+The illustrative labels above show the shape but are not valid pins. Each real
+entry is exactly `SHA256:` plus 43 characters of unpadded base64.
 
-## 5. Manual client setup (if you don't use `setup`)
+### Field reference
 
-> `npm run setup` writes these files **automatically** (with backups). This section
-> is only useful if you'd rather wire everything by hand.
+| Field | Applies to | Meaning |
+|---|---|---|
+| `protocol` | all | Required: `ftp`, `ftps`, or `sftp`. |
+| `host` / `port` / `user` | all | Connection endpoint and account. Default ports are 21, 990 for implicit FTPS, and 22 for SFTP. |
+| `password` | all | Password or `${ENV:NAME}` placeholder. |
+| `privateKeyPath` / `passphrase` | SFTP | SSH private key path and optional passphrase. A leading `~` is expanded. These authenticate the user; they do not verify the server. |
+| `localRoot` | all | Required for upload, deploy, and download. Must resolve to an existing absolute local directory; a leading `~` is supported. Relative and symlink/junction escapes are refused. Relative tool paths resolve inside it, and absolute tool paths must still remain inside it. |
+| `root` | all | Remote root, default `/`. Tool paths are resolved below it. SFTP performs server-side realpath/lstat checks. FTP/FTPS need a server-side chroot for a trustworthy boundary. |
+| `hostKeySha256` | SFTP | Required fingerprint string or non-empty array of pins. Format: `SHA256:<43-character unpadded base64>`. Cannot be combined with `allowUnknownHostKey`. |
+| `allowUnknownHostKey` | SFTP | Emergency compatibility override. `true` accepts an unverified server identity and visibly warns on results. |
+| `readOnly` | all | Blocks upload, deploy, mkdir, rename, and delete. A deploy dry run remains available. |
+| `implicitTLS` | FTPS | Uses implicit TLS, normally on port 990. |
+| `insecureTLS` | FTPS | Disables certificate verification. Requires `allowInsecure: true`. |
+| `allowInsecure` | FTP/FTPS | Explicitly accepts plaintext FTP or unverified FTPS. It does not make the connection secure. |
+| `allowUnsafeRemoteRoot` | FTP/FTPS | Allows a `root` other than `/` despite the unresolved symlink-escape risk. Use only when the server-side account boundary is understood. |
 
-Replace `/absolute/path/to/ftp-deploy-mcp/src/index.js` with the real path (forward
-slashes `/` also work on Windows). If you published the package to npm, swap
-`"command": "node", "args": ["…/src/index.js"]` for
-`"command": "npx", "args": ["-y", "your-package-name"]`.
+Any string can contain `${ENV:VARIABLE_NAME}`. Missing variables produce a
+named configuration error.
 
-> The file locations below are the **default locations** at the time of writing; these
-> products' UIs evolve, so check their docs if needed.
+### Verify an SFTP fingerprint out of band
 
-### Claude Code
+Do not trust a fingerprint obtained only through the connection you are about
+to verify.
 
-Project-root `.mcp.json`:
+1. Obtain the SHA-256 host-key fingerprint from the hosting provider's
+   authenticated control panel or support channel, or from an administrator
+   through a separately authenticated channel.
+2. If you administer the host, use its trusted console to run a command such as
+   `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256`.
+3. Compare the complete `SHA256:...` value before putting it in
+   `hostKeySha256`. `ssh-keyscan` may collect a candidate key, but by itself it
+   does not authenticate that key.
+
+For rotation, verify the new fingerprint out of band, temporarily configure
+both old and new pins, rotate the server key, confirm connections use the
+expected key, then remove the old pin. Do not use `allowUnknownHostKey` as a
+rotation shortcut.
+
+## Tool reference
+
+All remote path arguments are relative to the configured remote `root`. The
+`server` parameter is optional when `defaultServer` is set or only one server
+exists.
+
+| Tool | Main parameters | Purpose |
+|---|---|---|
+| `ftp_list_servers` | none | Show server metadata and active safety warnings, never passwords. |
+| `ftp_test` | `server?` | Connect and list the visible root. |
+| `ftp_list` | `server?`, `path?` | List a remote directory. |
+| `ftp_read` | `server?`, `path`, `max_bytes?` | Read a bounded text file; binary data is refused. |
+| `ftp_upload` | `server?`, `local_path`, `remote_path?` | Upload one file from `localRoot`. |
+| `ftp_deploy` | `server?`, `local_dir`, `remote_dir?`, `include?`, `exclude?`, `dry_run?` | Recursively deploy a directory from `localRoot`. |
+| `ftp_download` | `server?`, `remote_path`, `local_path`, `overwrite?` | Download into `localRoot`. |
+| `ftp_mkdir` | `server?`, `path` | Create a remote directory recursively. |
+| `ftp_rename` | `server?`, `from_path`, `to_path` | Rename or move. |
+| `ftp_delete` | `server?`, `path`, `recursive?` | Delete a file or, with explicit recursion, a directory. |
+
+`ftp_deploy` is not a transaction. If one or more transfers fail, the tool
+returns an MCP error with a partial-deployment summary; files transferred
+before the failure are not rolled back.
+
+Default deploy exclusions include `node_modules`, `.git`, environment files,
+logs, OS metadata, `ftp-servers.json`, and `.ftp-mcp` content at any depth.
+
+## Client setup
+
+`npm run setup` detects supported clients, creates timestamped backups before
+changing existing client configuration, and prints a block for UI-only clients.
+To wire a client manually, replace the path below with the absolute path to
+this checkout:
 
 ```json
 {
@@ -284,197 +207,80 @@ Project-root `.mcp.json`:
 }
 ```
 
-Or in one command:
+Common locations include `.mcp.json` for Claude Code,
+`~/.cursor/mcp.json` for Cursor, and
+`~/.codeium/windsurf/mcp_config.json` for Windsurf. Claude Desktop and other
+clients accept the same command/arguments structure through their MCP settings.
+
+After the first npm release is verified, this source command can be replaced
+with `npx -y ftp-deploy-mcp`. It is intentionally not presented as a working
+installation method today.
+
+## FileZilla import and diagnostics
 
 ```bash
-claude mcp add ftp -- node /absolute/path/to/ftp-deploy-mcp/src/index.js
+node src/index.js import-filezilla --file /path/sitemanager.xml --out ./ftp-servers.json
+npm run doctor
 ```
 
-### Claude Desktop
+Imported passwords may be decoded into plaintext. Keep the output outside
+version control, restrict its permissions, add `localRoot`, and review every
+insecure-transport or FTP/FTPS remote-root warning before connecting.
+`doctor` is read-only and reports configuration and client wiring without
+printing passwords.
 
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Linux: `~/.config/Claude/claude_desktop_config.json`
+## Migrating from v0.1 to the unreleased v0.2
 
-```json
-{
-  "mcpServers": {
-    "ftp": {
-      "command": "node",
-      "args": ["/absolute/path/to/ftp-deploy-mcp/src/index.js"]
-    }
-  }
-}
-```
+The source checkout contains v0.2 work, but no v0.2 package or registry release
+exists yet.
 
-### Cursor
+1. Add an absolute `localRoot` to every server used by upload, deploy, or
+   download.
+2. For every SFTP server, add an out-of-band-verified `hostKeySha256`. Use
+   `allowUnknownHostKey: true` only as a temporary, explicit risk acceptance;
+   do not configure both fields.
+3. For FTP/FTPS, prefer a dedicated server-side chroot whose visible root is
+   `/` and set `root` to `/`. A non-root client path now requires
+   `allowUnsafeRemoteRoot: true` and remains unsafe against server-side
+   symlinks.
+4. Treat a failed `ftp_deploy` as a partial deployment: inspect its summary and
+   reconcile the remote tree before retrying.
+5. Re-run `npm run setup` or update the MCP client command to this checkout,
+   then run `npm run doctor` and a dry run.
 
-`~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project):
+Atomic replacement for newly written sensitive configuration is a v0.2 release
+gate, not a guarantee of the current 0.1 metadata in this checkout. See
+[docs/RELEASE.md](./docs/RELEASE.md) before cutting a release.
 
-```json
-{
-  "mcpServers": {
-    "ftp": {
-      "command": "node",
-      "args": ["/absolute/path/to/ftp-deploy-mcp/src/index.js"]
-    }
-  }
-}
-```
+## Security and limitations
 
-### Windsurf
+- The strongest FTP/FTPS boundary is the server's own account isolation or
+  chroot. Client-side normalization rejects obvious traversal, but FTP lacks
+  portable `REALPATH`/`LSTAT` primitives and cannot prove that a server-side
+  symlink stays inside a configured sub-root.
+- SFTP verifies the host pin and rejects symlink components using
+  `realpath`/`lstat`. A server controlled by an attacker can still change
+  filesystem state between checks and operations.
+- `readOnly` reduces accidental writes through this MCP server; it is not a
+  substitute for read-only credentials enforced by the remote server.
+- FTP, `insecureTLS`, `allowUnknownHostKey`, and
+  `allowUnsafeRemoteRoot` are explicit risk acceptances, not security features.
 
-`~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "ftp": {
-      "command": "node",
-      "args": ["/absolute/path/to/ftp-deploy-mcp/src/index.js"]
-    }
-  }
-}
-```
-
-### Trae
-
-Trae has **no stable config file** — everything is done in its UI. AI chat panel →
-Settings/gear → MCP → **Add** → **Configure Manually**, then paste (this is the block
-`setup` prints and copies to your clipboard):
-
-```json
-{
-  "mcpServers": {
-    "ftp": {
-      "command": "node",
-      "args": ["/absolute/path/to/ftp-deploy-mcp/src/index.js"]
-    }
-  }
-}
-```
-
-### Antigravity
-
-Depending on the version, the file is one of:
-
-- `~/.gemini/antigravity/mcp_config.json`
-- variant: `~/.gemini/config/mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "ftp": {
-      "command": "node",
-      "args": ["/absolute/path/to/ftp-deploy-mcp/src/index.js"]
-    }
-  }
-}
-```
-
-You can also use the agent's MCP panel (MCP server management) → add a server, with the
-same structure.
-
----
-
-## 6. The 10 tools
-
-All remote paths (`path`, `remote_path`, …) are **relative to the server `root`** and use
-POSIX style. The `server` parameter is always optional (see resolution below).
-
-| Tool | Parameters | Description |
-|------|-----------|-------------|
-| `ftp_list_servers` | *(none)* | List configured servers (protocol, host, port, root, read-only, auth kind). Never a password. |
-| `ftp_test` | `server?` | Connect, list the root, confirm success. |
-| `ftp_list` | `server?`, `path?` | List a remote directory (directories first). |
-| `ftp_read` | `server?`, `path`, `max_bytes?` | Read a text file (default 262144, max 1048576 bytes). Refuses binary files. |
-| `ftp_upload` | `server?`, `local_path`, `remote_path?` | Upload one file, creating parent directories. |
-| `ftp_deploy` | `server?`, `local_dir`, `remote_dir?`, `include?`, `exclude?`, `dry_run?` | Recursively deploy a directory over a single connection, with default excludes. `dry_run` works even on a read-only (`readOnly`) server. |
-| `ftp_download` | `server?`, `remote_path`, `local_path`, `overwrite?` | Download a file; refuses to overwrite unless `overwrite: true`. |
-| `ftp_mkdir` | `server?`, `path` | Create a directory (recursive). |
-| `ftp_rename` | `server?`, `from_path`, `to_path` | Rename or move. |
-| `ftp_delete` | `server?`, `path`, `recursive?` | Delete a file; a directory requires `recursive: true`. Never the root. |
-
-**Server resolution**: explicit `server` parameter → `defaultServer` → the sole server if
-there is only one → otherwise an error listing the available names.
-
-**`ftp_deploy` default excludes**: `**/node_modules/**`, `**/.git/**`, `.env`, `.env.*`,
-`*.log`, `.DS_Store`, `Thumbs.db`, `ftp-servers.json`, `**/.ftp-mcp/**` (your `exclude`
-globs are added; `include` restricts to matching files). Slash-less patterns match at any
-depth (gitignore-like): a nested `apps/api/.env` is excluded too.
-
----
-
-## 7. Example prompts
-
-- "**Deploy `./dist` to the `prod` server.**"
-- "**List what's in `/www` on `ovh`.**"
-- "**Fetch the `.htaccess` from `prod` and show it to me.**"
-- "**Do a dry run of deploying `./build` to `/www`** so I can see what would be sent."
-- "**Rename `index.old.html` to `index.html` on `prod`.**"
-
----
-
-## 8. Security
-
-- **Secure transports by default**: plain FTP and FTPS with certificate verification
-  disabled (`insecureTLS: true`) are **refused** unless the server entry explicitly sets
-  `"allowInsecure": true`. When allowed, a security warning is shown at startup, in
-  `ftp_list_servers`, in `doctor`, and appended to every tool result for that server.
-- **Root jail**: every operation is normalized then verified to stay under the server
-  `root`. Any breakout attempt (`../…`) is refused, even when `root` is `/`.
-- **Read-only**: `readOnly: true` blocks every write (upload, deploy, mkdir, rename,
-  delete); reads still work.
-- **Credentials out of the LLM**: passwords, passphrases and keys are never returned in
-  tool output.
-- **No telemetry**, no outbound connection other than to your own servers.
-- **Per-call connections**: each tool opens a connection, performs the op, and closes it —
-  no persistent session.
-
----
-
-## 9. Troubleshooting
-
-- **Timeout / cannot connect (FTP)**: usually **passive mode** blocked by a firewall.
-  Make sure your server's passive ports are reachable.
-- **SFTP key auth**: set `privateKeyPath` (`~` is expanded) and, if the key is encrypted,
-  `passphrase`. Check the key's permissions.
-- **"INSECURE CONNECTION REFUSED"**: the server uses plain FTP, or FTPS with certificate
-  verification disabled. Switch it to `sftp` (or `ftps` with a valid certificate), or —
-  only if you fully accept the interception risk — set `"allowInsecure": true` on that
-  server.
-- **Self-signed FTPS**: `insecureTLS: true` accepts an unverified certificate. This
-  disables man-in-the-middle protection, so it also requires `"allowInsecure": true` and
-  prints a security warning on every call. Prefer installing a valid certificate.
-- **Implicit FTPS (port 990)**: set `implicitTLS: true` (`ftps` protocol) for legacy
-  servers that encrypt from the first byte, without an `AUTH TLS` command.
-- **"no server configured"**: the file was not found at any of the 4 locations. Create
-  `ftp-servers.json` or pass `--config <path>` / `FTP_MCP_CONFIG=<path>`.
-- **The client doesn't see the tools after `setup`**: **fully restart the IDE** (close
-  every window, not just the project), then verify the wiring with `npm run doctor`.
-- **The server starts despite an invalid config**: this is intentional (MCP clients
-  dislike servers that die at startup). The exact error is printed on `stderr` at launch
-  and returned on every tool call.
-
----
+Read the full [security model](./docs/SECURITY-MODEL.md) and
+[private disclosure policy](./SECURITY.md).
 
 ## Development
 
 ```bash
-npm test          # runs the full smoke test (local FTP + SFTP, no external network)
+npm test
 node src/index.js --version
 node src/index.js --help
 ```
 
-## Contributing
-
-Contributions are welcome — see [CONTRIBUTING.md](./CONTRIBUTING.md) for the dev setup,
-the project's principles, and the PR checklist.
-
-## Security
-
-Found a vulnerability? Please **do not** open a public issue — see
-[SECURITY.md](./SECURITY.md) for how to report it privately.
+The test suite uses local FTP and SFTP servers and does not require an external
+network. Contributions are welcome; see
+[CONTRIBUTING.md](./CONTRIBUTING.md). Maintainers should use the
+[release guide](./docs/RELEASE.md).
 
 ## License
 
