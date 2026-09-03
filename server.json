@@ -1,18 +1,18 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.alebgl77/ftp-deploy-mcp",
-  "description": "Deploy files from AI agents to multiple FTP/FTPS/SFTP servers with path jail and read-only mode.",
+  "description": "Deploy via FTP/FTPS/SFTP with read-only mode, local path restrictions and SFTP host-key checks.",
   "repository": {
     "url": "https://github.com/alebgl77/ftp-deploy-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "ftp-deploy-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },

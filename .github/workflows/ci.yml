@@ -32,6 +32,8 @@ jobs:
 
       - run: npm test
 
+      - run: node --test test/release-gates.js
+
   supply-chain:
     runs-on: ubuntu-latest
     steps:

@@ -4,9 +4,8 @@ This is the maintainer checklist for the first npm and MCP registry
 publication. It intentionally separates repository automation from manual
 account, ownership, and registry work.
 
-At the time this guide was written, the npm package and MCP registry entry were
-not published. The source is installable, while package and server metadata
-remain at 0.1.0 until a release change updates them together.
+This guide prepares v0.2.0; it is not evidence of publication. Both workflows
+are manual (`workflow_dispatch`). Pushing a tag alone publishes nothing.
 
 ## Manual prerequisites
 
@@ -16,15 +15,18 @@ Complete these outside the repository before creating a release tag:
   npm account or organization.
 - Enforce npm two-factor authentication and use a dedicated maintainer account
   with least privilege.
-- Configure npm Trusted Publishing for this GitHub repository, its release
-  workflow, and any named GitHub environment. Match the workflow filename and
-  owner/repository exactly.
-- Decide how the **first** npm publish will be bootstrapped. If npm permits the
-  trusted-publisher relationship before the package exists, use it. If the
-  package must exist first, create a short-lived, granular publish token, store
-  it only as the repository secret `NPM_TOKEN`, publish once, then configure
-  Trusted Publishing, delete the secret, and revoke the token immediately.
-  Never commit or print the token.
+- For a package that already exists, configure npm Trusted Publishing for
+  `alebgl77/ftp-deploy-mcp` and workflow filename `release.yml`. No named GitHub
+  environment is configured by these workflows.
+- For the **first** publication, npm requires the package to exist before a
+  trust relationship can be configured. A maintainer must create a short-lived
+  granular token with the minimum available publish scope and the required
+  non-interactive/2FA permission, and store it only as `NPM_TOKEN` in GitHub
+  Actions secrets. After the first successful publish, configure Trusted
+  Publishing, remove that secret, and revoke the token immediately. Never
+  commit, paste into an issue/chat, or print the token. Do not create a
+  persistent token as a workaround. See [npm trust prerequisites](https://docs.npmjs.com/cli/v11/commands/npm-trust/)
+  and [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
 - Confirm that the release workflow requests npm provenance and has only the
   permissions it needs. Repository automation cannot create npm ownership or
   approve a new package name.
@@ -45,8 +47,9 @@ For a v0.2.0 release:
 2. Set the MCP server's reported version to the same value. Search the source
    and generated metadata for stale `0.1.0` strings; expected historical
    references in the changelog are exempt.
-3. Change the v0.2.0 heading in [CHANGELOG.md](../CHANGELOG.md) from
-   `Unreleased` to the release date.
+3. At final release approval, replace the v0.2.0 `Release candidate` status in
+   [CHANGELOG.md](../CHANGELOG.md) with the effective publication date. While
+   publication is pending, preserve the candidate status.
 4. Confirm every user-visible v0.2 change is documented in both
    [README.md](../README.md) and [README.fr.md](../README.fr.md).
 5. Verify the release includes atomic replacement for newly written sensitive
@@ -60,17 +63,26 @@ still reports 0.1.0.
 
 ## Validate the exact tarball
 
-Run from a clean checkout of the intended release commit:
+Run from a clean checkout of the intended release commit (Bash):
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm test
-npm pack --dry-run
-npm pack
-npm publish --dry-run
+node --test test/release-gates.js
+export GITHUB_REF=refs/tags/v0.2.0
+node scripts/release-gate.mjs --runtime
+release_tmp="$(mktemp -d)"
+npm pack --ignore-scripts --json --pack-destination "$release_tmp" > "$release_tmp/release-pack.json"
+node scripts/release-artifact.mjs inspect "$release_tmp/release-pack.json"
+npm install --prefix "$release_tmp/smoke" --ignore-scripts --omit=dev --no-audit --no-fund "$release_tmp/ftp-deploy-mcp-0.2.0.tgz"
+node scripts/release-smoke.mjs "$release_tmp/smoke"
+node scripts/release-artifact.mjs check "$release_tmp/release-pack.json.verified.json"
 ```
 
-Review the `npm pack --dry-run` file list for:
+The local `GITHUB_REF` above simulates the metadata check; it does not create a
+tag or authorize publication. The workflow receives its real ref from GitHub.
+The archive check requires the exact allowlist in
+`scripts/release-artifact.mjs`, including:
 
 - `src/`, license, README, and required runtime metadata;
 - absence of `ftp-servers.json`, local secrets, test credentials, temporary
@@ -79,20 +91,17 @@ Review the `npm pack --dry-run` file list for:
   files;
 - the expected package name and version.
 
-Install the generated `.tgz` in a new temporary directory, not from the working
-tree:
+The smoke script uses only the isolated installation for the server and MCP
+client dependencies. It checks `--version`, `--help`, MCP initialize/version,
+`ftp_list_servers`, and `ftp_deploy` with `dry_run: true` against test-only
+configuration. It makes no FTP/SFTP connection. On Windows the scripts work
+with PowerShell-created temporary directories too; use native environment
+assignment and output handling instead of the Bash syntax above.
 
-```bash
-npm init -y
-npm install --ignore-scripts /absolute/path/to/ftp-deploy-mcp-0.2.0.tgz
-./node_modules/.bin/ftp-deploy-mcp --version
-./node_modules/.bin/ftp-deploy-mcp --help
-```
-
-On Windows, invoke the generated `.cmd` shim or run the packaged
-`src/index.js` with Node. Also connect a disposable MCP client to the installed
-tarball and run `ftp_list_servers` plus a dry run against test-only
-configuration. Validate the tarball bytes/checksum that will be published.
+The npm workflow packs once, validates archive entries and SHA512, tests that
+archive, rechecks its bytes, and publishes that same `.tgz` with `--provenance`
+and lifecycle scripts disabled. No npm token is passed to install, tests, pack,
+or verification. Review allowlist changes explicitly when adding shipped files.
 
 ## Publish npm
 
@@ -100,17 +109,31 @@ configuration. Validate the tarball bytes/checksum that will be published.
    intended tag policy.
 2. Create an annotated tag whose name exactly matches the version:
    `git tag -a v0.2.0 -m "v0.2.0"`.
-3. Push the release commit and tag according to the workflow's documented
-   trigger. If the workflow is manual, select the tagged commit explicitly.
+3. After maintainer approval and credential readiness, push the release commit
+   and tag. Ensure the workflow is present on the default branch, then dispatch
+   it explicitly on the tag:
+
+   ```bash
+   gh workflow run release.yml --ref v0.2.0
+   ```
 4. Require tests, version-consistency checks, tarball inspection, and provenance
    generation to pass before the publish step.
-5. For a trusted publish, verify the workflow did not fall back to a persistent
-   `NPM_TOKEN`. For a necessary first-publish bootstrap, revoke and remove the
-   token immediately after success, then configure and test Trusted Publishing.
-6. Verify the public artifact independently:
+5. Wait for that workflow run to finish successfully. Its last step compares
+   the public npm name, exact version, `mcpName`, and SHA512 integrity to the
+   validated archive. Only 404 propagation responses are retried (six attempts,
+   five-second delay, 15-second request timeout); authentication, HTTP errors,
+   invalid metadata, and mismatched integrity fail closed. A failed check after
+   publish does **not** prove npm publication failed: inspect the exact version
+   before doing anything else, and do not rerun npm publication blindly.
+6. For the first-publish bootstrap, configure Trusted Publishing and revoke and
+   remove the token immediately after success. For later releases, leave
+   `NPM_TOKEN` absent so npm authenticates with GitHub OIDC. Verify the trust
+   configuration before the next release; do not republish the same version to
+   test it.
+7. Verify the public artifact independently:
 
 ```bash
-npm view ftp-deploy-mcp@0.2.0 name version dist.integrity
+npm view ftp-deploy-mcp@0.2.0 name version mcpName dist.integrity
 npm view ftp-deploy-mcp@0.2.0 dist.tarball
 npx -y ftp-deploy-mcp@0.2.0 --version
 ```
@@ -124,15 +147,24 @@ changelog entry. Do not move or reuse a published tag.
 
 ## Publish to the MCP registry
 
-Publish only after the npm artifact has been independently verified:
+Publish only after the npm workflow and its artifact checks have succeeded:
 
-1. Revalidate the registry manifest against the official registry schema and
-   current publisher tool.
-2. Set the exact package name, immutable version, source repository, and launch
-   command that were just verified on npm.
-3. Authenticate with the manually established publisher identity/namespace.
-4. Run the official registry validation, inspect the rendered metadata, then
-   perform the publish action.
+1. Review `server.json` against schema `2025-12-11`; it must agree with the tag,
+   both lockfile versions, runtime version, npm identifier, and `mcpName`.
+2. Dispatch the separate workflow on exactly the same tag:
+
+   ```bash
+   gh workflow run publish-mcp.yml --ref v0.2.0
+   ```
+
+3. This workflow reruns the metadata/runtime gates and verifies the exact npm
+   version and `mcpName` from the public registry **before** MCP authentication.
+4. It verifies the pinned official publisher archive, then runs
+   `mcp-publisher login github-oidc` and `mcp-publisher publish`. GitHub OIDC
+   proves the `io.github.alebgl77/` namespace; no dedicated MCP secret is used.
+   The publisher validates the manifest during publication. The workflow logs
+   out afterwards. See the [official GitHub Actions guide](https://modelcontextprotocol.io/registry/github-actions)
+   and [registry quickstart](https://modelcontextprotocol.io/registry/quickstart).
 5. From a clean environment, find the official registry entry, install it by
    its documented route, start the server, and confirm `--version` plus an MCP
    `ftp_list_servers` call.
@@ -140,9 +172,24 @@ Publish only after the npm artifact has been independently verified:
    repository and released version, but do not treat those third-party pages as
    registry verification.
 
-Registry commands and authentication change independently of this repository.
-Use the official publisher documentation available at release time instead of
-copying an unverified command into this guide.
+The workflow pins `mcp-publisher` **v1.8.1**, Linux amd64, SHA256:
+
+```text
+a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+```
+
+On 2026-09-03, the downloaded archive matched the digest returned by the
+[official GitHub release API](https://api.github.com/repos/modelcontextprotocol/registry/releases/tags/v1.8.1)
+for the [v1.8.1 release](https://github.com/modelcontextprotocol/registry/releases/tag/v1.8.1).
+The workflow verifies this SHA256 before extracting or executing the binary;
+it never resolves a mutable `latest` URL. This is a pinned digest verification,
+not a claim that a Sigstore signature was independently verified. Updating the
+tool requires reviewing and re-verifying both the version and digest.
+
+If npm succeeded but MCP publication failed, correct the MCP-specific issue
+and rerun only `publish-mcp.yml` on the unchanged tag. Do not attempt to recreate
+an existing npm version. The MCP Registry is a preview service; check its live
+entry after publishing before making availability claims.
 
 ## Rollback and incident response
 

@@ -1,8 +1,8 @@
 {
   "name": "ftp-deploy-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "mcpName": "io.github.alebgl77/ftp-deploy-mcp",
-  "description": "MCP stdio server to push/pull files to your own FTP/FTPS/SFTP servers from AI coding agents. FileZilla as MCP tools: deploy, upload, download, list, read, rename, delete — with a security root jail and multi-server config.",
+  "description": "MCP stdio server to push/pull files to your own FTP/FTPS/SFTP servers from AI coding agents. FileZilla as MCP tools: deploy, upload, download, list, read, rename, delete — with local path confinement, host-key verification and multi-server config.",
   "type": "module",
   "license": "MIT",
   "author": "Alexandre Beguel",
