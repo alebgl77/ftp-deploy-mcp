@@ -173,7 +173,7 @@ exists.
 |---|---|---|
 | `ftp_list_servers` | none | Show server metadata and active safety warnings, never passwords. |
 | `ftp_test` | `server?` | Connect and list the visible root. |
-| `ftp_list` | `server?`, `path?` | List a remote directory. |
+| `ftp_list` | `server?`, `path?`, `limit?`, `offset?` | List a remote directory. `limit` defaults to 50 (1–200); `offset` defaults to 0. |
 | `ftp_read` | `server?`, `path`, `max_bytes?` | Read a bounded text file; binary data is refused. |
 | `ftp_upload` | `server?`, `local_path`, `remote_path?` | Upload one file from `localRoot`. |
 | `ftp_deploy` | `server?`, `local_dir`, `remote_dir?`, `include?`, `exclude?`, `dry_run?` | Recursively deploy a directory from `localRoot`. |
@@ -181,6 +181,45 @@ exists.
 | `ftp_mkdir` | `server?`, `path` | Create a remote directory recursively. |
 | `ftp_rename` | `server?`, `from_path`, `to_path` | Rename or move. |
 | `ftp_delete` | `server?`, `path`, `recursive?` | Delete a file or, with explicit recursion, a directory. |
+
+### Response compatibility, pagination, and annotations
+
+`ftp_list` returns one page instead of an unbounded directory listing. Its
+successful response includes `total`, `count`, `offset`, `limit`, `has_more`,
+and `next_offset` pagination fields. For example, a request with
+`{"server":"prod","path":"/assets","limit":2,"offset":2}` may include the
+following intentionally non-exhaustive excerpt. It omits the required
+top-level `server`, `path`, and `security_warning` fields and the required
+per-entry `size_bytes` and `modified_at` fields:
+
+```json
+{
+  "structuredContent": {
+    "entries": [
+      { "name": "app.css", "type": "file" },
+      { "name": "app.js", "type": "file" }
+    ],
+    "total": 6,
+    "count": 2,
+    "offset": 2,
+    "limit": 2,
+    "has_more": true,
+    "next_offset": 4
+  }
+}
+```
+
+The existing human-readable `content` text is retained for compatibility.
+On success, every tool except `ftp_read` also advertises an MCP
+`outputSchema` and returns matching `structuredContent`; `ftp_read` remains a
+bounded text-only tool. Tool errors remain `isError` responses with text
+content and no `structuredContent`.
+
+All tools publish MCP annotations describing read-only, destructive,
+idempotent, and open-world behavior. These annotations are client hints, not a
+security boundary; enforce access with server credentials, `readOnly`,
+`localRoot`, and the protocol controls described above. `ftp_deploy` structured
+results contain a summary and bounded samples, not exhaustive file lists.
 
 `ftp_deploy` is not a transaction. If one or more transfers fail, the tool
 returns an MCP error with a partial-deployment summary; files transferred
@@ -280,7 +319,8 @@ node src/index.js --help
 The test suite uses local FTP and SFTP servers and does not require an external
 network. Contributions are welcome; see
 [CONTRIBUTING.md](./CONTRIBUTING.md). Maintainers should use the
-[release guide](./docs/RELEASE.md).
+[release guide](./docs/RELEASE.md). A reproducible, externally hosted read-only
+agent evaluation is documented in [evaluations/README.md](./evaluations/README.md).
 
 ## License
 
