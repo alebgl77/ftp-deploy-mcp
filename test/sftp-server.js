@@ -3,7 +3,8 @@
 // real temp directory (`root`) and implements just enough of the SFTP protocol
 // for ssh2-sftp-client to exercise every tool.
 //
-// startSftpServer({ root, user, password }) -> Promise<{ port, close() }>
+// startSftpServer({ root, user, password })
+//   -> Promise<{ port, hostKeySha256, getStats(), close() }>
 
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -51,9 +52,19 @@ export function startSftpServer({ root, user, password }) {
       privateKeyEncoding: { type: "pkcs1", format: "pem" },
       publicKeyEncoding: { type: "pkcs1", format: "pem" },
     });
+    const parsedHostKey = utils.parseKey(privateKey);
+    if (parsedHostKey instanceof Error) return reject(parsedHostKey);
+    const hostKeySha256 =
+      "SHA256:" +
+      crypto.createHash("sha256").update(parsedHostKey.getPublicSSH()).digest("base64").replace(/=+$/, "");
+    const stats = { authenticationAttempts: 0, sftpSessions: 0 };
 
     const server = new Server({ hostKeys: [privateKey] }, (client) => {
+      // A deliberately rejected host key ends key exchange and emits an error
+      // on the server-side client object. It is expected in negative tests.
+      client.on("error", () => {});
       client.on("authentication", (ctx) => {
+        stats.authenticationAttempts++;
         if (ctx.method === "password" && ctx.username === user && ctx.password === password) {
           ctx.accept();
         } else if (ctx.method === "none") {
@@ -67,6 +78,7 @@ export function startSftpServer({ root, user, password }) {
         client.on("session", (acceptSession) => {
           const session = acceptSession();
           session.on("sftp", (acceptSftp) => {
+            stats.sftpSessions++;
             const sftp = acceptSftp();
             wireSftp(sftp);
           });
@@ -266,6 +278,8 @@ export function startSftpServer({ root, user, password }) {
       const port = server.address().port;
       resolve({
         port,
+        hostKeySha256,
+        getStats: () => ({ ...stats }),
         close: () =>
           new Promise((res) => {
             server.close(() => res());

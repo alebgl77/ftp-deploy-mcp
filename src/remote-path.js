@@ -55,6 +55,27 @@ export function resolveRemote(root, userPath) {
   return resolved;
 }
 
+// Return a normalized relative path from `root` to an already-resolved remote
+// path. This is the trusted bridge used by SFTP when rebasing lexical paths
+// onto the root returned by REALPATH.
+export function relativeRemote(root, resolvedPath) {
+  const normRoot = normalizeRoot(root);
+  const target = normalizeRoot(resolvedPath);
+  const rel = posix.relative(normRoot, target);
+  if (rel === ".." || rel.startsWith("../") || posix.isAbsolute(rel)) {
+    throw new Error(`path escapes configured root: "${resolvedPath}" (root is "${normRoot}")`);
+  }
+  return rel === "." ? "" : rel;
+}
+
+// Rebase a path resolved under the configured (lexical) root onto the
+// canonical root reported by SFTP REALPATH, without allowing traversal.
+export function rebaseRemote(root, canonicalRoot, resolvedPath) {
+  const rel = relativeRemote(root, resolvedPath);
+  const base = normalizeRoot(canonicalRoot);
+  return rel ? posix.join(base, rel) : base;
+}
+
 // True when the user path resolves to the root itself. Used to refuse
 // deleting/renaming the jail root.
 export function isRootPath(root, userPath) {

@@ -15,12 +15,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import FtpSrv from "ftp-srv";
+import FtpSrv from "@electerm/ftp-srv";
 import { startSftpServer } from "./sftp-server.js";
 import { resolveRemote, isRootPath, normalizeRoot } from "../src/remote-path.js";
 import { parseSiteManager, decodeRemoteDir } from "../src/filezilla.js";
-import { loadConfig, normalizeServer, insecureTransport } from "../src/config.js";
+import { loadConfig, normalizeServer, insecureTransport, resolveServer } from "../src/config.js";
 import { getClients, mergeConfigFile, applyClient, buildEntry } from "../src/clients.js";
+import { runToolsSecurityTests } from "./tools-security.js";
+import { atomicWriteFileSync } from "../src/atomic-write.js";
+import { createRedactor } from "../src/redact.js";
+import { registerTools } from "../src/tools.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -56,6 +60,329 @@ function throws(fn, msg) {
     threw = true;
   }
   ok(threw, msg);
+}
+
+function injectedFs(method, replacement) {
+  let calls = 0;
+  return new Proxy(fs, {
+    get(target, prop) {
+      const value = Reflect.get(target, prop);
+      if (prop === method) {
+        return (...args) => {
+          calls += 1;
+          return replacement({ calls, target, args });
+        };
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+function tempFilesFor(filePath) {
+  const prefix = `.${path.basename(filePath)}.`;
+  return fs.readdirSync(path.dirname(filePath)).filter((name) => name.startsWith(prefix) && name.endsWith(".tmp"));
+}
+
+function partAtomicWriter() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ftpmcp-atomic-"));
+  try {
+    const created = path.join(root, "nested", "config.json");
+    let openFlags;
+    let openMode;
+    let mkdirMode;
+    const observedFs = new Proxy(fs, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if (prop === "openSync") {
+          return (file, flags, mode) => {
+            openFlags = flags;
+            openMode = mode;
+            return target.openSync(file, flags, mode);
+          };
+        }
+        if (prop === "mkdirSync") {
+          return (dir, options) => {
+            mkdirMode = options.mode;
+            return target.mkdirSync(dir, options);
+          };
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    atomicWriteFileSync(created, "first\n", { _fs: observedFs, _platform: "win32" });
+    ok(fs.readFileSync(created, "utf8") === "first\n", "atomic writer: creates a complete file");
+    ok(openFlags === "wx" && openMode === 0o600, "atomic writer: opens a unique temp with wx/0600");
+    ok(mkdirMode === 0o700, "atomic writer: creates the parent with mode 0700");
+
+    atomicWriteFileSync(created, "second\n");
+    ok(fs.readFileSync(created, "utf8") === "second\n", "atomic writer: atomically replaces existing content");
+    ok(tempFilesFor(created).length === 0, "atomic writer: successful replacement leaves no temp file");
+
+    const partialFs = injectedFs("writeSync", ({ target, args }) => {
+      const [fd, buffer, offset, length, position] = args;
+      return target.writeSync(fd, buffer, offset, Math.min(2, length), position);
+    });
+    atomicWriteFileSync(created, "complete-after-short-writes", { _fs: partialFs });
+    ok(fs.readFileSync(created, "utf8") === "complete-after-short-writes", "atomic writer: retries partial writes to completion");
+
+    for (const phase of ["writeSync", "fsyncSync", "closeSync", "renameSync"]) {
+      fs.writeFileSync(created, "old-complete");
+      const failingFs = injectedFs(phase, ({ calls, target, args }) => {
+        if (calls === 1) {
+          const err = new Error(`injected ${phase}`);
+          err.code = "EIO";
+          throw err;
+        }
+        return target[phase](...args);
+      });
+      throws(
+        () => atomicWriteFileSync(created, "new-complete", { _fs: failingFs }),
+        `atomic writer: propagates injected ${phase} failure`
+      );
+      ok(fs.readFileSync(created, "utf8") === "old-complete", `atomic writer: ${phase} failure preserves old target`);
+      ok(tempFilesFor(created).length === 0, `atomic writer: ${phase} failure cleans its temp file`);
+    }
+
+    fs.writeFileSync(created, "old-before-open");
+    const openFailureFs = injectedFs("openSync", () => {
+      const err = new Error("injected openSync");
+      err.code = "EACCES";
+      throw err;
+    });
+    throws(() => atomicWriteFileSync(created, "new", { _fs: openFailureFs }), "atomic writer: propagates temp open failure");
+    ok(fs.readFileSync(created, "utf8") === "old-before-open", "atomic writer: temp open failure preserves old target");
+    ok(tempFilesFor(created).length === 0, "atomic writer: temp open failure leaves no residue");
+
+    fs.writeFileSync(created, "old-before-chmod");
+    const chmodFailureFs = injectedFs("chmodSync", ({ calls, target, args }) => {
+      if (calls === 1) {
+        const err = new Error("injected chmodSync");
+        err.code = "EACCES";
+        throw err;
+      }
+      return target.chmodSync(...args);
+    });
+    throws(
+      () => atomicWriteFileSync(created, "new", { _fs: chmodFailureFs, _platform: "linux" }),
+      "atomic writer: propagates pre-rename chmod failure"
+    );
+    ok(fs.readFileSync(created, "utf8") === "old-before-chmod", "atomic writer: pre-rename chmod failure preserves old target");
+    ok(tempFilesFor(created).length === 0, "atomic writer: pre-rename chmod failure cleans its temp file");
+
+    const modeTarget = path.join(root, "mode.json");
+    fs.writeFileSync(modeTarget, "old");
+    const chmods = [];
+    const modeFs = new Proxy(fs, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if (prop === "statSync") {
+          return (file) => {
+            const stat = target.statSync(file);
+            return file === path.resolve(modeTarget) ? { ...stat, mode: 0o100400 } : stat;
+          };
+        }
+        if (prop === "chmodSync") {
+          return (file, mode) => {
+            chmods.push([path.resolve(file), mode]);
+            return target.chmodSync(file, mode);
+          };
+        }
+        if (prop === "openSync") {
+          return (file, flags, mode) => {
+            if (path.resolve(file) === path.resolve(root) && flags === "r") {
+              const err = new Error("directory fsync unsupported by test platform");
+              err.code = "EINVAL";
+              throw err;
+            }
+            return target.openSync(file, flags, mode);
+          };
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    atomicWriteFileSync(modeTarget, "new", { _fs: modeFs, _platform: "linux" });
+    ok(chmods.some(([file, mode]) => file === path.resolve(modeTarget) && mode === 0o400), "atomic writer: preserves a stricter existing POSIX mode");
+    ok(tempFilesFor(modeTarget).length === 0, "atomic writer: unsupported directory fsync is non-fatal and clean");
+
+    const committedTarget = path.join(root, "directory-fsync.json");
+    fs.writeFileSync(committedTarget, "old");
+    const directoryFd = 987654321;
+    const directoryFsyncFs = new Proxy(fs, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if (prop === "openSync") {
+          return (file, flags, mode) =>
+            path.resolve(file) === path.resolve(root) && flags === "r"
+              ? directoryFd
+              : target.openSync(file, flags, mode);
+        }
+        if (prop === "fsyncSync") {
+          return (fd) => {
+            if (fd === directoryFd) {
+              const err = new Error("injected directory fsync failure");
+              err.code = "EIO";
+              throw err;
+            }
+            return target.fsyncSync(fd);
+          };
+        }
+        if (prop === "closeSync") {
+          return (fd) => (fd === directoryFd ? undefined : target.closeSync(fd));
+        }
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    throws(
+      () => atomicWriteFileSync(committedTarget, "new-complete", { _fs: directoryFsyncFs, _platform: "linux" }),
+      "atomic writer: propagates a real parent-directory fsync failure"
+    );
+    ok(fs.readFileSync(committedTarget, "utf8") === "new-complete", "atomic writer: post-rename fsync failure leaves a complete new target");
+    ok(tempFilesFor(committedTarget).length === 0, "atomic writer: post-rename fsync failure leaves no temp file");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function partRedaction(root) {
+  const password = "sentinel-password-never-print";
+  const passphrase = "sentinel-passphrase-never-print";
+  const envName = "FTPMCP_REDACTION_SENTINEL";
+  const envValue = "sentinel-env-value-never-print";
+  const previousEnv = process.env[envName];
+  process.env[envName] = envValue;
+  try {
+    const redactor = createRedactor({ password, passphrase, token: `\${ENV:${envName}}` });
+    const cleaned = redactor.text(`${password} ${passphrase} ${envValue} ${envName} abc`);
+    notContains(cleaned, password, "redaction: removes a known password");
+    notContains(cleaned, passphrase, "redaction: removes a known passphrase");
+    notContains(cleaned, envValue, "redaction: removes a known substituted ENV value");
+    contains(cleaned, envName, "redaction: preserves useful ENV variable names");
+    contains(cleaned, "abc", "redaction: does not replace short strings globally");
+    const placeholderJson = redactor.text(JSON.stringify({ password: `\${ENV:${envName}}` }));
+    contains(placeholderJson, envName, "redaction: preserves an ENV name used as a password placeholder");
+
+    const privateKey = "-----BEGIN PRIVATE KEY-----\nPRIVATE-CONTENT-SENTINEL\n-----END PRIVATE KEY-----";
+    const loaded = {
+      found: true,
+      error: null,
+      config: {
+        defaultServer: "test",
+        servers: {
+          test: {
+            protocol: "sftp",
+            host: "test.invalid",
+            user: "tester",
+            password,
+            passphrase,
+            root: "/",
+            localRoot: root,
+            hostKeySha256: `SHA256:${Buffer.alloc(32, 4).toString("base64").replace(/=+$/, "")}`,
+          },
+        },
+      },
+      serverNames: ["test"],
+      invalidServerNames: [],
+      serverErrors: {},
+      defaultServer: "test",
+    };
+    const handlers = new Map();
+    registerTools(
+      { registerTool(name, _definition, handler) { handlers.set(name, handler); } },
+      loaded,
+      {
+        openAdapter: async () => ({
+          async list() { throw new Error(`${password} ${passphrase}\n${privateKey}`); },
+          async close() {},
+        }),
+      }
+    );
+    const result = await handlers.get("ftp_list")({ path: "" }, {});
+    const text = result.content.map((item) => item.text || "").join("\n");
+    ok(result.isError === true, "redaction: simulated adapter failure remains an MCP error");
+    notContains(text, password, "redaction: MCP adapter errors remove passwords");
+    notContains(text, passphrase, "redaction: MCP adapter errors remove passphrases");
+    notContains(text, "PRIVATE-CONTENT-SENTINEL", "redaction: MCP adapter errors remove private-key content");
+
+    const shortSecrets = { password: "a", passphrase: "ab", privateKeyData: "abc" };
+    const strictDiagnostic = createRedactor(shortSecrets).strictText(
+      "HOST KEY REFUSED\nUNSAFE ROOT REFUSED\nFTP\n${ENV:NAME}\nsecrets: a | ab | abc"
+    );
+    ok(
+      strictDiagnostic ===
+        "HOST KEY REFUSED\nUNSAFE ROOT REFUSED\nFTP\n${ENV:NAME}\nsecrets: [REDACTED] | [REDACTED] | [REDACTED]",
+      "redaction: ASCII secrets a/ab/abc are isolated while diagnostics and ENV markers remain exact",
+      strictDiagnostic
+    );
+    const shortLoaded = {
+      ...loaded,
+      config: {
+        defaultServer: "test",
+        servers: { test: { ...loaded.config.servers.test, ...shortSecrets } },
+      },
+    };
+    const failingHandlers = new Map();
+    registerTools(
+      { registerTool(name, _definition, handler) { failingHandlers.set(name, handler); } },
+      shortLoaded,
+      {
+        openAdapter: async () => ({
+          async list() {
+            throw new Error(`primary operation failed: ${shortSecrets.password} | ${shortSecrets.passphrase} | ${shortSecrets.privateKeyData}`);
+          },
+          async close() {
+            throw new Error(`secondary close failed: ${shortSecrets.password} | ${shortSecrets.passphrase} | ${shortSecrets.privateKeyData}`);
+          },
+        }),
+      }
+    );
+    const failed = await failingHandlers.get("ftp_list")({ path: "" }, {});
+    const failedText = failed.content.map((item) => item.text || "").join("\n");
+    contains(failedText, "primary operation failed", "redaction: operation error remains primary when close also fails");
+    contains(failedText, "Connection close also failed", "redaction: close failure is retained as secondary context");
+    notContains(failedText, "a | ab | abc", "redaction: strict MCP errors remove isolated a/ab/abc values");
+    contains(failedText, "[REDACTED] | [REDACTED] | [REDACTED]", "redaction: strict MCP errors retain readable redaction markers");
+
+    const successHandlers = new Map();
+    registerTools(
+      { registerTool(name, _definition, handler) { successHandlers.set(name, handler); } },
+      shortLoaded,
+      {
+        openAdapter: async () => ({
+          async list() {
+            return [{ type: "file", name: `visible-${shortSecrets.password}-${shortSecrets.passphrase}-${shortSecrets.privateKeyData}`, size: 1 }];
+          },
+          async close() {},
+        }),
+      }
+    );
+    const succeeded = await successHandlers.get("ftp_list")({ path: "" }, {});
+    const succeededText = succeeded.content.map((item) => item.text || "").join("\n");
+    ok(succeeded.isError !== true, "redaction: short-secret success fixture remains a successful tool result");
+    for (const [key, secret] of Object.entries(shortSecrets)) {
+      contains(succeededText, secret, `redaction: prudent success output does not corrupt short ${key} text`);
+    }
+
+    for (const thrown of [null, false, 0]) {
+      const falsyHandlers = new Map();
+      registerTools(
+        { registerTool(name, _definition, handler) { falsyHandlers.set(name, handler); } },
+        loaded,
+        {
+          openAdapter: async () => ({
+            async list() { throw thrown; },
+            async close() { throw new Error("secondary close failure"); },
+          }),
+        }
+      );
+      const falsyResult = await falsyHandlers.get("ftp_list")({ path: "" }, {});
+      const falsyText = falsyResult.content.map((item) => item.text || "").join("\n");
+      contains(falsyText, String(thrown), `tools: thrown ${String(thrown)} remains the primary operation failure`);
+      contains(falsyText, "Connection close also failed", `tools: thrown ${String(thrown)} retains secondary close failure`);
+    }
+  } finally {
+    if (previousEnv === undefined) delete process.env[envName];
+    else process.env[envName] = previousEnv;
+  }
 }
 
 // ---- resources to clean up ------------------------------------------------
@@ -431,6 +758,7 @@ async function partH() {
     contains(r1.stdout, "Trae", "setup H.1: stdout mentions Trae");
     contains(r1.stdout, '"mcpServers"', "setup H.1: stdout has the paste block");
     notContains(r1.stdout, "hunter2FTP", "setup H.1: stdout never leaks the fixture password");
+    notContains(r1.stdout + r1.stderr, "implicit-Pass-1", "setup H.1: stdout/stderr redact every imported password");
     contains(r1.stdout, "SECURITY WARNING", "setup H.1: warns loudly about insecure imported servers");
     contains(r1.stdout, "allowInsecure", "setup H.1: names the explicit opt-in flag");
     ok(
@@ -446,6 +774,21 @@ async function partH() {
     ok(cursorBackups2.length === 1, "setup H.2: no extra cursor backup on re-run", String(cursorBackups2.length));
     const cursorCfg2 = JSON.parse(fs.readFileSync(path.join(tmpH, ".cursor", "mcp.json"), "utf8"));
     ok(cursorCfg2.mcpServers.other && cursorCfg2.mcpServers.ftp, "setup H.2: cursor config unchanged (other + ftp)");
+
+    // H.2b standalone import: stdout is the historical operational JSON
+    // payload; diagnostics remain on stderr and never echo its credentials.
+    const printed = await runCli(["import-filezilla", "--file", fixture], { cwd: neutralCwd });
+    const printedConfig = JSON.parse(printed.stdout);
+    ok(printed.code === 0 && printedConfig.servers["prod-staging"].password === "hunter2FTP", "import H.2b: stdout remains operational JSON with the exact password");
+    notContains(printed.stderr, "hunter2FTP", "import H.2b: stderr does not echo the FTP password");
+    notContains(printed.stderr, "implicit-Pass-1", "import H.2b: stderr does not echo the FTPS password");
+    contains(printed.stderr, "plaintext passwords", "import H.2b: stderr clearly warns that stdout contains plaintext passwords");
+    const importedOut = path.join(tmpH, "imported", "servers.json");
+    const written = await runCli(["import-filezilla", "--file", fixture, "--out", importedOut], { cwd: neutralCwd });
+    ok(written.code === 0 && fs.existsSync(importedOut), "import H.2b: --out creates the destination");
+    contains(fs.readFileSync(importedOut, "utf8"), "hunter2FTP", "import H.2b: --out preserves operational credentials on disk");
+    notContains(written.stdout + written.stderr, "hunter2FTP", "import H.2b: --out diagnostics remove credentials");
+    ok(tempFilesFor(importedOut).length === 0, "import H.2b: --out leaves no temporary file");
 
     // H.3 no source → exit 2
     const freshH = fs.mkdtempSync(path.join(os.tmpdir(), "ftpmcp-h3-"));
@@ -476,12 +819,32 @@ async function partH() {
     contains(d.stdout, "backup-sftp", "doctor H.5: lists backup-sftp");
     contains(d.stdout, "implicit-ftps", "doctor H.5: lists implicit-ftps");
     notContains(d.stdout, "hunter2FTP", "doctor H.5: never prints the fixture password");
+    notContains(d.stdout + d.stderr, "implicit-Pass-1", "doctor H.5: stdout/stderr redact every configured password");
     contains(d.stdout, "INSECURE", "doctor H.5: flags the plain-FTP server as insecure");
+    contains(d.stdout, "UNSAFE ROOT REFUSED", "doctor H.5: reports blocked FTP sub-root policy");
+    contains(d.stdout, "HOST KEY REFUSED", "doctor H.5: reports blocked unpinned SFTP policy");
     contains(d.stdout, "Cursor", "doctor H.5: reports Cursor");
     contains(d.stdout, "Windsurf", "doctor H.5: reports Windsurf");
     contains(d.stdout, "Antigravity", "doctor H.5: reports Antigravity");
     contains(d.stdout, "configured", "doctor H.5: marks clients configured");
     contains(d.stdout, "manual (UI)", "doctor H.5: Trae marked manual");
+
+    const invalidConfig = JSON.parse(fs.readFileSync(serversPath, "utf8"));
+    invalidConfig.servers["backup-sftp"].hostKeySha256 = "not-a-valid-pin";
+    fs.writeFileSync(serversPath, JSON.stringify(invalidConfig, null, 2) + "\n");
+    const dInvalid = await runCli(["doctor", "--home", tmpH], { cwd: neutralCwd });
+    contains(dInvalid.stdout, "HOST KEY INVALID", "doctor H.5: distinguishes a present but invalid SFTP host-key pin");
+    notContains(dInvalid.stdout + dInvalid.stderr, "implicit-Pass-1", "doctor H.5: invalid-pin diagnostics still redact passwords");
+
+    const overrideConfig = invalidConfig;
+    delete overrideConfig.servers["backup-sftp"].hostKeySha256;
+    overrideConfig.servers["prod-staging"].allowUnsafeRemoteRoot = true;
+    overrideConfig.servers["backup-sftp"].allowUnknownHostKey = true;
+    fs.writeFileSync(serversPath, JSON.stringify(overrideConfig, null, 2) + "\n");
+    const dOverride = await runCli(["doctor", "--home", tmpH], { cwd: neutralCwd });
+    contains(dOverride.stdout, "UNSAFE ROOT explicit override", "doctor H.5: distinguishes FTP sub-root explicit override");
+    contains(dOverride.stdout, "HOST KEY explicit override", "doctor H.5: distinguishes SFTP host-key explicit override");
+    notContains(dOverride.stdout + dOverride.stderr, "hunter2FTP", "doctor H.5: override diagnostics still redact passwords");
   } finally {
     try {
       fs.rmSync(neutralCwd, { recursive: true, force: true });
@@ -543,6 +906,7 @@ async function main() {
   );
   ok(decodeRemoteDir("1 0 4 site 3 sub") === "/site/sub", "filezilla: decodeRemoteDir pairs");
   ok(decodeRemoteDir("") === "", "filezilla: empty RemoteDir omitted");
+  partAtomicWriter();
 
   // ===== temp layout =====
   baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "ftpmcp-"));
@@ -552,7 +916,22 @@ async function main() {
   const workDir = path.join(baseDir, "work");
   fs.mkdirSync(ftpRoot, { recursive: true });
   fs.mkdirSync(path.join(sftpRoot, "jail"), { recursive: true });
+  fs.mkdirSync(path.join(ftpRoot, "subroot"), { recursive: true });
+  fs.mkdirSync(path.join(sftpRoot, "jail", "safe-target", "nested"), { recursive: true });
+  fs.mkdirSync(path.join(sftpRoot, "outside-jail", "nested"), { recursive: true });
+  fs.symlinkSync(path.join(sftpRoot, "jail"), path.join(sftpRoot, "root-link"), "junction");
+  fs.symlinkSync(
+    path.join(sftpRoot, "jail", "safe-target"),
+    path.join(sftpRoot, "jail", "link-inside"),
+    "junction"
+  );
+  fs.symlinkSync(
+    path.join(sftpRoot, "outside-jail"),
+    path.join(sftpRoot, "jail", "link-outside"),
+    "junction"
+  );
   fs.mkdirSync(workDir, { recursive: true });
+  await partRedaction(path.join(baseDir, "redaction-root"));
   // sample project for deploy
   fs.mkdirSync(path.join(sampleDir, "css"), { recursive: true });
   fs.mkdirSync(path.join(sampleDir, "js"), { recursive: true });
@@ -594,6 +973,30 @@ async function main() {
   ok(badBool.error && badBool.error.includes("insecureTLS"), "config: non-boolean insecureTLS rejected", badBool.error);
   const badAllow = loadConfig(cfgPath("badallow.json", { servers: { x: { protocol: "ftp", host: "h", user: "u", password: "p", allowInsecure: "yes" } } }));
   ok(badAllow.error && badAllow.error.includes("allowInsecure"), "config: non-boolean allowInsecure rejected", badAllow.error);
+  const validTestPin = `SHA256:${Buffer.alloc(32, 7).toString("base64").replace(/=+$/, "")}`;
+  const badPin = loadConfig(cfgPath("badpin.json", { servers: { x: { protocol: "sftp", host: "h", user: "u", password: "p", hostKeySha256: "SHA256:not-base64" } } }));
+  ok(badPin.error && badPin.error.includes("hostKeySha256"), "config: malformed SFTP host-key pin rejected", badPin.error);
+  const emptyPins = loadConfig(cfgPath("emptypins.json", { servers: { x: { protocol: "sftp", host: "h", user: "u", password: "p", hostKeySha256: [] } } }));
+  ok(emptyPins.error && emptyPins.error.includes("non-empty"), "config: empty SFTP host-key pin array rejected", emptyPins.error);
+  const pinAndBypass = loadConfig(cfgPath("pin-bypass.json", { servers: { x: { protocol: "sftp", host: "h", user: "u", password: "p", hostKeySha256: validTestPin, allowUnknownHostKey: true } } }));
+  ok(pinAndBypass.error && pinAndBypass.error.includes("cannot be used together"), "config: host pin and unknown-host bypass are incompatible", pinAndBypass.error);
+  const badUnknownType = loadConfig(cfgPath("bad-unknown-type.json", { servers: { x: { protocol: "sftp", host: "h", user: "u", password: "p", allowUnknownHostKey: "yes" } } }));
+  ok(badUnknownType.error && badUnknownType.error.includes("allowUnknownHostKey"), "config: non-boolean allowUnknownHostKey rejected", badUnknownType.error);
+  const badUnsafeType = loadConfig(cfgPath("bad-unsafe-type.json", { servers: { x: { protocol: "ftp", host: "h", user: "u", password: "p", allowUnsafeRemoteRoot: 1 } } }));
+  ok(badUnsafeType.error && badUnsafeType.error.includes("allowUnsafeRemoteRoot"), "config: non-boolean allowUnsafeRemoteRoot rejected", badUnsafeType.error);
+  const isolatedBadServer = loadConfig(cfgPath("isolated-bad-server.json", {
+    servers: {
+      good: { protocol: "ftp", host: "h", user: "u", password: "p", root: "/", allowInsecure: true },
+      bad: { protocol: "sftp", host: "h", user: "u", password: "p", hostKeySha256: "bad" },
+    },
+  }));
+  ok(
+    isolatedBadServer.config && isolatedBadServer.serverNames.includes("good") && isolatedBadServer.serverErrors.bad,
+    "config: invalid server is isolated while valid peer remains usable",
+    isolatedBadServer.error
+  );
+  ok(resolveServer(isolatedBadServer, "good").name === "good", "config: valid peer resolves despite invalid server");
+  throws(() => resolveServer(isolatedBadServer, "bad"), "config: selecting invalid server returns its own validation error");
   // Case-variant protocols must not slip past the insecure gate (setup/doctor
   // feed raw JSON.parse'd entries straight into normalizeServer).
   const upNorm = normalizeServer("x", { protocol: "FTP", host: "h", user: "u", password: "p" });
@@ -601,6 +1004,15 @@ async function main() {
   ok(insecureTransport(upNorm) === "plain-ftp", "config: case-variant FTP still hits the insecure gate", String(insecureTransport(upNorm)));
   const upTls = normalizeServer("x", { protocol: " FTPS ", host: "h", user: "u", password: "p", insecureTLS: true });
   ok(insecureTransport(upTls) === "unverified-tls", "config: case-variant FTPS+insecureTLS still hits the insecure gate", String(insecureTransport(upTls)));
+  const homeRoot = normalizeServer("x", { protocol: "sftp", host: "h", user: "u", password: "p", localRoot: "~/site" });
+  ok(path.isAbsolute(homeRoot.localRoot) && homeRoot.localRoot === path.join(os.homedir(), "site"), "config: localRoot expands a leading tilde", homeRoot.localRoot);
+
+  await runToolsSecurityTests({
+    root: path.join(baseDir, "tools-security"),
+    ok,
+    contains,
+    notContains,
+  });
 
   // ===== PART B: FTP server =====
   const ftpPort = await getFreePort();
@@ -621,6 +1033,7 @@ async function main() {
   // ===== PART C: SFTP server =====
   sftpServer = await startSftpServer({ root: sftpRoot, user: TEST_USER, password: TEST_PASS });
   const sftpPort = sftpServer.port;
+  const wrongSftpPin = `SHA256:${Buffer.alloc(32, 0).toString("base64").replace(/=+$/, "")}`;
   console.log(`PASS: local SFTP server listening on ${sftpPort}`);
   passCount++;
 
@@ -629,14 +1042,23 @@ async function main() {
   const config = {
     servers: {
       localftp: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/", allowInsecure: true },
-      localsftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/jail" },
+      localsftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/jail", hostKeySha256: sftpServer.hostKeySha256 },
+      rotationsftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/jail", hostKeySha256: [wrongSftpPin, sftpServer.hostKeySha256] },
+      wrongpinsftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/jail", hostKeySha256: wrongSftpPin },
+      unpinnedsftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/jail" },
+      unknownkeysftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/jail", allowUnknownHostKey: true },
+      rootlinksftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/root-link", hostKeySha256: sftpServer.hostKeySha256 },
       ro: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/", readOnly: true, allowInsecure: true },
+      unsafeftp: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/subroot", allowInsecure: true },
+      allowedunsafeftp: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/subroot", allowInsecure: true, allowUnsafeRemoteRoot: true },
       // Insecure transports WITHOUT the explicit "allowInsecure" opt-in: any
       // connection attempt must be refused before touching the network.
       blockedftp: { protocol: "ftp", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/" },
       blockedtls: { protocol: "ftps", host: "127.0.0.1", port: ftpPort, user: TEST_USER, password: TEST_PASS, root: "/", insecureTLS: true },
+      invalidconfigsftp: { protocol: "sftp", host: "127.0.0.1", port: sftpPort, user: TEST_USER, password: TEST_PASS, root: "/jail", hostKeySha256: "invalid" },
     },
   };
+  for (const entry of Object.values(config.servers)) entry.localRoot = baseDir;
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
 
   child = spawn(process.execPath, ["src/index.js"], {
@@ -731,10 +1153,77 @@ async function main() {
   contains(r.text, "REFUSED", "list_servers says blocked insecure servers are refused");
   contains(r.text, "explicitly allowed", "list_servers distinguishes explicitly-allowed insecure servers");
 
+  // ===== PART F3: SFTP host identity + canonical no-symlink jail =====
+  r = await client.callTool("ftp_test", { server: "rotationsftp" });
+  ok(!r.isError, "SFTP host-key rotation accepts any configured matching pin", r.text);
+
+  let authBefore = sftpServer.getStats().authenticationAttempts;
+  r = await client.callTool("ftp_test", { server: "wrongpinsftp" });
+  ok(r.isError && r.text.includes("host key verification failed"), "SFTP mismatched host-key pin is refused", r.text);
+  ok(
+    sftpServer.getStats().authenticationAttempts === authBefore,
+    "SFTP mismatched host-key pin is rejected before authentication"
+  );
+
+  authBefore = sftpServer.getStats().authenticationAttempts;
+  r = await client.callTool("ftp_test", { server: "unpinnedsftp" });
+  ok(
+    r.isError && r.text.includes("HOST KEY VERIFICATION REQUIRED") && r.text.includes("hostKeySha256"),
+    "SFTP without a host-key pin is refused with migration guidance",
+    r.text
+  );
+  ok(
+    sftpServer.getStats().authenticationAttempts === authBefore,
+    "SFTP missing host-key pin is rejected before network authentication"
+  );
+
+  r = await client.callTool("ftp_test", { server: "unknownkeysftp" });
+  ok(!r.isError && r.text.includes("allowUnknownHostKey"), "SFTP unknown-host-key override is visible on success", r.text);
+  r = await client.callTool("ftp_read", { server: "unknownkeysftp", path: "missing.txt" });
+  ok(r.isError && r.text.includes("allowUnknownHostKey"), "SFTP unknown-host-key override is visible on error", r.text);
+
+  r = await client.callTool("ftp_test", { server: "rootlinksftp" });
+  ok(r.isError && r.text.includes("symbolic link"), "SFTP configured root symlink is refused", r.text);
+  r = await client.callTool("ftp_list", { server: "localsftp", path: "link-outside/nested" });
+  ok(r.isError && r.text.includes("symbolic link"), "SFTP internal symlink escaping the root is refused", r.text);
+  r = await client.callTool("ftp_list", { server: "localsftp", path: "link-inside/nested" });
+  ok(r.isError && r.text.includes("symbolic link"), "SFTP internal symlink staying inside the root is still refused", r.text);
+  r = await client.callTool("ftp_list", { server: "localsftp", path: "link-inside" });
+  ok(r.isError && r.text.includes("symbolic link"), "SFTP final symlink component is refused", r.text);
+
+  r = await client.callTool("ftp_test", { server: "invalidconfigsftp" });
+  ok(r.isError && r.text.includes("hostKeySha256"), "invalid SFTP config is reported only for the selected server", r.text);
+  r = await client.callTool("ftp_test", { server: "localsftp" });
+  ok(!r.isError, "valid SFTP peer remains usable beside invalid server config", r.text);
+
+  // ===== PART F4: FTP sub-root risk acceptance =====
+  r = await client.callTool("ftp_test", { server: "unsafeftp" });
+  ok(
+    r.isError && r.text.includes("UNSAFE REMOTE ROOT REFUSED") && r.text.includes("allowUnsafeRemoteRoot"),
+    "FTP client-side sub-root is refused by default",
+    r.text
+  );
+  r = await client.callTool("ftp_deploy", { server: "unsafeftp", local_dir: sampleDir, dry_run: true });
+  ok(
+    !r.isError && r.text.includes("REFUSED") && r.text.includes("No connection was made") && r.text.includes("allowUnsafeRemoteRoot"),
+    "FTP sub-root dry-run performs no network I/O and warns that a real deploy is refused",
+    r.text
+  );
+  r = await client.callTool("ftp_test", { server: "allowedunsafeftp" });
+  ok(!r.isError && r.text.includes("allowUnsafeRemoteRoot"), "FTP sub-root override is visible on success", r.text);
+  r = await client.callTool("ftp_read", { server: "allowedunsafeftp", path: "missing.txt" });
+  ok(r.isError && r.text.includes("allowUnsafeRemoteRoot"), "FTP sub-root override is visible on error", r.text);
+  r = await client.callTool("ftp_deploy", { server: "allowedunsafeftp", local_dir: sampleDir, dry_run: true });
+  ok(!r.isError && r.text.includes("allowUnsafeRemoteRoot"), "FTP sub-root override is visible on dry-run", r.text);
+  r = await client.callTool("ftp_list_servers", {});
+  contains(r.text, "allowUnsafeRemoteRoot", "list_servers exposes FTP sub-root refusal and override");
+  contains(r.text, "allowUnknownHostKey", "list_servers exposes SFTP unknown-host-key override");
+
   // ===== global checks =====
   const leaked = allToolTexts.some((t) => t.includes(TEST_PASS));
   ok(!leaked, "no tool output ever contained the test password");
   ok(client.nonJson.length === 0, "server stdout carried only JSON-RPC (no stray lines)", client.nonJson.join(" | "));
+  ok(!client.stderr.join("").includes(TEST_PASS), "server stderr never contained the configured password");
 
   // ===== PART G: clients.js unit ===== / ===== PART H: setup+doctor e2e =====
   partG();

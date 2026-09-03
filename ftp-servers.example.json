@@ -7,7 +7,9 @@
       "port": 22,
       "user": "deploy",
       "privateKeyPath": "~/.ssh/id_ed25519",
+      "localRoot": "/home/alice/projects/site",
       "root": "/var/www/site",
+      "hostKeySha256": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       "readOnly": false
     },
     "ovh": {
@@ -16,8 +18,10 @@
       "port": 21,
       "user": "mysite",
       "password": "${ENV:OVH_FTP_PASSWORD}",
-      "root": "/www",
-      "insecureTLS": false
+      "localRoot": "/home/alice/projects/site",
+      "root": "/",
+      "insecureTLS": false,
+      "readOnly": false
     }
   }
 }
