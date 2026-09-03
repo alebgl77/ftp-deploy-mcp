@@ -1,32 +1,66 @@
-# Uses npm trusted publishing when configured, or the NPM_TOKEN secret as fallback.
+# Manual, exact-tag release. NPM_TOKEN is only for the first-publish bootstrap.
 name: Release (npm)
 
 on:
   workflow_dispatch:
 
-permissions:
-  id-token: write
-  contents: read
+permissions: {}
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
+    if: github.repository == 'alebgl77/ftp-deploy-mcp' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      - run: npm ci
+      - name: Require coherent metadata and exact stable tag
+        run: node scripts/release-gate.mjs
+
+      - run: npm ci --ignore-scripts
+
+      - run: node --test test/release-gates.js
 
       - run: npm test
 
+      - run: node scripts/release-gate.mjs --runtime
+
       - run: npm audit --omit=dev --audit-level=moderate
 
-      - run: npm pack --dry-run
+      - name: Pack once and validate the archive
+        id: artifact
+        run: |
+          npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/release-pack.json"
+          node scripts/release-artifact.mjs inspect "$RUNNER_TEMP/release-pack.json"
 
-      - run: npm publish --provenance --access public
+      - name: Smoke test an isolated installation of this archive
+        env:
+          RELEASE_TARBALL: ${{ steps.artifact.outputs.tarball }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/release-smoke" --ignore-scripts --omit=dev --no-audit --no-fund "$RELEASE_TARBALL"
+          node scripts/release-smoke.mjs "$RUNNER_TEMP/release-smoke"
+
+      - name: Publish exactly the validated archive with provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TARBALL: ${{ steps.artifact.outputs.tarball }}
+        run: |
+          node scripts/release-artifact.mjs check "$RUNNER_TEMP/release-pack.json.verified.json"
+          npm publish "$RELEASE_TARBALL" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
+
+      - name: Verify public npm identity and exact tarball integrity
+        run: node scripts/release-artifact.mjs verify-npm "$RUNNER_TEMP/release-pack.json.verified.json"

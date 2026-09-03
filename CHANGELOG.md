@@ -5,10 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] - Unreleased
+## [0.2.0] - Release candidate (2026-09-03)
 
-This source line is not yet published to npm or the MCP registry. Package and
-server metadata remain at 0.1.0 until the release checklist is completed.
+This release is prepared and awaiting publication to npm and the MCP registry.
+Package and server metadata are aligned at 0.2.0.
 
 ### Added
 

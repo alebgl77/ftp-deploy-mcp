@@ -1,0 +1,61 @@
+name: Publish to MCP Registry
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: publish-mcp-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'alebgl77/ftp-deploy-mcp' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Require coherent metadata and exact stable tag
+        run: node scripts/release-gate.mjs
+
+      - run: npm ci --ignore-scripts
+
+      - run: node --test test/release-gates.js
+
+      - run: node scripts/release-gate.mjs --runtime
+
+      - name: Require this version and mcpName on the public npm registry
+        run: node scripts/release-artifact.mjs verify-npm
+
+      - name: Install the verified, pinned official publisher
+        env:
+          PUBLISHER_VERSION: v1.8.1
+          PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+        run: |
+          curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 --max-time 120 \
+            "https://github.com/modelcontextprotocol/registry/releases/download/$PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz" \
+            --output "$RUNNER_TEMP/mcp-publisher.tar.gz"
+          printf '%s  %s\n' "$PUBLISHER_SHA256" "$RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum --check --strict
+          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" --directory "$RUNNER_TEMP" mcp-publisher
+
+      - name: Authenticate with GitHub OIDC (no dedicated secret)
+        id: login
+        run: '"$RUNNER_TEMP/mcp-publisher" login github-oidc'
+
+      - name: Publish the checked server manifest
+        run: '"$RUNNER_TEMP/mcp-publisher" publish'
+
+      - name: Clear temporary registry authentication
+        if: always() && steps.login.outcome == 'success'
+        run: '"$RUNNER_TEMP/mcp-publisher" logout'

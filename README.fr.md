@@ -31,8 +31,8 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 > `npx -y ftp-deploy-mcp` et l'installation depuis un registre échoueront
 > jusqu'à l'annonce de la première release. Les pages Glama et MCP Index
 > existantes sont des fiches de découverte, pas la preuve d'un paquet
-> installable. Les métadonnées du paquet et du serveur restent en 0.1.0 jusqu'à
-> la fin du processus de release.
+> installable. Les métadonnées du paquet et du serveur sont alignées sur la
+> release candidate 0.2.0, en attente de publication.
 
 ## Première installation depuis les sources
 
@@ -291,8 +291,8 @@ v0.2 n'est encore publié.
    puis lancez `npm run doctor` et un dry-run.
 
 Le remplacement atomique des nouvelles configurations sensibles est une
-condition de release v0.2, pas une garantie des métadonnées 0.1 actuellement
-présentes dans ce checkout. Consultez [docs/RELEASE.md](./docs/RELEASE.md) avant de créer la
+condition de release v0.2, pas une garantie des métadonnées 0.2.0 de cette
+release candidate. Consultez [docs/RELEASE.md](./docs/RELEASE.md) avant de créer la
 release.
 
 ## Sécurité et limites

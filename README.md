@@ -31,7 +31,7 @@ runs against local FTP and SFTP servers. There is no telemetry.
 > registry-based installation will not work until the first release is
 > announced. Existing Glama and MCP Index pages are discovery listings, not
 > proof that an installable package is available. Package and server metadata
-> remain at 0.1.0 until the release process is completed.
+> are aligned at release candidate 0.2.0, pending publication.
 
 ## First source install
 
@@ -288,7 +288,7 @@ exists yet.
    then run `npm run doctor` and a dry run.
 
 Atomic replacement for newly written sensitive configuration is a v0.2 release
-gate, not a guarantee of the current 0.1 metadata in this checkout. See
+gate, not a guarantee of the 0.2.0 release-candidate metadata in this checkout. See
 [docs/RELEASE.md](./docs/RELEASE.md) before cutting a release.
 
 ## Security and limitations
