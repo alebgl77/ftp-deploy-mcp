@@ -9,6 +9,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     strategy:
@@ -18,9 +21,9 @@ jobs:
         node: [18, 20, 22]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -28,3 +31,26 @@ jobs:
       - run: npm ci
 
       - run: npm test
+
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Validate MCP manifest
+        run: >-
+          node -e "const p=require('./package.json');const s=require('./server.json');if(typeof s.description!=='string'||s.description.length>100)throw new Error('server.json description must be at most 100 characters');if(p.version!==s.version||p.version!==s.packages?.[0]?.version||p.mcpName!==s.name||p.name!==s.packages?.[0]?.identifier)throw new Error('package/server manifest mismatch')"
+
+      - run: npm audit --omit=dev --audit-level=moderate
+
+      - name: Validate package contents
+        run: |
+          npm pack --dry-run --json > "$RUNNER_TEMP/npm-pack.json"
+          node -e "const{readFileSync}=require('node:fs');const[{files}]=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/npm-pack.json','utf8'));const paths=new Set(files.map(({path})=>path));for(const path of ['docs/SECURITY-MODEL.md','docs/RELEASE.md'])if(!paths.has(path))throw new Error('Missing package file: '+path)"
