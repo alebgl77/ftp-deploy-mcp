@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { atomicWriteFileSync } from "./atomic-write.js";
 
 // The single mcpServers key we install everywhere.
 const KEY = "ftp";
@@ -155,8 +156,7 @@ export function mergeConfigFile(filePath, entry, opts = {}) {
 
   if (!exists(filePath)) {
     if (!dryRun) {
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(
+      atomicWriteFileSync(
         filePath,
         JSON.stringify({ mcpServers: { [KEY]: entry } }, null, 2) + "\n"
       );
@@ -195,7 +195,7 @@ export function mergeConfigFile(filePath, entry, opts = {}) {
   fs.copyFileSync(filePath, backupPath);
   if (!hasServers) obj.mcpServers = {};
   obj.mcpServers[KEY] = entry;
-  fs.writeFileSync(filePath, JSON.stringify(obj, null, 2) + "\n");
+  atomicWriteFileSync(filePath, JSON.stringify(obj, null, 2) + "\n");
   return { path: filePath, status: "updated", backupPath };
 }
 

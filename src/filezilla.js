@@ -7,6 +7,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { atomicWriteFileSync } from "./atomic-write.js";
+import { createRedactor } from "./redact.js";
 
 // Default sitemanager.xml locations per platform.
 export function defaultSiteManagerPaths() {
@@ -195,6 +197,8 @@ export function buildConfig(parsed) {
 // CLI entry for `import-filezilla`. `opts` = { file, out, force }.
 // `log` is where diagnostics go (default console.error); returns an exit code.
 export function runImport(opts, log = console.error) {
+  const redactor = createRedactor();
+  const L = (message) => log(redactor.strictText(message));
   let file = opts.file;
   if (!file) {
     const candidates = defaultSiteManagerPaths();
@@ -206,9 +210,9 @@ export function runImport(opts, log = console.error) {
       }
     });
     if (!file) {
-      log("Error: no sitemanager.xml found. Searched:");
-      for (const p of candidates) log(`  - ${p}`);
-      log("Pass --file <path> to point at your FileZilla sitemanager.xml.");
+      L("Error: no sitemanager.xml found. Searched:");
+      for (const p of candidates) L(`  - ${p}`);
+      L("Pass --file <path> to point at your FileZilla sitemanager.xml.");
       return 1;
     }
   }
@@ -217,36 +221,37 @@ export function runImport(opts, log = console.error) {
   try {
     xml = fs.readFileSync(file, "utf8");
   } catch (err) {
-    log(`Error: cannot read ${file}: ${err.message}`);
+    L(`Error: cannot read ${file}: ${err.message}`);
     return 1;
   }
 
   const parsed = parseSiteManager(xml);
-  for (const w of parsed.warnings) log(`Warning: ${w}`);
+  const config = buildConfig(parsed);
+  redactor.add(config);
+  for (const w of parsed.warnings) L(`Warning: ${w}`);
   const serverCount = Object.keys(parsed.servers).length;
   if (serverCount === 0) {
-    log(`Error: no importable servers found in ${file}.`);
+    L(`Error: no importable servers found in ${file}.`);
     return 1;
   }
-  log(`Imported ${serverCount} server(s) from ${file}.`);
+  L(`Imported ${serverCount} server(s) from ${file}.`);
 
-  const config = buildConfig(parsed);
   const json = JSON.stringify(config, null, 2) + "\n";
 
   if (opts.out) {
     const outPath = path.resolve(opts.out);
     if (fs.existsSync(outPath) && !opts.force) {
-      log(`Error: ${outPath} already exists. Pass --force to overwrite.`);
+      L(`Error: ${outPath} already exists. Pass --force to overwrite.`);
       return 1;
     }
     try {
-      fs.writeFileSync(outPath, json, "utf8");
+      atomicWriteFileSync(outPath, json, { encoding: "utf8" });
     } catch (err) {
-      log(`Error: cannot write ${outPath}: ${err.message}`);
+      L(`Error: cannot write ${outPath}: ${err.message}`);
       return 1;
     }
-    log(`Wrote ${outPath}. Review it, then point your MCP client at this server.`);
-    log(
+    L(`Wrote ${outPath}. Review it, then point your MCP client at this server.`);
+    L(
       "Warning: the generated config contains plaintext passwords - keep it out of version control (.gitignore it) and restrict file permissions (e.g. chmod 600)."
     );
     return 0;
@@ -254,7 +259,7 @@ export function runImport(opts, log = console.error) {
 
   // No --out: print JSON to stdout (this CLI mode never speaks JSON-RPC).
   process.stdout.write(json);
-  log(
+  L(
     "Warning: the generated config contains plaintext passwords - keep it out of version control (.gitignore it) and restrict file permissions (e.g. chmod 600)."
   );
   return 0;

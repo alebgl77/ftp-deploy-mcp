@@ -28,13 +28,16 @@
   },
   "files": [
     "src",
+    "docs",
     "README.md",
     "README.fr.md",
     "ftp-servers.example.json",
     "LICENSE",
     "install.cmd",
     "install.sh",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "server.json"
   ],
   "keywords": [
     "mcp",
@@ -56,7 +59,7 @@
     "zod": "^3.25"
   },
   "devDependencies": {
-    "ftp-srv": "^4.6.3",
+    "@electerm/ftp-srv": "^1.0.5",
     "ssh2": "^1.17.0"
   },
   "publishConfig": {

@@ -3,63 +3,78 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - Unreleased
+
+This source line is not yet published to npm or the MCP registry. Package and
+server metadata remain at 0.1.0 until the release checklist is completed.
+
+### Added
+
+- Per-server `localRoot` boundary for `ftp_upload`, `ftp_deploy`, and
+  `ftp_download`. The root must be absolute (with `~` expansion supported);
+  traversal and local symlink/junction escapes are refused.
+- SFTP host-key pinning through `hostKeySha256`, accepting one SHA-256
+  fingerprint or a non-empty array for controlled key rotation.
+- Explicit `allowUnknownHostKey` override for operators who temporarily accept
+  an unverified SFTP server identity.
+- Explicit `allowUnsafeRemoteRoot` override for FTP/FTPS operators who accept
+  the unresolved symlink risk of a client-side sub-root.
+- Dedicated [security model](./docs/SECURITY-MODEL.md) and
+  [first-release checklist](./docs/RELEASE.md).
+
+### Changed
+
+- SFTP connections without `hostKeySha256` are refused before authentication,
+  unless `allowUnknownHostKey: true` is explicitly configured.
+- FTP/FTPS connections whose `root` is not `/` are refused unless
+  `allowUnsafeRemoteRoot: true` is explicitly configured. The recommended
+  boundary is now a dedicated server-side chrooted account with `root: "/"`.
+- `ftp_deploy` returns an MCP error when any transfer fails and includes a
+  partial-deployment summary. Earlier successful transfers are not rolled back.
+- Boolean safety flags and SFTP fingerprint formats are validated per server.
+- Setup and diagnostics surface active insecure-transport, unknown-host-key,
+  and unsafe-remote-root acknowledgments.
+- Documentation now distinguishes the working source install from future
+  `npx` and MCP registry installation.
 
 ### Security
 
-- **Insecure transports are now refused by default.** Plain `ftp` and `ftps` with
-  `insecureTLS: true` require an explicit per-server `"allowInsecure": true` opt-in;
-  without it every connection attempt fails before any network I/O, with a message
-  explaining the interception risk and the fix. `rejectUnauthorized: false` is only
-  ever applied once that opt-in is present.
-- **Very visible warnings on insecure servers**: at startup (stderr), in
-  `ftp_list_servers` (⚠ INSECURE flag + status line), in `doctor`, in the FileZilla
-  import, and appended to every tool result touching an explicitly-allowed insecure
-  server.
-- **Setup wizard hardening**: SFTP stays the default protocol; choosing plain FTP now
-  shows a warning and requires typing `insecure` to confirm (otherwise it falls back
-  to SFTP). Insecure servers found in imported configs are reviewed interactively;
-  non-interactive runs never auto-allow them (fail closed).
-- Boolean config flags (`readOnly`, `insecureTLS`, `implicitTLS`, `allowInsecure`)
-  are now type-checked at load time.
-- The `protocol` field is canonicalized to lowercase in `normalizeServer`, so a
-  case-variant `"FTP"`/`"FTPS"` in a raw config can no longer slip past the
-  insecure-transport gate (or silently downgrade FTPS to plaintext) on the
-  `setup`/`doctor` code paths, which do not go through full config validation.
-- Tool **error** results on an explicitly-allowed insecure server now carry the
-  security warning too (a failed op may still have sent credentials over the
-  insecure transport), and `ftp_deploy` dry runs on a blocked insecure server
-  announce that the real deploy will be refused.
-- `setup` reviews insecure transports on the **merged** effective config (a
-  grant taken on the pre-merge input used to be silently discarded when the
-  server already existed at the destination), also covers the
-  keep-existing-config path, lists servers already carrying
-  `"allowInsecure": true`, and marks their successful connection tests with an
-  INSECURE tag.
+- Plain FTP and FTPS with `insecureTLS: true` remain refused unless the server
+  explicitly sets `allowInsecure: true`. Warnings are attached to discovery,
+  diagnostics, successes, and failures involving accepted insecure transports.
+- SFTP resolves the configured remote root and uses realpath/lstat checks to
+  refuse symbolic-link components and resolved paths outside that root. A
+  malicious server can still race state between validation and operation.
+- FTP/FTPS no longer describe lexical path normalization as a trustworthy
+  anti-symlink jail; server-side account isolation is the real boundary.
+- Local sources and download destinations are constrained under `localRoot`.
+- Non-interactive setup continues to fail closed rather than granting insecure
+  transport exceptions automatically.
 
 ### Fixed
 
-- Interactive manual server entry in `setup` produced a malformed config file
-  (the wizard's result was written through a missing `.config` property).
+- Interactive manual server entry in `setup` no longer writes the wizard result
+  through a missing property.
+- Case variants of protocol names can no longer bypass insecure-transport
+  checks on setup and diagnostic paths.
+- Tool errors retain applicable security warnings, including failures after an
+  insecure connection may already have exposed credentials.
 
 ## [0.1.0] - 2026-07-20
 
 ### Added
 
-- 10 MCP tools: `ftp_list_servers`, `ftp_test`, `ftp_list`, `ftp_read`, `ftp_upload`,
-  `ftp_deploy`, `ftp_download`, `ftp_mkdir`, `ftp_rename`, `ftp_delete`.
+- Ten MCP tools: `ftp_list_servers`, `ftp_test`, `ftp_list`, `ftp_read`,
+  `ftp_upload`, `ftp_deploy`, `ftp_download`, `ftp_mkdir`, `ftp_rename`, and
+  `ftp_delete`.
 - Multi-server configuration across FTP, FTPS, and SFTP.
-- `ftp_deploy` recursive directory deploy with gitignore-like excludes at any depth,
-  plus `dry_run`.
-- Per-server path jail (`root`) confining every remote operation.
-- Per-server `readOnly` mode blocking all writes.
-- `${ENV:VAR}` placeholders for secrets in the config file.
-- FileZilla `sitemanager.xml` import, including implicit FTPS sites.
-- One-command `setup` wizard with MCP client auto-configuration and timestamped
-  config backups.
-- `doctor` read-only diagnostic command.
-- `install.cmd` / `install.sh` one-command installers.
-- Bilingual documentation (English and French).
-- 189-assertion end-to-end smoke test suite against real local FTP and SFTP servers.
+- Recursive directory deploy with gitignore-like excludes and dry-run.
+- Per-server remote `root` path normalization and `readOnly` mode.
+- `${ENV:VAR}` placeholders for configuration secrets.
+- FileZilla import, including implicit FTPS sites.
+- Setup wizard with MCP client configuration backups.
+- Read-only `doctor` diagnostic and source installers.
+- English and French documentation.
+- End-to-end tests against local FTP and SFTP servers.

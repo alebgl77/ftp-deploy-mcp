@@ -19,8 +19,15 @@ import {
   insecureTransport,
   insecureLabel,
   insecureWarningText,
+  unsafeRemoteRoot,
+  unsafeRemoteRootBlockedMessage,
+  unsafeRemoteRootWarningText,
+  unknownHostKeyBlockedMessage,
+  unknownHostKeyWarningText,
 } from "./config.js";
 import { resolveRemote, isRootPath, normalizeRoot } from "./remote-path.js";
+import { resolveLocalSource, resolveLocalDestination, localRootStatus } from "./local-path.js";
+import { createRedactor } from "./redact.js";
 import * as ftpAdapter from "./adapters/ftp.js";
 import * as sftpAdapter from "./adapters/sftp.js";
 
@@ -51,6 +58,10 @@ function errorResult(text) {
   return { content: [{ type: "text", text: `Error: ${text}` }], isError: true };
 }
 
+function explicitErrorResult(text) {
+  return { content: [{ type: "text", text }], isError: true };
+}
+
 function formatSize(n) {
   if (typeof n !== "number" || n < 0) return "? B";
   if (n < 1024) return `${n} B`;
@@ -65,21 +76,34 @@ function openAdapter(serverCfg) {
 
 // Append a loud, visible security warning to a tool result when the server
 // uses an explicitly-allowed insecure transport. Secure servers pass through.
-function withInsecureNotice(result, server) {
-  const warn = insecureWarningText(server);
-  if (!warn || !result || !Array.isArray(result.content)) return result;
-  return { ...result, content: [...result.content, { type: "text", text: warn }] };
+function transportWarningTexts(server) {
+  return [
+    insecureWarningText(server),
+    unsafeRemoteRootWarningText(server),
+    unknownHostKeyWarningText(server),
+  ].filter(Boolean);
+}
+
+function withTransportNotices(result, server) {
+  const warnings = transportWarningTexts(server);
+  if (warnings.length === 0 || !result || !Array.isArray(result.content)) return result;
+  const existing = result.content.map((item) => item.text || "").join("\n");
+  const additions = warnings
+    .filter((warning) => !existing.includes(warning))
+    .map((warning) => ({ type: "text", text: warning }));
+  return additions.length ? { ...result, content: [...result.content, ...additions] } : result;
 }
 
 // Same for the error path: guard() renders thrown errors as isError results,
 // so the warning must ride inside the message — an op that failed may still
 // have sent credentials over the insecure transport.
-function withInsecureError(err, server) {
-  const warn = insecureWarningText(server);
-  if (!warn) return err;
+function withTransportError(err, server) {
+  const warnings = transportWarningTexts(server);
+  if (warnings.length === 0) return err;
   const msg = err && err.message ? err.message : String(err);
-  if (msg.includes(warn)) return err;
-  return new Error(`${msg}\n\n${warn}`);
+  const missing = warnings.filter((warning) => !msg.includes(warning));
+  if (missing.length === 0) return err;
+  return new Error(`${msg}\n\n${missing.join("\n\n")}`);
 }
 
 // Thrown when config is missing/broken; carries the help text.
@@ -93,35 +117,63 @@ function requireConfig(loaded) {
 
 // Resolve server, optionally block writes on read-only servers, connect,
 // run `run({ name, server, adapter })`, and always close.
-async function withServer(loaded, requestedServer, opts, run) {
+async function withResolvedServer(name, server, opts, run, connectAdapter) {
   const write = opts && opts.write;
-  requireConfig(loaded);
-  const { name, server } = resolveServer(loaded, requestedServer);
   try {
     if (write && server.readOnly) {
       throw new Error(
         `server "${name}" is read-only — upload, deploy, mkdir, rename and delete are blocked`
       );
     }
-    const adapter = await openAdapter(server);
+    const adapter = await connectAdapter(server);
+    let result;
+    let operationError = null;
+    let operationFailed = false;
     try {
-      return withInsecureNotice(await run({ name, server, adapter }), server);
-    } finally {
-      await adapter.close();
+      result = await run({ name, server, adapter });
+    } catch (err) {
+      operationFailed = true;
+      operationError = err;
     }
+    let closeError = null;
+    let closeFailed = false;
+    try {
+      await adapter.close();
+    } catch (err) {
+      closeFailed = true;
+      closeError = err;
+    }
+    if (operationFailed) {
+      if (closeFailed) {
+        const primary = operationError && operationError.message ? operationError.message : String(operationError);
+        const secondary = closeError && closeError.message ? closeError.message : String(closeError);
+        throw new Error(`${primary}\n\nConnection close also failed: ${secondary}`, {
+          cause: operationError,
+        });
+      }
+      throw operationError;
+    }
+    if (closeFailed) throw closeError;
+    return withTransportNotices(result, server);
   } catch (err) {
-    throw withInsecureError(err, server);
+    throw withTransportError(err, server);
   }
 }
 
+async function withServer(loaded, requestedServer, opts, run, connectAdapter) {
+  requireConfig(loaded);
+  const { name, server } = resolveServer(loaded, requestedServer);
+  return withResolvedServer(name, server, opts, run, connectAdapter);
+}
+
 // Wrap a handler so any throw becomes a clean isError result.
-function guard(fn) {
+function guard(fn, redactor) {
   return async (args, _extra) => {
     try {
-      return await fn(args || {});
+      return redactor.result(await fn(args || {}));
     } catch (err) {
       const msg = err && err.message ? err.message : String(err);
-      return errorResult(msg);
+      return errorResult(redactor.strictText(msg));
     }
   };
 }
@@ -190,9 +242,35 @@ function selectDeployFiles(localDirAbs, include, exclude) {
   return files;
 }
 
+function dryRunPolicyMessages(name, server) {
+  const messages = [];
+  const insecure = insecureTransport(server);
+  if (insecure && !server.allowInsecure) {
+    messages.push(
+      `server "${name}" uses ${insecureLabel(insecure)} without "allowInsecure": true — a real deploy will be REFUSED`
+    );
+  }
+  if (unsafeRemoteRoot(server) && !server.allowUnsafeRemoteRoot) {
+    messages.push(`${unsafeRemoteRootBlockedMessage(name, server.root)} A real deploy will be REFUSED.`);
+  }
+  if (
+    server.protocol === "sftp" &&
+    server.hostKeySha256.length === 0 &&
+    !server.allowUnknownHostKey
+  ) {
+    messages.push(`${unknownHostKeyBlockedMessage(name)} A real deploy will be REFUSED.`);
+  }
+  return messages;
+}
+
 // ---- registration ---------------------------------------------------------
 
-export function registerTools(server, loaded) {
+export function registerTools(server, loaded, options = {}) {
+  const connectAdapter = options.openAdapter || openAdapter;
+  const redactor = createRedactor(loaded && loaded.config);
+  const guardTool = (handler) => guard(handler, redactor);
+  const useServer = (requested, opts, run) =>
+    withServer(loaded, requested, opts, run, connectAdapter);
   const serverField = z
     .string()
     .optional()
@@ -207,12 +285,13 @@ export function registerTools(server, loaded) {
         "List all configured FTP/FTPS/SFTP servers (name, protocol, host, port, root, read-only, auth kind) and which is default. Never reveals passwords or keys.",
       inputSchema: {},
     },
-    guard(async () => {
+    guardTool(async () => {
       if (!loaded.found || loaded.error || !loaded.config) {
         return textResult(configHelpText(loaded));
       }
       const names = loaded.serverNames;
-      const lines = [`Configured servers (${names.length}):`, ""];
+      const invalidNames = loaded.invalidServerNames || [];
+      const lines = [`Configured servers (${names.length + invalidNames.length}):`, ""];
       for (const name of names) {
         const s = normalizeServer(name, loaded.config.servers[name]);
         const isDefault =
@@ -223,12 +302,15 @@ export function registerTools(server, loaded) {
         if (isDefault) flags.push("default");
         if (s.readOnly) flags.push("read-only");
         if (insecure) flags.push("⚠ INSECURE");
+        if (unsafeRemoteRoot(s)) flags.push("⚠ UNSAFE ROOT");
+        if (s.protocol === "sftp" && s.hostKeySha256.length === 0) flags.push("⚠ HOST KEY");
         const suffix = flags.length ? `  [${flags.join(", ")}]` : "";
         lines.push(`- ${name}${suffix}`);
         const protoLabel = s.implicitTLS ? `${s.protocol} (implicit)` : s.protocol;
         lines.push(
           `    ${protoLabel}://${s.host}:${s.port}   root=${normalizeRoot(s.root)}   auth=${auth}`
         );
+        lines.push(`    localRoot=${localRootStatus(s)}`);
         if (insecure) {
           lines.push(
             s.allowInsecure
@@ -236,6 +318,24 @@ export function registerTools(server, loaded) {
               : `    ⚠ ${insecureLabel(insecure)} — connections are REFUSED until "allowInsecure": true is set; prefer sftp`
           );
         }
+        if (unsafeRemoteRoot(s)) {
+          lines.push(
+            s.allowUnsafeRemoteRoot
+              ? `    ⚠ FTP/FTPS sub-root is explicitly allowed by "allowUnsafeRemoteRoot": true; it is not a reliable symlink jail`
+              : `    ⚠ FTP/FTPS sub-root is REFUSED until "allowUnsafeRemoteRoot": true is set or a server-side chroot is used`
+          );
+        }
+        if (s.protocol === "sftp" && s.hostKeySha256.length === 0) {
+          lines.push(
+            s.allowUnknownHostKey
+              ? `    ⚠ SFTP host identity is not verified; explicitly allowed by "allowUnknownHostKey": true`
+              : `    ⚠ SFTP connections are REFUSED until "hostKeySha256" is configured or "allowUnknownHostKey": true is set`
+          );
+        }
+      }
+      for (const name of invalidNames) {
+        lines.push(`- ${name}  [INVALID — REFUSED]`);
+        lines.push(`    ${loaded.serverErrors[name]}`);
       }
       return textResult(lines.join("\n"));
     })
@@ -249,8 +349,8 @@ export function registerTools(server, loaded) {
       description: "Connect to a server, list its root directory, and report success.",
       inputSchema: { server: serverField },
     },
-    guard((args) =>
-      withServer(loaded, args.server, { write: false }, async ({ server: s, adapter }) => {
+    guardTool((args) =>
+      useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
         const root = resolveRemote(s.root, "");
         const entries = await adapter.list(root);
         return textResult(
@@ -272,8 +372,8 @@ export function registerTools(server, loaded) {
         path: z.string().optional().describe("Remote directory, relative to the server root. Defaults to the root."),
       },
     },
-    guard((args) =>
-      withServer(loaded, args.server, { write: false }, async ({ server: s, adapter }) => {
+    guardTool((args) =>
+      useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
         const target = resolveRemote(s.root, args.path ?? "");
         const entries = await adapter.list(target);
         entries.sort((a, b) => {
@@ -320,8 +420,8 @@ export function registerTools(server, loaded) {
           .describe(`Maximum bytes to read (default ${READ_DEFAULT_BYTES}, hard max ${READ_MAX_BYTES}).`),
       },
     },
-    guard((args) =>
-      withServer(loaded, args.server, { write: false }, async ({ server: s, adapter }) => {
+    guardTool((args) =>
+      useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
         let maxBytes = args.max_bytes ?? READ_DEFAULT_BYTES;
         if (maxBytes > READ_MAX_BYTES) maxBytes = READ_MAX_BYTES;
         if (maxBytes < 1) maxBytes = 1;
@@ -351,32 +451,37 @@ export function registerTools(server, loaded) {
         "Upload one local file to the server, auto-creating parent directories. Remote path defaults to the file basename at the root.",
       inputSchema: {
         server: serverField,
-        local_path: z.string().describe("Local file path (relative paths resolve against the process cwd)."),
+        local_path: z.string().describe("Local file path, absolute or relative to the server's configured localRoot."),
         remote_path: z
           .string()
           .optional()
           .describe("Destination remote path, relative to the server root. Defaults to the local basename at the root."),
       },
     },
-    guard((args) =>
-      withServer(loaded, args.server, { write: true }, async ({ server: s, adapter }) => {
-        const localPath = path.resolve(process.cwd(), args.local_path);
-        let st;
-        try {
-          st = fs.statSync(localPath);
-        } catch {
-          throw new Error(`local file not found: ${localPath}`);
-        }
-        if (!st.isFile()) throw new Error(`not a regular file: ${localPath}`);
-        const base = path.basename(localPath);
+    guardTool(async (args) => {
+      requireConfig(loaded);
+      const { name, server: s } = resolveServer(loaded, args.server);
+      try {
+        const source = resolveLocalSource(s, args.local_path, "file");
+        const base = path.basename(source.path);
         const remoteRel = args.remote_path && args.remote_path.trim() ? args.remote_path : base;
         const target = resolveRemote(s.root, remoteRel);
-        await adapter.uploadFile(localPath, target);
-        return textResult(
-          `Uploaded ${localPath} -> ${target} (${formatSize(st.size)}) on ${s.protocol}://${s.host}`
+        return await withResolvedServer(
+          name,
+          s,
+          { write: true },
+          async ({ adapter }) => {
+            await adapter.uploadFile(source.path, target);
+            return textResult(
+              `Uploaded ${source.path} -> ${target} (${formatSize(source.stat.size)}) on ${s.protocol}://${s.host}`
+            );
+          },
+          connectAdapter
         );
-      })
-    )
+      } catch (err) {
+        throw withTransportError(err, s);
+      }
+    })
   );
 
   // 6. ftp_deploy
@@ -388,7 +493,7 @@ export function registerTools(server, loaded) {
         "Recursively upload a local directory to the server over a single connection, applying default and custom exclude globs (and optional include globs). Supports dry_run.",
       inputSchema: {
         server: serverField,
-        local_dir: z.string().describe("Local directory to deploy (relative paths resolve against the process cwd)."),
+        local_dir: z.string().describe("Local directory to deploy, absolute or relative to the server's configured localRoot."),
         remote_dir: z
           .string()
           .optional()
@@ -401,20 +506,12 @@ export function registerTools(server, loaded) {
         dry_run: z.boolean().optional().describe("If true, list what would be uploaded without connecting."),
       },
     },
-    guard(async (args) => {
+    guardTool(async (args) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
       try {
-        const localDirAbs = path.resolve(process.cwd(), args.local_dir);
-        let dstat;
-        try {
-          dstat = fs.statSync(localDirAbs);
-        } catch {
-          throw new Error(`local directory not found: ${localDirAbs}`);
-        }
-        if (!dstat.isDirectory()) throw new Error(`not a directory: ${localDirAbs}`);
-
-        const files = selectDeployFiles(localDirAbs, args.include, args.exclude);
+        const source = resolveLocalSource(s, args.local_dir, "directory");
+        const files = selectDeployFiles(source.path, args.include, args.exclude);
         const remoteBase = resolveRemote(s.root, args.remote_dir ?? "");
         const totalBytes = files.reduce((a, f) => a + f.size, 0);
 
@@ -433,14 +530,11 @@ export function registerTools(server, loaded) {
             lines.push("");
             lines.push(`Note: server "${name}" is read-only — a real deploy will be refused.`);
           }
-          const insecure = insecureTransport(s);
-          if (insecure && !s.allowInsecure) {
+          for (const message of dryRunPolicyMessages(name, s)) {
             lines.push("");
-            lines.push(
-              `Note: server "${name}" uses ${insecureLabel(insecure)} without "allowInsecure": true — a real deploy will be REFUSED. Prefer sftp.`
-            );
+            lines.push(`Note: ${message}`);
           }
-          return withInsecureNotice(textResult(lines.join("\n")), s);
+          return withTransportNotices(textResult(lines.join("\n")), s);
         }
 
         if (s.readOnly) {
@@ -450,7 +544,7 @@ export function registerTools(server, loaded) {
         }
 
         if (files.length === 0) {
-          return withInsecureNotice(
+          return withTransportNotices(
             textResult(
               `Nothing to deploy to ${remoteBase} on "${name}" — no files matched (check include/exclude globs).`
             ),
@@ -465,40 +559,62 @@ export function registerTools(server, loaded) {
         let bytes = 0;
         let consecutive = 0;
         let abortedEarly = false;
+        let adapter = null;
+        let deployFailure = null;
+        let closeFailure = null;
 
-        const adapter = await openAdapter(s);
         try {
-          for (const f of files) {
-            const relForRemote = args.remote_dir
-              ? posix.join(String(args.remote_dir).replace(/\\/g, "/"), f.rel)
-              : f.rel;
-            let target;
-            try {
-              target = resolveRemote(s.root, relForRemote);
-              const parent = posix.dirname(target);
-              if (parent && parent !== "/" && !created.has(parent)) {
-                await adapter.mkdirp(parent);
-                created.add(parent);
-              }
-              await adapter.uploadFile(f.abs, target);
-              uploadedList.push(f.rel);
-              bytes += f.size;
-              consecutive = 0;
-            } catch (err) {
-              failures.push(`${f.rel}: ${err.message}`);
-              consecutive += 1;
-              if (consecutive > 5) {
-                abortedEarly = true;
-                break;
+          adapter = await connectAdapter(s);
+          try {
+            for (const f of files) {
+              const relForRemote = args.remote_dir
+                ? posix.join(String(args.remote_dir).replace(/\\/g, "/"), f.rel)
+                : f.rel;
+              try {
+                const target = resolveRemote(s.root, relForRemote);
+                const parent = posix.dirname(target);
+                if (parent && parent !== "/" && !created.has(parent)) {
+                  await adapter.mkdirp(parent);
+                  created.add(parent);
+                }
+                await adapter.uploadFile(f.abs, target);
+                uploadedList.push(f.rel);
+                bytes += f.size;
+                consecutive = 0;
+              } catch (err) {
+                failures.push(`${f.rel}: ${err.message}`);
+                consecutive += 1;
+                if (consecutive > 5) {
+                  abortedEarly = true;
+                  break;
+                }
               }
             }
+          } catch (err) {
+            deployFailure = err;
           }
+        } catch (err) {
+          deployFailure = err;
         } finally {
-          await adapter.close();
+          if (adapter) {
+            try {
+              await adapter.close();
+            } catch (err) {
+              closeFailure = err;
+            }
+          }
         }
 
         const secs = ((Date.now() - t0) / 1000).toFixed(1);
-        const lines = [];
+        if (deployFailure) failures.push(`deploy: ${deployFailure.message}`);
+        if (closeFailure) failures.push(`connection close: ${closeFailure.message}`);
+        const partial =
+          failures.length > 0 ||
+          abortedEarly ||
+          uploadedList.length !== files.length ||
+          deployFailure !== null ||
+          closeFailure !== null;
+        const lines = partial ? ["PARTIAL DEPLOY — ERROR"] : [];
         lines.push(
           `Deployed ${uploadedList.length}/${files.length} files (${formatSize(bytes)}) to ${remoteBase} on "${name}" in ${secs}s.`
         );
@@ -518,10 +634,9 @@ export function registerTools(server, loaded) {
           if (failures.length > 100) lines.push(`  ... and ${failures.length - 100} more`);
         }
         const text = lines.join("\n");
-        if (uploadedList.length === 0) return withInsecureNotice(errorResult(text), s);
-        return withInsecureNotice(textResult(text), s);
+        return withTransportNotices(partial ? explicitErrorResult(text) : textResult(text), s);
       } catch (err) {
-        throw withInsecureError(err, s);
+        throw withTransportError(err, s);
       }
     })
   );
@@ -535,29 +650,36 @@ export function registerTools(server, loaded) {
       inputSchema: {
         server: serverField,
         remote_path: z.string().describe("Remote file path, relative to the server root."),
-        local_path: z.string().describe("Local destination path (relative paths resolve against the process cwd)."),
+        local_path: z.string().describe("Local destination path, absolute or relative to the server's configured localRoot."),
         overwrite: z.boolean().optional().describe("Allow overwriting an existing local file."),
       },
     },
-    guard((args) =>
-      withServer(loaded, args.server, { write: false }, async ({ server: s, adapter }) => {
+    guardTool(async (args) => {
+      requireConfig(loaded);
+      const { name, server: s } = resolveServer(loaded, args.server);
+      try {
         const target = resolveRemote(s.root, args.remote_path);
-        const localPath = path.resolve(process.cwd(), args.local_path);
-        if (fs.existsSync(localPath) && !args.overwrite) {
+        const destination = resolveLocalDestination(s, args.local_path);
+        if (destination.exists && !args.overwrite) {
           throw new Error(
-            `local file already exists: ${localPath} — pass overwrite:true to replace it`
+            `local file already exists inside "localRoot" — pass overwrite:true to replace it`
           );
         }
-        await adapter.downloadFile(target, localPath);
-        let size = 0;
-        try {
-          size = fs.statSync(localPath).size;
-        } catch {
-          /* ignore */
-        }
-        return textResult(`Downloaded ${target} -> ${localPath} (${formatSize(size)})`);
-      })
-    )
+        return await withResolvedServer(
+          name,
+          s,
+          { write: false },
+          async ({ adapter }) => {
+            await adapter.downloadFile(target, destination.path);
+            const written = resolveLocalDestination(s, args.local_path);
+            return textResult(`Downloaded ${target} -> ${written.path} (${formatSize(written.stat.size)})`);
+          },
+          connectAdapter
+        );
+      } catch (err) {
+        throw withTransportError(err, s);
+      }
+    })
   );
 
   // 8. ftp_mkdir
@@ -571,8 +693,8 @@ export function registerTools(server, loaded) {
         path: z.string().describe("Remote directory to create, relative to the server root."),
       },
     },
-    guard((args) =>
-      withServer(loaded, args.server, { write: true }, async ({ server: s, adapter }) => {
+    guardTool((args) =>
+      useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
         const target = resolveRemote(s.root, args.path);
         await adapter.mkdirp(target);
         return textResult(`Created directory ${target}`);
@@ -592,8 +714,8 @@ export function registerTools(server, loaded) {
         to_path: z.string().describe("New remote path, relative to the server root."),
       },
     },
-    guard((args) =>
-      withServer(loaded, args.server, { write: true }, async ({ server: s, adapter }) => {
+    guardTool((args) =>
+      useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
         if (isRootPath(s.root, args.from_path)) throw new Error("refusing to rename the server root");
         if (isRootPath(s.root, args.to_path)) throw new Error("refusing to overwrite the server root");
         const from = resolveRemote(s.root, args.from_path);
@@ -617,8 +739,8 @@ export function registerTools(server, loaded) {
         recursive: z.boolean().optional().describe("Required to delete a directory and its contents."),
       },
     },
-    guard((args) =>
-      withServer(loaded, args.server, { write: true }, async ({ server: s, adapter }) => {
+    guardTool((args) =>
+      useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
         if (isRootPath(s.root, args.path)) throw new Error("refusing to delete the server root directory");
         const target = resolveRemote(s.root, args.path);
         const st = await adapter.stat(target);

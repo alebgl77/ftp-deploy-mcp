@@ -11,7 +11,12 @@ import { Writable } from "node:stream";
 import path from "node:path";
 import fs from "node:fs";
 
-import { insecureTransport, insecureBlockedMessage } from "../config.js";
+import {
+  insecureTransport,
+  insecureBlockedMessage,
+  unsafeRemoteRoot,
+  unsafeRemoteRootBlockedMessage,
+} from "../config.js";
 
 const posix = path.posix;
 
@@ -57,6 +62,15 @@ function friendlyError(err, ctx) {
 }
 
 export async function connect(serverCfg) {
+  // FTP has no portable REALPATH/LSTAT equivalent. Refuse a client-side
+  // sub-root before network I/O unless the operator explicitly accepts that it
+  // is not an anti-symlink jail.
+  if (unsafeRemoteRoot(serverCfg) && serverCfg.allowUnsafeRemoteRoot !== true) {
+    throw new Error(
+      unsafeRemoteRootBlockedMessage(serverCfg.name ?? serverCfg.host, serverCfg.root)
+    );
+  }
+
   // Insecure transports (plain FTP, or FTPS with certificate verification
   // disabled) are refused BEFORE any network I/O unless the server entry
   // explicitly opts in with "allowInsecure": true.

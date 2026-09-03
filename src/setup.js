@@ -15,10 +15,23 @@ import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import * as readline from "node:readline/promises";
 
-import { configCandidates, normalizeServer, insecureTransport, insecureLabel } from "./config.js";
+import {
+  configCandidates,
+  normalizeServer,
+  insecureTransport,
+  insecureLabel,
+  unsafeRemoteRoot,
+  unsafeRemoteRootBlockedMessage,
+  unsafeRemoteRootWarningText,
+  unknownHostKeyBlockedMessage,
+  unknownHostKeyWarningText,
+  isValidHostKeySha256,
+} from "./config.js";
 import { parseSiteManager, buildConfig } from "./filezilla.js";
 import { resolveRemote } from "./remote-path.js";
 import { getClients, buildEntry, applyClient, mergeConfigFile } from "./clients.js";
+import { atomicWriteFileSync } from "./atomic-write.js";
+import { createRedactor } from "./redact.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -216,22 +229,7 @@ function writeConfigDest(destPath, newConfig, { dryRun, platform }) {
 
   if (destExists && safeRead(destPath) === json) return result; // unchanged
 
-  fs.mkdirSync(dir, { recursive: true });
-  if (platform !== "win32") {
-    try {
-      fs.chmodSync(dir, 0o700);
-    } catch {
-      /* best effort */
-    }
-  }
-  fs.writeFileSync(destPath, json);
-  if (platform !== "win32") {
-    try {
-      fs.chmodSync(destPath, 0o600);
-    } catch {
-      /* best effort */
-    }
-  }
+  atomicWriteFileSync(destPath, json, { _platform: platform });
   result.wrote = true;
   return result;
 }
@@ -536,8 +534,9 @@ const BANNER = [
 
 export async function runSetup(argv) {
   const opts = parseSetupArgs(argv);
-  const W = (s = "") => process.stdout.write(`${s}\n`);
-  const E = (s = "") => process.stderr.write(`${s}\n`);
+  const redactor = createRedactor();
+  const W = (s = "") => process.stdout.write(`${redactor.strictText(s)}\n`);
+  const E = (s = "") => process.stderr.write(`${redactor.strictText(s)}\n`);
 
   for (const line of BANNER) W(line);
 
@@ -639,6 +638,7 @@ export async function runSetup(argv) {
     let effectiveConfig;
     let configPathForEntry;
     if (produced) {
+      redactor.add(produced.config);
       const wres = writeConfigDest(configDest, produced.config, {
         dryRun: opts.dryRun,
         platform: ctx.platform,
@@ -653,6 +653,7 @@ export async function runSetup(argv) {
       keptPath = keptPath || configDest;
       const raw = safeRead(keptPath);
       effectiveConfig = raw ? safeParse(raw) || { servers: {} } : { servers: {} };
+      redactor.add(effectiveConfig);
       configPathForEntry = keptPath;
       W(`Using existing config at ${keptPath}`);
     }
@@ -667,7 +668,7 @@ export async function runSetup(argv) {
       W
     );
     if (granted > 0 && !opts.dryRun) {
-      fs.writeFileSync(configPathForEntry, JSON.stringify(effectiveConfig, null, 2) + "\n");
+      atomicWriteFileSync(configPathForEntry, JSON.stringify(effectiveConfig, null, 2) + "\n");
     }
 
     const isDefaultDest = path.resolve(configPathForEntry) === path.resolve(defaultDest);
@@ -760,6 +761,8 @@ export async function runSetup(argv) {
     W("Restart your IDE(s), then ask your agent e.g. « Liste mes serveurs FTP ».");
     W("Run `npm run doctor` (or `node src/index.js doctor`) any time to diagnose.");
     return 0;
+  } catch (err) {
+    throw redactor.error(err);
   } finally {
     if (rl) rl.close();
   }
@@ -777,7 +780,8 @@ function safeParse(raw) {
 
 export async function runDoctor(argv) {
   const opts = parseSetupArgs(argv);
-  const W = (s = "") => process.stdout.write(`${s}\n`);
+  const redactor = createRedactor();
+  const W = (s = "") => process.stdout.write(`${redactor.strictText(s)}\n`);
 
   const isolated = opts.home != null;
   const home = isolated ? path.resolve(opts.home) : os.homedir();
@@ -796,6 +800,7 @@ export async function runDoctor(argv) {
     W(`Config: ${winner}`);
     const parsed = safeParse(safeRead(winner) || "");
     if (parsed && parsed.servers && typeof parsed.servers === "object") {
+      redactor.add(parsed);
       const names = Object.keys(parsed.servers);
       W(`  ${names.length} server(s):`);
       for (const name of names) {
@@ -806,7 +811,8 @@ export async function runDoctor(argv) {
         const ro = s.readOnly === true ? "read-only" : "read-write";
         const auth = nonEmpty(s.privateKeyPath) ? "key" : nonEmpty(s.password) ? "password" : "none";
         W(`    - ${name}: ${proto}://${s.host}:${port}  root=${root}  ${ro}  auth=${auth}`);
-        const insecure = insecureTransport(normalizeServer(name, s));
+        const normalized = normalizeServer(name, s);
+        const insecure = insecureTransport(normalized);
         if (insecure) {
           W(
             `        ⚠ INSECURE: ${insecureLabel(insecure)} — ${
@@ -814,6 +820,26 @@ export async function runDoctor(argv) {
                 ? 'explicitly allowed ("allowInsecure": true); prefer sftp'
                 : 'connections are REFUSED (switch to sftp, or set "allowInsecure": true to accept the risk)'
             }`
+          );
+        }
+        if (unsafeRemoteRoot(normalized)) {
+          W(
+            s.allowUnsafeRemoteRoot === true
+              ? `        ⚠ UNSAFE ROOT explicit override: ${unsafeRemoteRootWarningText(normalized)}`
+              : `        ⚠ UNSAFE ROOT REFUSED: ${unsafeRemoteRootBlockedMessage(name, normalized.root)}`
+          );
+        }
+        const invalidHostKey =
+          normalized.protocol === "sftp" &&
+          normalized.hostKeySha256.length > 0 &&
+          normalized.hostKeySha256.some((pin) => !isValidHostKeySha256(pin));
+        if (invalidHostKey) {
+          W(`        ⚠ HOST KEY INVALID: server "${name}" has an invalid "hostKeySha256" pin; connections are REFUSED`);
+        } else if (normalized.protocol === "sftp" && normalized.hostKeySha256.length === 0) {
+          W(
+            s.allowUnknownHostKey === true
+              ? `        ⚠ HOST KEY explicit override: ${unknownHostKeyWarningText(normalized)}`
+              : `        ⚠ HOST KEY REFUSED: ${unknownHostKeyBlockedMessage(name)}`
           );
         }
         for (const varName of unresolvedEnvVars(s)) {

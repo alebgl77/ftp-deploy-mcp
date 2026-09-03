@@ -9,6 +9,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { normalizeRoot } from "./remote-path.js";
+
 const PROTOCOLS = new Set(["ftp", "ftps", "sftp"]);
 
 // Expand a leading "~" to the user's home directory.
@@ -65,8 +67,83 @@ function nonEmptyString(v) {
   return typeof v === "string" && v.trim().length > 0;
 }
 
-// Validate the parsed+substituted config. Returns an error string, or null.
-function validate(parsed) {
+const HOST_KEY_SHA256_RE = /^SHA256:[A-Za-z0-9+/]{43}$/;
+
+export function isValidHostKeySha256(value) {
+  if (typeof value !== "string" || !HOST_KEY_SHA256_RE.test(value)) return false;
+  const encoded = value.slice("SHA256:".length);
+  try {
+    const decoded = Buffer.from(encoded, "base64");
+    return decoded.length === 32 && decoded.toString("base64").replace(/=+$/, "") === encoded;
+  } catch {
+    return false;
+  }
+}
+
+function validateServer(name, s) {
+  const prefix = `server "${name}":`;
+  if (!s || typeof s !== "object" || Array.isArray(s)) {
+    return `${prefix} must be a JSON object`;
+  }
+  if (!nonEmptyString(s.protocol)) {
+    return `${prefix} missing required field "protocol" (one of ftp, ftps, sftp)`;
+  }
+  const protocol = s.protocol;
+  if (!PROTOCOLS.has(protocol)) {
+    return `${prefix} unknown protocol "${s.protocol}" (use ftp, ftps or sftp)`;
+  }
+  if (!nonEmptyString(s.host)) return `${prefix} missing required field "host"`;
+  if (!nonEmptyString(s.user)) return `${prefix} missing required field "user"`;
+  if (s.port !== undefined && (typeof s.port !== "number" || !Number.isInteger(s.port) || s.port <= 0)) {
+    return `${prefix} field "port" must be a positive integer`;
+  }
+  const hasPassword = nonEmptyString(s.password);
+  const hasKey = nonEmptyString(s.privateKeyPath);
+  if (!hasPassword && !hasKey) {
+    return `${prefix} no authentication method — provide "password" or "privateKeyPath"`;
+  }
+  for (const flag of [
+    "readOnly",
+    "insecureTLS",
+    "implicitTLS",
+    "allowInsecure",
+    "allowUnknownHostKey",
+    "allowUnsafeRemoteRoot",
+  ]) {
+    if (s[flag] !== undefined && typeof s[flag] !== "boolean") {
+      return `${prefix} field "${flag}" must be true or false (got ${JSON.stringify(s[flag])})`;
+    }
+  }
+
+  if (s.hostKeySha256 !== undefined) {
+    if (protocol !== "sftp") return `${prefix} field "hostKeySha256" is only valid for sftp`;
+    const pins = typeof s.hostKeySha256 === "string" ? [s.hostKeySha256] : s.hostKeySha256;
+    if (!Array.isArray(pins) || pins.length === 0) {
+      return `${prefix} field "hostKeySha256" must be a fingerprint string or a non-empty array`;
+    }
+    const badIndex = pins.findIndex((pin) => !isValidHostKeySha256(pin));
+    if (badIndex !== -1) {
+      return (
+        `${prefix} field "hostKeySha256" entry ${badIndex + 1} must use ` +
+        `SHA256:<43-character unpadded base64> format`
+      );
+    }
+  }
+  if (s.allowUnknownHostKey !== undefined && protocol !== "sftp") {
+    return `${prefix} field "allowUnknownHostKey" is only valid for sftp`;
+  }
+  if (s.allowUnknownHostKey !== undefined && s.hostKeySha256 !== undefined) {
+    return `${prefix} fields "allowUnknownHostKey" and "hostKeySha256" cannot be used together`;
+  }
+  if (s.allowUnsafeRemoteRoot !== undefined && protocol === "sftp") {
+    return `${prefix} field "allowUnsafeRemoteRoot" is only valid for ftp or ftps`;
+  }
+  return null;
+}
+
+// Validate the config envelope. Individual server errors are handled
+// separately so one bad entry never disables unrelated valid servers.
+function validateEnvelope(parsed) {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return "config root must be a JSON object with a `servers` field";
   }
@@ -77,37 +154,6 @@ function validate(parsed) {
   const names = Object.keys(servers);
   if (names.length === 0) {
     return "no servers configured (the `servers` object is empty)";
-  }
-  for (const name of names) {
-    const s = servers[name];
-    if (!s || typeof s !== "object" || Array.isArray(s)) {
-      return `server "${name}": must be a JSON object`;
-    }
-    if (!nonEmptyString(s.protocol)) {
-      return `server "${name}": missing required field "protocol" (one of ftp, ftps, sftp)`;
-    }
-    if (!PROTOCOLS.has(s.protocol)) {
-      return `server "${name}": unknown protocol "${s.protocol}" (use ftp, ftps or sftp)`;
-    }
-    if (!nonEmptyString(s.host)) {
-      return `server "${name}": missing required field "host"`;
-    }
-    if (!nonEmptyString(s.user)) {
-      return `server "${name}": missing required field "user"`;
-    }
-    if (s.port !== undefined && (typeof s.port !== "number" || !Number.isInteger(s.port) || s.port <= 0)) {
-      return `server "${name}": field "port" must be a positive integer`;
-    }
-    const hasPassword = nonEmptyString(s.password);
-    const hasKey = nonEmptyString(s.privateKeyPath);
-    if (!hasPassword && !hasKey) {
-      return `server "${name}": no authentication method — provide "password" or "privateKeyPath"`;
-    }
-    for (const flag of ["readOnly", "insecureTLS", "implicitTLS", "allowInsecure"]) {
-      if (s[flag] !== undefined && typeof s[flag] !== "boolean") {
-        return `server "${name}": field "${flag}" must be true or false (got ${JSON.stringify(s[flag])})`;
-      }
-    }
   }
   if (parsed.defaultServer !== undefined) {
     if (!nonEmptyString(parsed.defaultServer)) {
@@ -140,12 +186,62 @@ export function normalizeServer(name, s) {
     password: nonEmptyString(s.password) ? s.password : undefined,
     privateKeyPath: nonEmptyString(s.privateKeyPath) ? expandHome(s.privateKeyPath) : undefined,
     passphrase: nonEmptyString(s.passphrase) ? s.passphrase : undefined,
+    localRoot: nonEmptyString(s.localRoot) ? expandHome(s.localRoot) : undefined,
     root: nonEmptyString(s.root) ? s.root : "/",
     readOnly: s.readOnly === true,
     insecureTLS: s.insecureTLS === true,
     implicitTLS,
     allowInsecure: s.allowInsecure === true,
+    hostKeySha256:
+      typeof s.hostKeySha256 === "string"
+        ? [s.hostKeySha256]
+        : Array.isArray(s.hostKeySha256)
+          ? [...s.hostKeySha256]
+          : [],
+    allowUnknownHostKey: s.allowUnknownHostKey === true,
+    allowUnsafeRemoteRoot: s.allowUnsafeRemoteRoot === true,
   };
+}
+
+// FTP has no portable REALPATH/LSTAT primitives, so a client-side sub-root is
+// path organization, not a security boundary. Only the account-visible root is
+// safe by default; sub-roots require an explicit risk acceptance.
+export function unsafeRemoteRoot(server) {
+  return (server.protocol === "ftp" || server.protocol === "ftps") && normalizeRoot(server.root) !== "/";
+}
+
+export function unsafeRemoteRootBlockedMessage(name, root) {
+  return (
+    `UNSAFE REMOTE ROOT REFUSED: server "${name}" uses FTP/FTPS root "${normalizeRoot(root)}", ` +
+    `but FTP cannot reliably detect symlink escapes from a client-side sub-root. ` +
+    `Use a dedicated server-side chroot/account whose visible root is "/", or explicitly set ` +
+    `"allowUnsafeRemoteRoot": true to accept this risk.`
+  );
+}
+
+export function unsafeRemoteRootWarningText(server) {
+  if (!unsafeRemoteRoot(server) || server.allowUnsafeRemoteRoot !== true) return null;
+  return (
+    `⚠ SECURITY WARNING: FTP/FTPS root "${normalizeRoot(server.root)}" on server "${server.name}" ` +
+    `is not a reliable anti-symlink jail. Allowed because "allowUnsafeRemoteRoot": true is set; ` +
+    `use a dedicated server-side chroot/account for a real boundary.`
+  );
+}
+
+export function unknownHostKeyBlockedMessage(name) {
+  return (
+    `SFTP HOST KEY VERIFICATION REQUIRED: server "${name}" has no "hostKeySha256" pin. ` +
+    `Add a SHA256 fingerprint verified through a trusted channel, or explicitly set ` +
+    `"allowUnknownHostKey": true to accept impersonation risk.`
+  );
+}
+
+export function unknownHostKeyWarningText(server) {
+  if (server.protocol !== "sftp" || server.allowUnknownHostKey !== true) return null;
+  return (
+    `⚠ SECURITY WARNING: the identity of SFTP server "${server.name}" is NOT verified. ` +
+    `Allowed because "allowUnknownHostKey": true is set; configure "hostKeySha256" as soon as possible.`
+  );
 }
 
 // ---- insecure-transport policy --------------------------------------------
@@ -228,6 +324,8 @@ export function loadConfig(configFlag) {
       error: null,
       config: null,
       serverNames: [],
+      invalidServerNames: [],
+      serverErrors: {},
       defaultServer: null,
     };
   }
@@ -252,15 +350,26 @@ export function loadConfig(configFlag) {
     return errorResult(filePath, searched, envErrors.join("; "));
   }
 
-  const validationError = validate(substituted);
+  const validationError = validateEnvelope(substituted);
   if (validationError) {
     return errorResult(filePath, searched, validationError);
   }
 
-  const serverNames = Object.keys(substituted.servers);
+  const serverErrors = {};
+  const validServers = {};
+  for (const [name, server] of Object.entries(substituted.servers)) {
+    const error = validateServer(name, server);
+    if (error) serverErrors[name] = error;
+    else validServers[name] = server;
+  }
+  const serverNames = Object.keys(validServers);
+  const invalidServerNames = Object.keys(serverErrors);
+  if (serverNames.length === 0) {
+    return errorResult(filePath, searched, invalidServerNames.map((name) => serverErrors[name]).join("; "), serverErrors);
+  }
   const config = {
     defaultServer: substituted.defaultServer ?? null,
-    servers: substituted.servers,
+    servers: validServers,
   };
 
   return {
@@ -270,11 +379,13 @@ export function loadConfig(configFlag) {
     error: null,
     config,
     serverNames,
+    invalidServerNames,
+    serverErrors,
     defaultServer: config.defaultServer,
   };
 }
 
-function errorResult(filePath, searched, message) {
+function errorResult(filePath, searched, message, serverErrors = {}) {
   return {
     found: true,
     path: filePath,
@@ -282,6 +393,8 @@ function errorResult(filePath, searched, message) {
     error: message,
     config: null,
     serverNames: [],
+    invalidServerNames: Object.keys(serverErrors),
+    serverErrors,
     defaultServer: null,
   };
 }
@@ -297,6 +410,9 @@ export function resolveServer(loaded, requested) {
   const names = loaded.serverNames;
   let name;
   if (nonEmptyString(requested)) {
+    if (loaded.serverErrors && loaded.serverErrors[requested]) {
+      throw new Error(loaded.serverErrors[requested]);
+    }
     if (!names.includes(requested)) {
       throw new Error(
         `unknown server "${requested}". Available servers: ${names.join(", ")}`
@@ -304,6 +420,9 @@ export function resolveServer(loaded, requested) {
     }
     name = requested;
   } else if (loaded.defaultServer) {
+    if (loaded.serverErrors && loaded.serverErrors[loaded.defaultServer]) {
+      throw new Error(loaded.serverErrors[loaded.defaultServer]);
+    }
     name = loaded.defaultServer;
   } else if (names.length === 1) {
     name = names[0];
@@ -348,6 +467,7 @@ export const EXAMPLE_CONFIG = `{
       "port": 22,
       "user": "deploy",
       "privateKeyPath": "~/.ssh/id_ed25519",
+      "localRoot": "~/projects/site",
       "root": "/var/www/site"
     },
     "ovh": {
@@ -355,6 +475,7 @@ export const EXAMPLE_CONFIG = `{
       "host": "ftp.example.com",
       "user": "web",
       "password": "\${ENV:OVH_FTP_PASSWORD}",
+      "localRoot": "~/projects/site",
       "root": "/www"
     }
   }

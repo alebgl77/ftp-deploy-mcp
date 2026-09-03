@@ -12,9 +12,11 @@ npm install
 npm test
 ```
 
-`npm test` is the **only** gate. It spins up real local FTP and SFTP servers on
-loopback ports and runs the full e2e assertion suite against them — no external
-network access is required or used.
+`npm test` is the main code gate. It spins up real local FTP and SFTP servers
+on loopback ports and runs the full e2e suite against them — no external
+network access is required or used. Documentation-only changes should also
+parse changed JSON examples, check relative Markdown links, and run
+`git diff --check`.
 
 ## Principles
 
@@ -26,6 +28,13 @@ network access is required or used.
 - **Every feature lands with smoke-test assertions.** New tools, options, or
   behaviors are not considered done until they're covered in
   `test/smoke.test.js`.
+- **Security claims match protocol reality.** FTP/FTPS client-side sub-roots
+  are not described as a symlink-safe jail; a dedicated server-side
+  account/chroot is the boundary. SFTP protections must document the residual
+  server-side race.
+- **Source and published availability are distinct.** Do not advertise `npx`
+  or MCP registry installation until the corresponding artifact is public and
+  independently verified.
 - **`stdout` in server mode is JSON-RPC only.** Never `console.log` from the MCP
   server path — anything written to stdout is a wire-protocol message.
   Diagnostics and human-facing output belong on `stderr` or in `doctor`/`setup`
@@ -46,15 +55,27 @@ opening a PR.
 
 ## PR checklist
 
-- [ ] `npm test` passes (209/209 or the current total).
+- [ ] `npm test` passes (use the current total; do not hard-code it in docs).
 - [ ] No new runtime dependency, or it was discussed in an issue first.
 - [ ] New/changed behavior has matching smoke-test assertions.
 - [ ] Docs updated in both `README.md` (English) and `README.fr.md` (French) if
       user-facing behavior changed.
+- [ ] New configuration examples are strict JSON and relative Markdown links
+      resolve.
+- [ ] Security-sensitive changes are reflected in
+      [docs/SECURITY-MODEL.md](./docs/SECURITY-MODEL.md).
 
 ## Releasing (maintainers)
 
-1. Bump `version` in `package.json` and add an entry to `CHANGELOG.md`.
-2. Commit and tag the release (e.g. `git tag v0.2.0`).
-3. Push the tag, then run the **Release (npm)** GitHub Actions workflow manually
-   (`workflow_dispatch`) to publish to npm.
+Do not improvise the first publication from this short section. Follow the
+[release guide](./docs/RELEASE.md), which covers:
+
+- matching package, lockfile, server, tag, npm, and MCP registry versions;
+- clean-tarball validation and end-to-end tests;
+- npm Trusted Publishing/provenance and the short-lived `NPM_TOKEN` fallback
+  needed only when first-publication bootstrapping requires it;
+- manual MCP registry ownership and publication;
+- post-publish verification and fix-forward rollback.
+
+The npm package and MCP registry entry are not available until every applicable
+manual prerequisite and verification step in that guide has passed.

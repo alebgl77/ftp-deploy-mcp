@@ -16,10 +16,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { loadConfig, normalizeServer, insecureTransport, insecureRiskText } from "./config.js";
 import { registerTools } from "./tools.js";
 import { runImport } from "./filezilla.js";
+import { createRedactor } from "./redact.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
 const VERSION = pkg.version;
+const outputRedactor = createRedactor();
+const E = (message) => console.error(outputRedactor.strictText(message));
 
 // Minimal hand-rolled argv parsing.
 function parseArgs(argv) {
@@ -72,6 +75,7 @@ Usage:
 
 async function startServer(configFlag) {
   const loaded = loadConfig(configFlag);
+  outputRedactor.add(loaded.config);
 
   const configDesc = loaded.found
     ? loaded.error
@@ -79,9 +83,9 @@ async function startServer(configFlag) {
       : loaded.path
     : "none found";
   const serversDesc = loaded.serverNames.length ? loaded.serverNames.join(",") : "-";
-  console.error(`ftp-deploy-mcp v${VERSION} — config: ${configDesc}, servers: ${serversDesc}`);
+  E(`ftp-deploy-mcp v${VERSION} — config: ${configDesc}, servers: ${serversDesc}`);
   if (loaded.error) {
-    console.error(`ftp-deploy-mcp: configuration problem — ${loaded.error}`);
+    E(`ftp-deploy-mcp: configuration problem — ${loaded.error}`);
   }
   if (loaded.config) {
     for (const name of loaded.serverNames) {
@@ -89,12 +93,12 @@ async function startServer(configFlag) {
       const reason = insecureTransport(s);
       if (!reason) continue;
       if (s.allowInsecure) {
-        console.error(
+        E(
           `ftp-deploy-mcp: ⚠ SECURITY WARNING — ${insecureRiskText(name, reason)}. ` +
             `Explicitly allowed by "allowInsecure": true — switch to sftp as soon as possible.`
         );
       } else {
-        console.error(
+        E(
           `ftp-deploy-mcp: ⚠ ${insecureRiskText(name, reason)}. ` +
             `Connections to this server will be REFUSED — switch it to sftp, or set "allowInsecure": true to accept the risk.`
         );
@@ -161,8 +165,8 @@ async function main() {
     return;
   }
   if (sub) {
-    console.error(`Unknown command: ${sub}`);
-    console.error(USAGE);
+    E(`Unknown command: ${sub}`);
+    E(USAGE);
     process.exitCode = 1;
     return;
   }
@@ -171,6 +175,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`ftp-deploy-mcp fatal: ${err && err.stack ? err.stack : err}`);
+  E(`ftp-deploy-mcp fatal: ${err && err.stack ? err.stack : err}`);
   process.exit(1);
 });
