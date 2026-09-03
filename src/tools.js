@@ -47,11 +47,153 @@ const DEFAULT_EXCLUDES = [
 
 const READ_DEFAULT_BYTES = 262144;
 const READ_MAX_BYTES = 1048576;
+const MAX_RESULT_BYTES = 25000;
+const DEPLOY_SAMPLE_LIMIT = 100;
+const STRUCTURED_SAMPLE_BUDGET = 22000;
+
+const securityWarningSchema = z.string().nullable();
+const listEntrySchema = z
+  .object({
+    name: z.string(),
+    type: z.enum(["dir", "file", "link"]),
+    size_bytes: z.number().nonnegative(),
+    modified_at: z.string().nullable(),
+  })
+  .strict();
+const deploySampleSchema = z.object({ path: z.string(), size_bytes: z.number().nonnegative() }).strict();
+
+const OUTPUT_SCHEMAS = {
+  listServers: z
+    .object({
+      status: z.enum(["configured", "missing", "invalid"]),
+      configured_count: z.number().int().nonnegative(),
+      valid_count: z.number().int().nonnegative(),
+      invalid_count: z.number().int().nonnegative(),
+      default_server: z.string().nullable(),
+      servers: z.array(
+        z
+          .object({
+            name: z.string(),
+            protocol: z.enum(["ftp", "ftps", "sftp"]),
+            host: z.string(),
+            port: z.number().int().positive(),
+            root: z.string(),
+            read_only: z.boolean(),
+            auth: z.enum(["key", "password"]),
+            is_default: z.boolean(),
+            local_root_status: z.string(),
+            connection_refused: z.boolean(),
+            security_warning: securityWarningSchema,
+          })
+          .strict()
+      ),
+      servers_omitted: z.number().int().nonnegative(),
+      errors: z.array(z.object({ server: z.string().nullable(), message: z.string() }).strict()),
+      errors_omitted: z.number().int().nonnegative(),
+    })
+    .strict(),
+  test: z
+    .object({
+      server: z.string(),
+      protocol: z.enum(["ftp", "ftps", "sftp"]),
+      host: z.string(),
+      port: z.number().int().positive(),
+      root: z.string(),
+      entries_visible: z.number().int().nonnegative(),
+      security_warning: securityWarningSchema,
+    })
+    .strict(),
+  list: z
+    .object({
+      server: z.string(),
+      path: z.string(),
+      total: z.number().int().nonnegative(),
+      count: z.number().int().nonnegative(),
+      offset: z.number().int().nonnegative(),
+      limit: z.number().int().min(1).max(200),
+      has_more: z.boolean(),
+      next_offset: z.number().int().nonnegative().nullable(),
+      entries: z.array(listEntrySchema),
+      security_warning: securityWarningSchema,
+    })
+    .strict(),
+  upload: z
+    .object({
+      server: z.string(),
+      local_path: z.string(),
+      remote_path: z.string(),
+      size_bytes: z.number().nonnegative(),
+      security_warning: securityWarningSchema,
+    })
+    .strict(),
+  deploy: z
+    .object({
+      mode: z.enum(["dry_run", "deploy"]),
+      server: z.string(),
+      remote_base: z.string(),
+      total_files: z.number().int().nonnegative(),
+      total_bytes: z.number().nonnegative(),
+      uploaded_count: z.number().int().nonnegative(),
+      uploaded_bytes: z.number().nonnegative(),
+      failed_count: z.number().int().nonnegative(),
+      aborted_early: z.boolean(),
+      complete: z.boolean(),
+      duration_ms: z.number().int().nonnegative(),
+      security_warning: securityWarningSchema,
+      uploaded: z.array(deploySampleSchema),
+      uploaded_omitted: z.number().int().nonnegative(),
+      planned: z.array(deploySampleSchema),
+      planned_omitted: z.number().int().nonnegative(),
+      failures: z.array(z.object({ path: z.string(), message: z.string() }).strict()),
+      failures_omitted: z.number().int().nonnegative(),
+    })
+    .strict(),
+  download: z
+    .object({
+      server: z.string(),
+      remote_path: z.string(),
+      local_path: z.string(),
+      size_bytes: z.number().nonnegative(),
+      overwritten: z.boolean(),
+      security_warning: securityWarningSchema,
+    })
+    .strict(),
+  mkdir: z
+    .object({ server: z.string(), path: z.string(), created: z.boolean(), security_warning: securityWarningSchema })
+    .strict(),
+  rename: z
+    .object({
+      server: z.string(),
+      from_path: z.string(),
+      to_path: z.string(),
+      moved: z.boolean(),
+      security_warning: securityWarningSchema,
+    })
+    .strict(),
+  delete: z
+    .object({
+      server: z.string(),
+      path: z.string(),
+      entry_type: z.enum(["file", "directory"]),
+      recursive: z.boolean(),
+      deleted: z.boolean(),
+      security_warning: securityWarningSchema,
+    })
+    .strict(),
+};
+
+function annotations(readOnlyHint, destructiveHint, idempotentHint, openWorldHint) {
+  return { readOnlyHint, destructiveHint, idempotentHint, openWorldHint };
+}
 
 // ---- small helpers --------------------------------------------------------
 
 function textResult(text) {
   return { content: [{ type: "text", text }] };
+}
+
+function successResult(text, structuredContent) {
+  return { content: [{ type: "text", text }], structuredContent };
 }
 
 function errorResult(text) {
@@ -60,6 +202,144 @@ function errorResult(text) {
 
 function explicitErrorResult(text) {
   return { content: [{ type: "text", text }], isError: true };
+}
+
+function utf8Size(value) {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function truncateUtf8(text, maxBytes) {
+  const value = String(text);
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  if (maxBytes <= 0) return "";
+  const marker = "\n… [output truncated]";
+  const markerBytes = Buffer.byteLength(marker, "utf8");
+  if (markerBytes >= maxBytes) {
+    let end = Math.min(marker.length, maxBytes);
+    while (end > 0 && Buffer.byteLength(marker.slice(0, end), "utf8") > maxBytes) end -= 1;
+    return marker.slice(0, end);
+  }
+  let low = 0;
+  let high = value.length;
+  const budget = maxBytes - markerBytes;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(value.slice(0, mid), "utf8") <= budget) low = mid;
+    else high = mid - 1;
+  }
+  let end = low;
+  if (end > 0 && /[\uD800-\uDBFF]/.test(value[end - 1])) end -= 1;
+  return `${value.slice(0, end)}${marker}`;
+}
+
+function boundedString(value, maxBytes = 2048) {
+  return truncateUtf8(value == null ? "" : value, maxBytes);
+}
+
+function redactStructured(value, redactor) {
+  if (typeof value === "string") return boundedString(redactor.strictText(value));
+  if (Array.isArray(value)) return value.map((item) => redactStructured(item, redactor));
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, redactStructured(item, redactor)])
+  );
+}
+
+const STRUCTURED_SAMPLE_FIELDS = [
+  ["entries", null],
+  ["servers", "servers_omitted"],
+  ["errors", "errors_omitted"],
+  ["uploaded", "uploaded_omitted"],
+  ["planned", "planned_omitted"],
+  ["failures", "failures_omitted"],
+];
+
+function syncListPageCounters(result) {
+  const structured = result.structuredContent;
+  if (!structured || !Array.isArray(structured.entries)) return;
+  structured.count = structured.entries.length;
+  structured.has_more = structured.offset + structured.count < structured.total;
+  structured.next_offset = structured.has_more ? structured.offset + structured.count : null;
+  const pageLine = `Page: offset ${structured.offset}, count ${structured.count}, limit ${structured.limit}; ${
+    structured.next_offset === null ? "no next offset" : `next offset ${structured.next_offset}`
+  }.`;
+  for (const item of result.content || []) {
+    if (typeof item.text === "string" && /^Page: /m.test(item.text)) {
+      item.text = item.text.replace(/^Page: .*$/m, pageLine);
+      break;
+    }
+  }
+}
+
+function reduceStructuredSamples(result) {
+  const structured = result.structuredContent;
+  if (!structured) return;
+  while (utf8Size(structured) > STRUCTURED_SAMPLE_BUDGET) {
+    let selected = null;
+    let selectedBytes = -1;
+    for (const [field, omittedField] of STRUCTURED_SAMPLE_FIELDS) {
+      const values = structured[field];
+      if (!Array.isArray(values) || values.length === 0) continue;
+      const candidateBytes = utf8Size(values[values.length - 1]);
+      if (candidateBytes > selectedBytes) {
+        selected = [field, omittedField];
+        selectedBytes = candidateBytes;
+      }
+    }
+    if (!selected) break;
+    const [field, omittedField] = selected;
+    structured[field].pop();
+    if (omittedField) structured[omittedField] = (structured[omittedField] || 0) + 1;
+  }
+  syncListPageCounters(result);
+}
+
+function capToolResult(result) {
+  if (!result) return result;
+  const bounded = {
+    ...result,
+    content: Array.isArray(result.content) ? result.content.map((item) => ({ ...item })) : [],
+  };
+  if (result.structuredContent) {
+    bounded.structuredContent = { ...result.structuredContent };
+    for (const [field] of STRUCTURED_SAMPLE_FIELDS) {
+      if (Array.isArray(result.structuredContent[field])) {
+        bounded.structuredContent[field] = result.structuredContent[field].slice();
+      }
+    }
+    reduceStructuredSamples(bounded);
+  }
+  while (utf8Size(bounded) > MAX_RESULT_BYTES) {
+    let largest = -1;
+    let largestBytes = 0;
+    const unprotected = bounded.content.some(
+      (item) => typeof item.text === "string" && !item.text.includes("SECURITY WARNING") && item.text.length > 0
+    );
+    for (let i = 0; i < bounded.content.length; i += 1) {
+      const text = bounded.content[i] && bounded.content[i].text;
+      if (typeof text !== "string") continue;
+      if (unprotected && text.includes("SECURITY WARNING")) continue;
+      const bytes = Buffer.byteLength(text, "utf8");
+      if (bytes > largestBytes) {
+        largest = i;
+        largestBytes = bytes;
+      }
+    }
+    if (largest === -1 || largestBytes === 0) break;
+    const excess = utf8Size(bounded) - MAX_RESULT_BYTES;
+    bounded.content[largest].text = truncateUtf8(
+      bounded.content[largest].text,
+      Math.max(0, largestBytes - excess - 128)
+    );
+  }
+  if (utf8Size(bounded) <= MAX_RESULT_BYTES) return bounded;
+  const firstText = bounded.content.find((item) => typeof item.text === "string")?.text || "Output";
+  const header = firstText.split(/\r?\n/, 1)[0];
+  const fallback = explicitErrorResult(
+    `${header}\nOUTPUT LIMIT — ERROR: the safely redacted result exceeded ${MAX_RESULT_BYTES} UTF-8 bytes.`
+  );
+  fallback.content[0].text = truncateUtf8(fallback.content[0].text, MAX_RESULT_BYTES - 128);
+  return fallback;
 }
 
 function formatSize(n) {
@@ -101,9 +381,7 @@ function withTransportError(err, server) {
   const warnings = transportWarningTexts(server);
   if (warnings.length === 0) return err;
   const msg = err && err.message ? err.message : String(err);
-  const missing = warnings.filter((warning) => !msg.includes(warning));
-  if (missing.length === 0) return err;
-  return new Error(`${msg}\n\n${missing.join("\n\n")}`);
+  return new Error(`${warnings.join("\n\n")}\n\n${msg}`);
 }
 
 // Thrown when config is missing/broken; carries the help text.
@@ -170,10 +448,18 @@ async function withServer(loaded, requestedServer, opts, run, connectAdapter) {
 function guard(fn, redactor) {
   return async (args, _extra) => {
     try {
-      return redactor.result(await fn(args || {}));
+      const redacted = redactor.result(await fn(args || {}));
+      if (redacted && redacted.isError === true) {
+        const { structuredContent: _discarded, ...errorOnly } = redacted;
+        return capToolResult(errorOnly);
+      }
+      if (redacted && redacted.structuredContent) {
+        redacted.structuredContent = redactStructured(redacted.structuredContent, redactor);
+      }
+      return capToolResult(redacted);
     } catch (err) {
       const msg = err && err.message ? err.message : String(err);
-      return errorResult(redactor.strictText(msg));
+      return capToolResult(errorResult(redactor.strictText(msg)));
     }
   };
 }
@@ -263,6 +549,83 @@ function dryRunPolicyMessages(name, server) {
   return messages;
 }
 
+function securityWarning(server) {
+  const warnings = transportWarningTexts(server);
+  return warnings.length ? boundedString(warnings.join("\n\n")) : null;
+}
+
+function connectionRefused(server) {
+  const insecure = insecureTransport(server);
+  return Boolean(
+    (insecure && !server.allowInsecure) ||
+      (unsafeRemoteRoot(server) && !server.allowUnsafeRemoteRoot) ||
+      (server.protocol === "sftp" && server.hostKeySha256.length === 0 && !server.allowUnknownHostKey)
+  );
+}
+
+function sampleWithOmitted(items, limit = DEPLOY_SAMPLE_LIMIT) {
+  const sample = items.slice(0, limit);
+  return { sample, omitted: Math.max(0, items.length - sample.length) };
+}
+
+function fitListServerSamples(
+  servers,
+  errors,
+  serverTotal = servers.length,
+  errorTotal = errors.length
+) {
+  const serverSample = servers.slice(0, 20);
+  const errorSample = errors.slice(0, 20);
+  while (
+    (serverSample.length > 0 || errorSample.length > 0) &&
+    utf8Size({ servers: serverSample, errors: errorSample }) > STRUCTURED_SAMPLE_BUDGET
+  ) {
+    if (errorSample.length > 0) errorSample.pop();
+    else serverSample.pop();
+  }
+  return {
+    servers: serverSample,
+    serversOmitted: serverTotal - serverSample.length,
+    errors: errorSample,
+    errorsOmitted: errorTotal - errorSample.length,
+  };
+}
+
+function projectedListEntry(entry) {
+  return {
+    name: boundedString(entry.name),
+    type: entry.type === "dir" || entry.type === "link" ? entry.type : "file",
+    size_bytes: typeof entry.size === "number" && entry.size >= 0 ? entry.size : 0,
+    modified_at: entry.modifiedAt ? boundedString(entry.modifiedAt, 512) : null,
+  };
+}
+
+function fitListPage(meta, entries) {
+  const page = [];
+  for (const entry of entries) {
+    page.push(projectedListEntry(entry));
+    if (page.length > 1 && utf8Size({ ...meta, entries: page }) > STRUCTURED_SAMPLE_BUDGET) {
+      page.pop();
+      break;
+    }
+  }
+  return page;
+}
+
+function boundedDeploySamples(items, project = (item) => item) {
+  const selected = items.slice(0, DEPLOY_SAMPLE_LIMIT);
+  const sample = selected.map((item) => {
+    const projected = project(item);
+    return {
+      path: boundedString(projected.path),
+      size_bytes:
+        typeof projected.size_bytes === "number" && projected.size_bytes >= 0 ? projected.size_bytes : 0,
+    };
+  });
+  while (sample.length > 1 && utf8Size(sample) > STRUCTURED_SAMPLE_BUDGET) sample.pop();
+  return { sample, omitted: items.length - sample.length };
+}
+
 // ---- registration ---------------------------------------------------------
 
 export function registerTools(server, loaded, options = {}) {
@@ -284,14 +647,39 @@ export function registerTools(server, loaded, options = {}) {
       description:
         "List all configured FTP/FTPS/SFTP servers (name, protocol, host, port, root, read-only, auth kind) and which is default. Never reveals passwords or keys.",
       inputSchema: {},
+      outputSchema: OUTPUT_SCHEMAS.listServers,
+      annotations: annotations(true, false, true, false),
     },
     guardTool(async () => {
       if (!loaded.found || loaded.error || !loaded.config) {
-        return textResult(configHelpText(loaded));
+        const invalidNames = loaded.invalidServerNames || [];
+        const errorTotal = (loaded.error ? 1 : 0) + invalidNames.length;
+        const errorItems = loaded.error
+          ? [{ server: null, message: boundedString(loaded.error) }]
+          : [];
+        for (const name of invalidNames.slice(0, Math.max(0, 20 - errorItems.length))) {
+          errorItems.push({
+            server: boundedString(name),
+            message: boundedString(loaded.serverErrors && loaded.serverErrors[name]),
+          });
+        }
+        const samples = fitListServerSamples([], errorItems, 0, errorTotal);
+        return successResult(configHelpText(loaded), {
+          status: loaded.found ? "invalid" : "missing",
+          configured_count: invalidNames.length,
+          valid_count: 0,
+          invalid_count: invalidNames.length,
+          default_server: null,
+          servers: [],
+          servers_omitted: 0,
+          errors: samples.errors,
+          errors_omitted: samples.errorsOmitted,
+        });
       }
       const names = loaded.serverNames;
       const invalidNames = loaded.invalidServerNames || [];
       const lines = [`Configured servers (${names.length + invalidNames.length}):`, ""];
+      const structuredServers = [];
       for (const name of names) {
         const s = normalizeServer(name, loaded.config.servers[name]);
         const isDefault =
@@ -332,12 +720,50 @@ export function registerTools(server, loaded, options = {}) {
               : `    ⚠ SFTP connections are REFUSED until "hostKeySha256" is configured or "allowUnknownHostKey": true is set`
           );
         }
+        if (structuredServers.length < 20) {
+          structuredServers.push({
+            name: boundedString(name),
+            protocol: s.protocol,
+            host: boundedString(s.host),
+            port: s.port,
+            root: boundedString(normalizeRoot(s.root)),
+            read_only: s.readOnly,
+            auth,
+            is_default: isDefault,
+            local_root_status: localRootStatus(s),
+            connection_refused: connectionRefused(s),
+            security_warning: securityWarning(s),
+          });
+        }
       }
+      const structuredErrors = [];
       for (const name of invalidNames) {
         lines.push(`- ${name}  [INVALID — REFUSED]`);
         lines.push(`    ${loaded.serverErrors[name]}`);
+        if (structuredErrors.length < 20) {
+          structuredErrors.push({
+            server: boundedString(name),
+            message: boundedString(loaded.serverErrors[name]),
+          });
+        }
       }
-      return textResult(lines.join("\n"));
+      const samples = fitListServerSamples(
+        structuredServers,
+        structuredErrors,
+        names.length,
+        invalidNames.length
+      );
+      return successResult(lines.join("\n"), {
+        status: "configured",
+        configured_count: names.length + invalidNames.length,
+        valid_count: names.length,
+        invalid_count: invalidNames.length,
+        default_server: loaded.defaultServer ? boundedString(loaded.defaultServer) : null,
+        servers: samples.servers,
+        servers_omitted: samples.serversOmitted,
+        errors: samples.errors,
+        errors_omitted: samples.errorsOmitted,
+      });
     })
   );
 
@@ -348,13 +774,24 @@ export function registerTools(server, loaded, options = {}) {
       title: "Test a server connection",
       description: "Connect to a server, list its root directory, and report success.",
       inputSchema: { server: serverField },
+      outputSchema: OUTPUT_SCHEMAS.test,
+      annotations: annotations(true, false, true, true),
     },
     guardTool((args) =>
       useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
         const root = resolveRemote(s.root, "");
         const entries = await adapter.list(root);
-        return textResult(
-          `OK — connected to ${s.protocol}://${s.host}:${s.port}, root ${root}, ${entries.length} entries visible`
+        return successResult(
+          `OK — connected to ${s.protocol}://${s.host}:${s.port}, root ${root}, ${entries.length} entries visible`,
+          {
+            server: boundedString(s.name),
+            protocol: s.protocol,
+            host: boundedString(s.host),
+            port: s.port,
+            root: boundedString(root),
+            entries_visible: entries.length,
+            security_warning: securityWarning(s),
+          }
         );
       })
     )
@@ -370,7 +807,11 @@ export function registerTools(server, loaded, options = {}) {
       inputSchema: {
         server: serverField,
         path: z.string().optional().describe("Remote directory, relative to the server root. Defaults to the root."),
+        limit: z.number().int().min(1).max(200).optional().describe("Maximum entries to return (default 50, maximum 200)."),
+        offset: z.number().int().nonnegative().optional().describe("Zero-based entry offset (default 0)."),
       },
+      outputSchema: OUTPUT_SCHEMAS.list,
+      annotations: annotations(true, false, true, true),
     },
     guardTool((args) =>
       useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
@@ -382,11 +823,39 @@ export function registerTools(server, loaded, options = {}) {
           if (ad !== bd) return ad - bd;
           return a.name.localeCompare(b.name);
         });
-        const lines = [`Contents of ${target} (${entries.length} entries):`, ""];
+        const limit = args.limit ?? 50;
+        const offset = args.offset ?? 0;
+        const total = entries.length;
+        const warning = securityWarning(s);
+        const candidates = entries.slice(offset, offset + limit);
+        const projectedPage = fitListPage(
+          {
+            server: boundedString(s.name),
+            path: boundedString(target),
+            total,
+            offset,
+            limit,
+            security_warning: warning,
+          },
+          candidates
+        );
+        const page = candidates.slice(0, projectedPage.length);
+        const count = projectedPage.length;
+        const hasMore = offset + count < total;
+        const nextOffset = hasMore ? offset + count : null;
+        const pageLine = `Page: offset ${offset}, count ${count}, limit ${limit}; ${
+          nextOffset === null ? "no next offset" : `next offset ${nextOffset}`
+        }.`;
+        const showPagination = args.limit !== undefined || args.offset !== undefined || total > 50;
+        const lines = [`Contents of ${target} (${entries.length} entries):`];
+        if (showPagination) lines.push(pageLine);
+        lines.push("");
         if (entries.length === 0) {
           lines.push("(empty directory)");
+        } else if (page.length === 0) {
+          lines.push(`(no entries at offset ${offset})`);
         } else {
-          for (const e of entries) {
+          for (const e of page) {
             if (e.type === "dir") {
               lines.push(`[DIR] ${e.name}`);
             } else if (e.type === "link") {
@@ -397,7 +866,18 @@ export function registerTools(server, loaded, options = {}) {
             }
           }
         }
-        return textResult(lines.join("\n"));
+        return successResult(lines.join("\n"), {
+          server: boundedString(s.name),
+          path: boundedString(target),
+          total,
+          count,
+          offset,
+          limit,
+          has_more: hasMore,
+          next_offset: nextOffset,
+          entries: projectedPage,
+          security_warning: warning,
+        });
       })
     )
   );
@@ -419,6 +899,7 @@ export function registerTools(server, loaded, options = {}) {
           .optional()
           .describe(`Maximum bytes to read (default ${READ_DEFAULT_BYTES}, hard max ${READ_MAX_BYTES}).`),
       },
+      annotations: annotations(true, false, true, true),
     },
     guardTool((args) =>
       useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
@@ -457,6 +938,8 @@ export function registerTools(server, loaded, options = {}) {
           .optional()
           .describe("Destination remote path, relative to the server root. Defaults to the local basename at the root."),
       },
+      outputSchema: OUTPUT_SCHEMAS.upload,
+      annotations: annotations(false, true, false, true),
     },
     guardTool(async (args) => {
       requireConfig(loaded);
@@ -472,8 +955,15 @@ export function registerTools(server, loaded, options = {}) {
           { write: true },
           async ({ adapter }) => {
             await adapter.uploadFile(source.path, target);
-            return textResult(
-              `Uploaded ${source.path} -> ${target} (${formatSize(source.stat.size)}) on ${s.protocol}://${s.host}`
+            return successResult(
+              `Uploaded ${source.path} -> ${target} (${formatSize(source.stat.size)}) on ${s.protocol}://${s.host}`,
+              {
+                server: boundedString(name),
+                local_path: boundedString(source.path),
+                remote_path: boundedString(target),
+                size_bytes: source.stat.size,
+                security_warning: securityWarning(s),
+              }
             );
           },
           connectAdapter
@@ -505,6 +995,8 @@ export function registerTools(server, loaded, options = {}) {
         exclude: z.array(z.string()).optional().describe("Extra glob patterns to exclude, added to the built-in defaults."),
         dry_run: z.boolean().optional().describe("If true, list what would be uploaded without connecting."),
       },
+      outputSchema: OUTPUT_SCHEMAS.deploy,
+      annotations: annotations(false, true, false, true),
     },
     guardTool(async (args) => {
       requireConfig(loaded);
@@ -522,9 +1014,9 @@ export function registerTools(server, loaded, options = {}) {
             `Dry run — would upload ${files.length} files (${formatSize(totalBytes)}) to ${remoteBase} on "${name}". No connection was made.`,
             "",
           ];
-          const shown = files.slice(0, 100);
+          const shown = files.slice(0, DEPLOY_SAMPLE_LIMIT);
           for (const f of shown) lines.push(`  ${f.rel} (${formatSize(f.size)})`);
-          if (files.length > 100) lines.push(`  ... and ${files.length - 100} more`);
+          if (files.length > shown.length) lines.push(`  ... and ${files.length - shown.length} more`);
           if (files.length === 0) lines.push("  (nothing matches — check include/exclude globs)");
           if (s.readOnly) {
             lines.push("");
@@ -534,7 +1026,33 @@ export function registerTools(server, loaded, options = {}) {
             lines.push("");
             lines.push(`Note: ${message}`);
           }
-          return withTransportNotices(textResult(lines.join("\n")), s);
+          const planned = boundedDeploySamples(files, (file) => ({
+            path: file.rel,
+            size_bytes: file.size,
+          }));
+          return withTransportNotices(
+            successResult(lines.join("\n"), {
+              mode: "dry_run",
+              server: boundedString(name),
+              remote_base: boundedString(remoteBase),
+              total_files: files.length,
+              total_bytes: totalBytes,
+              uploaded_count: 0,
+              uploaded_bytes: 0,
+              failed_count: 0,
+              aborted_early: false,
+              complete: true,
+              duration_ms: 0,
+              security_warning: securityWarning(s),
+              uploaded: [],
+              uploaded_omitted: 0,
+              planned: planned.sample,
+              planned_omitted: planned.omitted,
+              failures: [],
+              failures_omitted: 0,
+            }),
+            s
+          );
         }
 
         if (s.readOnly) {
@@ -545,8 +1063,28 @@ export function registerTools(server, loaded, options = {}) {
 
         if (files.length === 0) {
           return withTransportNotices(
-            textResult(
-              `Nothing to deploy to ${remoteBase} on "${name}" — no files matched (check include/exclude globs).`
+            successResult(
+              `Nothing to deploy to ${remoteBase} on "${name}" — no files matched (check include/exclude globs).`,
+              {
+                mode: "deploy",
+                server: boundedString(name),
+                remote_base: boundedString(remoteBase),
+                total_files: 0,
+                total_bytes: 0,
+                uploaded_count: 0,
+                uploaded_bytes: 0,
+                failed_count: 0,
+                aborted_early: false,
+                complete: true,
+                duration_ms: 0,
+                security_warning: securityWarning(s),
+                uploaded: [],
+                uploaded_omitted: 0,
+                planned: [],
+                planned_omitted: 0,
+                failures: [],
+                failures_omitted: 0,
+              }
             ),
             s
           );
@@ -578,7 +1116,7 @@ export function registerTools(server, loaded, options = {}) {
                   created.add(parent);
                 }
                 await adapter.uploadFile(f.abs, target);
-                uploadedList.push(f.rel);
+                uploadedList.push({ path: f.rel, size_bytes: f.size });
                 bytes += f.size;
                 consecutive = 0;
               } catch (err) {
@@ -605,7 +1143,8 @@ export function registerTools(server, loaded, options = {}) {
           }
         }
 
-        const secs = ((Date.now() - t0) / 1000).toFixed(1);
+        const durationMs = Date.now() - t0;
+        const secs = (durationMs / 1000).toFixed(1);
         if (deployFailure) failures.push(`deploy: ${deployFailure.message}`);
         if (closeFailure) failures.push(`connection close: ${closeFailure.message}`);
         const partial =
@@ -623,18 +1162,45 @@ export function registerTools(server, loaded, options = {}) {
         }
         lines.push("");
         lines.push("Uploaded:");
-        const shown = uploadedList.slice(0, 100);
-        for (const r of shown) lines.push(`  ${r}`);
-        if (uploadedList.length > 100) lines.push(`  ... and ${uploadedList.length - 100} more`);
+        const shown = uploadedList.slice(0, DEPLOY_SAMPLE_LIMIT);
+        for (const item of shown) lines.push(`  ${item.path}`);
+        if (uploadedList.length > shown.length) lines.push(`  ... and ${uploadedList.length - shown.length} more`);
         if (uploadedList.length === 0) lines.push("  (none)");
         if (failures.length) {
           lines.push("");
           lines.push(`Failures (${failures.length}):`);
-          for (const fmsg of failures.slice(0, 100)) lines.push(`  ${fmsg}`);
-          if (failures.length > 100) lines.push(`  ... and ${failures.length - 100} more`);
+          const shownFailures = failures.slice(0, DEPLOY_SAMPLE_LIMIT);
+          for (const fmsg of shownFailures) lines.push(`  ${fmsg}`);
+          if (failures.length > shownFailures.length) {
+            lines.push(`  ... and ${failures.length - shownFailures.length} more`);
+          }
         }
         const text = lines.join("\n");
-        return withTransportNotices(partial ? explicitErrorResult(text) : textResult(text), s);
+        if (partial) return withTransportNotices(explicitErrorResult(text), s);
+        const uploaded = boundedDeploySamples(uploadedList);
+        return withTransportNotices(
+          successResult(text, {
+            mode: "deploy",
+            server: boundedString(name),
+            remote_base: boundedString(remoteBase),
+            total_files: files.length,
+            total_bytes: totalBytes,
+            uploaded_count: uploadedList.length,
+            uploaded_bytes: bytes,
+            failed_count: 0,
+            aborted_early: false,
+            complete: true,
+            duration_ms: durationMs,
+            security_warning: securityWarning(s),
+            uploaded: uploaded.sample,
+            uploaded_omitted: uploaded.omitted,
+            planned: [],
+            planned_omitted: 0,
+            failures: [],
+            failures_omitted: 0,
+          }),
+          s
+        );
       } catch (err) {
         throw withTransportError(err, s);
       }
@@ -653,6 +1219,8 @@ export function registerTools(server, loaded, options = {}) {
         local_path: z.string().describe("Local destination path, absolute or relative to the server's configured localRoot."),
         overwrite: z.boolean().optional().describe("Allow overwriting an existing local file."),
       },
+      outputSchema: OUTPUT_SCHEMAS.download,
+      annotations: annotations(false, true, false, true),
     },
     guardTool(async (args) => {
       requireConfig(loaded);
@@ -672,7 +1240,17 @@ export function registerTools(server, loaded, options = {}) {
           async ({ adapter }) => {
             await adapter.downloadFile(target, destination.path);
             const written = resolveLocalDestination(s, args.local_path);
-            return textResult(`Downloaded ${target} -> ${written.path} (${formatSize(written.stat.size)})`);
+            return successResult(
+              `Downloaded ${target} -> ${written.path} (${formatSize(written.stat.size)})`,
+              {
+                server: boundedString(name),
+                remote_path: boundedString(target),
+                local_path: boundedString(written.path),
+                size_bytes: written.stat.size,
+                overwritten: destination.exists,
+                security_warning: securityWarning(s),
+              }
+            );
           },
           connectAdapter
         );
@@ -692,12 +1270,19 @@ export function registerTools(server, loaded, options = {}) {
         server: serverField,
         path: z.string().describe("Remote directory to create, relative to the server root."),
       },
+      outputSchema: OUTPUT_SCHEMAS.mkdir,
+      annotations: annotations(false, false, true, true),
     },
     guardTool((args) =>
       useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
         const target = resolveRemote(s.root, args.path);
         await adapter.mkdirp(target);
-        return textResult(`Created directory ${target}`);
+        return successResult(`Created directory ${target}`, {
+          server: boundedString(s.name),
+          path: boundedString(target),
+          created: true,
+          security_warning: securityWarning(s),
+        });
       })
     )
   );
@@ -713,6 +1298,8 @@ export function registerTools(server, loaded, options = {}) {
         from_path: z.string().describe("Existing remote path, relative to the server root."),
         to_path: z.string().describe("New remote path, relative to the server root."),
       },
+      outputSchema: OUTPUT_SCHEMAS.rename,
+      annotations: annotations(false, true, false, true),
     },
     guardTool((args) =>
       useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
@@ -721,7 +1308,13 @@ export function registerTools(server, loaded, options = {}) {
         const from = resolveRemote(s.root, args.from_path);
         const to = resolveRemote(s.root, args.to_path);
         await adapter.rename(from, to);
-        return textResult(`Renamed ${from} -> ${to}`);
+        return successResult(`Renamed ${from} -> ${to}`, {
+          server: boundedString(s.name),
+          from_path: boundedString(from),
+          to_path: boundedString(to),
+          moved: true,
+          security_warning: securityWarning(s),
+        });
       })
     )
   );
@@ -738,6 +1331,8 @@ export function registerTools(server, loaded, options = {}) {
         path: z.string().describe("Remote path to delete, relative to the server root."),
         recursive: z.boolean().optional().describe("Required to delete a directory and its contents."),
       },
+      outputSchema: OUTPUT_SCHEMAS.delete,
+      annotations: annotations(false, true, true, true),
     },
     guardTool((args) =>
       useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
@@ -749,10 +1344,24 @@ export function registerTools(server, loaded, options = {}) {
             throw new Error(`"${target}" is a directory — pass recursive:true to delete it`);
           }
           await adapter.deleteDir(target);
-          return textResult(`Deleted directory (recursive) ${target}`);
+          return successResult(`Deleted directory (recursive) ${target}`, {
+            server: boundedString(s.name),
+            path: boundedString(target),
+            entry_type: "directory",
+            recursive: true,
+            deleted: true,
+            security_warning: securityWarning(s),
+          });
         }
         await adapter.deleteFile(target);
-        return textResult(`Deleted file ${target}`);
+        return successResult(`Deleted file ${target}`, {
+          server: boundedString(s.name),
+          path: boundedString(target),
+          entry_type: "file",
+          recursive: false,
+          deleted: true,
+          security_warning: securityWarning(s),
+        });
       })
     )
   );

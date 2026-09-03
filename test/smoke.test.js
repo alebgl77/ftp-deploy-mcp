@@ -22,6 +22,7 @@ import { parseSiteManager, decodeRemoteDir } from "../src/filezilla.js";
 import { loadConfig, normalizeServer, insecureTransport, resolveServer } from "../src/config.js";
 import { getClients, mergeConfigFile, applyClient, buildEntry } from "../src/clients.js";
 import { runToolsSecurityTests } from "./tools-security.js";
+import { runMcpContractTests } from "./mcp-contract.js";
 import { atomicWriteFileSync } from "../src/atomic-write.js";
 import { createRedactor } from "../src/redact.js";
 import { registerTools } from "../src/tools.js";
@@ -1009,6 +1010,12 @@ async function main() {
 
   await runToolsSecurityTests({
     root: path.join(baseDir, "tools-security"),
+    ok,
+    contains,
+    notContains,
+  });
+  await runMcpContractTests({
+    root: path.join(baseDir, "mcp-contract"),
     ok,
     contains,
     notContains,
