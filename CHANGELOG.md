@@ -23,6 +23,10 @@ server metadata remain at 0.1.0 until the release checklist is completed.
   the unresolved symlink risk of a client-side sub-root.
 - Dedicated [security model](./docs/SECURITY-MODEL.md) and
   [first-release checklist](./docs/RELEASE.md).
+- MCP output schemas and successful structured responses for every tool except
+  the intentionally text-only `ftp_read`, plus annotations for all tools.
+- A reproducible, external read-only agent evaluation fixture and 10-question
+  MCP evaluation set.
 
 ### Changed
 
@@ -33,6 +37,12 @@ server metadata remain at 0.1.0 until the release checklist is completed.
   boundary is now a dedicated server-side chrooted account with `root: "/"`.
 - `ftp_deploy` returns an MCP error when any transfer fails and includes a
   partial-deployment summary. Earlier successful transfers are not rolled back.
+- `ftp_list` no longer returns every directory entry by default. It returns the
+  first 50 entries and pagination metadata; callers can select an offset and a
+  page size from 1 through 200.
+- Existing text responses remain available alongside structured successful
+  responses. Tool errors remain text-only `isError` results, and `ftp_deploy`
+  reports bounded samples rather than exhaustive file lists.
 - Boolean safety flags and SFTP fingerprint formats are validated per server.
 - Setup and diagnostics surface active insecure-transport, unknown-host-key,
   and unsafe-remote-root acknowledgments.

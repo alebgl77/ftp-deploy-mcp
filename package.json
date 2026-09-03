@@ -29,6 +29,7 @@
   "files": [
     "src",
     "docs",
+    "evaluations",
     "README.md",
     "README.fr.md",
     "ftp-servers.example.json",

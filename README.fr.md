@@ -175,7 +175,7 @@ optionnel lorsqu'un `defaultServer` est défini ou qu'un seul serveur existe.
 |---|---|---|
 | `ftp_list_servers` | aucun | Affiche les métadonnées et avertissements, jamais les mots de passe. |
 | `ftp_test` | `server?` | Se connecte et liste la racine visible. |
-| `ftp_list` | `server?`, `path?` | Liste un dossier distant. |
+| `ftp_list` | `server?`, `path?`, `limit?`, `offset?` | Liste un dossier distant. `limit` vaut 50 par défaut (1–200) ; `offset` vaut 0 par défaut. |
 | `ftp_read` | `server?`, `path`, `max_bytes?` | Lit un fichier texte borné ; refuse les binaires. |
 | `ftp_upload` | `server?`, `local_path`, `remote_path?` | Envoie un fichier depuis `localRoot`. |
 | `ftp_deploy` | `server?`, `local_dir`, `remote_dir?`, `include?`, `exclude?`, `dry_run?` | Déploie récursivement un dossier de `localRoot`. |
@@ -183,6 +183,46 @@ optionnel lorsqu'un `defaultServer` est défini ou qu'un seul serveur existe.
 | `ftp_mkdir` | `server?`, `path` | Crée un dossier distant récursivement. |
 | `ftp_rename` | `server?`, `from_path`, `to_path` | Renomme ou déplace. |
 | `ftp_delete` | `server?`, `path`, `recursive?` | Supprime un fichier ou, avec récursion explicite, un dossier. |
+
+### Compatibilité des réponses, pagination et annotations
+
+`ftp_list` renvoie une page plutôt qu'une liste de dossier non bornée. Une
+réponse réussie contient les champs de pagination `total`, `count`, `offset`,
+`limit`, `has_more` et `next_offset`. Par exemple, la requête
+`{"server":"prod","path":"/assets","limit":2,"offset":2}` peut produire
+l'extrait volontairement non exhaustif ci-dessous. Il omet les champs requis
+`server`, `path` et `security_warning` au premier niveau, ainsi que les champs
+requis `size_bytes` et `modified_at` de chaque entrée :
+
+```json
+{
+  "structuredContent": {
+    "entries": [
+      { "name": "app.css", "type": "file" },
+      { "name": "app.js", "type": "file" }
+    ],
+    "total": 6,
+    "count": 2,
+    "offset": 2,
+    "limit": 2,
+    "has_more": true,
+    "next_offset": 4
+  }
+}
+```
+
+Le texte historique, lisible par un humain dans `content`, est conservé pour
+compatibilité. En cas de succès, tous les outils sauf `ftp_read` annoncent
+aussi un `outputSchema` MCP et renvoient un `structuredContent` correspondant ;
+`ftp_read` reste un outil texte borné. Les erreurs d'outil restent des réponses
+`isError` avec contenu texte, sans `structuredContent`.
+
+Tous les outils publient des annotations MCP sur leur caractère lecture seule,
+destructif, idempotent et ouvert sur l'extérieur. Ces annotations guident les
+clients mais ne constituent pas une frontière de sécurité : imposez les accès
+avec les identifiants serveur, `readOnly`, `localRoot` et les contrôles de
+protocole décrits plus haut. Le résultat structuré de `ftp_deploy` contient un
+résumé et des échantillons bornés, pas des listes exhaustives de fichiers.
 
 `ftp_deploy` n'est pas une transaction. Si un ou plusieurs transferts échouent,
 l'outil renvoie une erreur MCP avec un résumé du déploiement partiel ; les
@@ -283,7 +323,9 @@ node src/index.js --help
 La suite de tests utilise des serveurs FTP et SFTP locaux, sans réseau externe.
 Les contributions sont bienvenues ; voir
 [CONTRIBUTING.md](./CONTRIBUTING.md). Les mainteneurs doivent suivre le
-[guide de release](./docs/RELEASE.md).
+[guide de release](./docs/RELEASE.md). Une évaluation agent reproductible, en
+lecture seule et hébergée à l'extérieur, est décrite dans
+[evaluations/README.md](./evaluations/README.md).
 
 ## Licence
 
