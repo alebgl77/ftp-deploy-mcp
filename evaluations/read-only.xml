@@ -1,0 +1,42 @@
+<evaluation>
+  <qa_pair>
+    <question>Call ftp_list_servers with no arguments. Considering the two configured evaluation servers named eval-ftp and eval-sftp, which server uses SFTP? Return only the server name.</question>
+    <answer>eval-sftp</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_test with server eval-ftp, then call ftp_read with server eval-ftp, path /README.txt, and max_bytes 4096. What fixture_id does the file declare? Return only its value.</question>
+    <answer>FDMCP-EVAL-2026-09</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_test with server eval-sftp, then call ftp_list with server eval-sftp, path /, limit 200, and offset 0. How many entries are in the fixture root? Return only the integer.</question>
+    <answer>3</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_list with server eval-ftp, path /catalog, limit 2, and offset 2. From the top level of structuredContent, return the pagination fields in exactly this order and format: total=N,count=N,offset=N,limit=N,has_more=BOOLEAN,next_offset=N.</question>
+    <answer>total=6,count=2,offset=2,limit=2,has_more=true,next_offset=4</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_list with server eval-sftp, path /catalog, limit 200, and offset 0. This explicitly exercises the maximum allowed limit. What count is returned? Return only the integer.</question>
+    <answer>6</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_list with server eval-ftp, path /catalog, limit 1, and offset 5. This explicitly exercises the minimum allowed limit. Return only the final-page values in exactly this format: has_more=BOOLEAN,next_offset=null.</question>
+    <answer>has_more=false,next_offset=null</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_list with server eval-ftp, path /catalog, limit 200, and offset 0. Then call ftp_read with server eval-ftp and max_bytes 4096 for each path /catalog/alpha.txt, /catalog/bravo.txt, /catalog/charlie.txt, /catalog/delta.txt, /catalog/echo.txt, and /catalog/foxtrot.txt. Which record has the largest units value? Return only the record value.</question>
+    <answer>foxtrot</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_list with server eval-sftp, path /catalog, limit 200, and offset 0. Then call ftp_read with server eval-sftp and max_bytes 4096 for each path /catalog/alpha.txt, /catalog/bravo.txt, /catalog/charlie.txt, /catalog/delta.txt, /catalog/echo.txt, and /catalog/foxtrot.txt. What is the sum of units for records whose region is north? Return only the integer.</question>
+    <answer>31</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_read with server eval-ftp, path /reports/release.txt, and max_bytes 4096. What release_codename is recorded? Return only its value.</question>
+    <answer>redwood</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Call ftp_read with server eval-ftp, path /reports/checks.txt, and max_bytes 4096, then call ftp_read with server eval-sftp, path /reports/checks.txt, and max_bytes 4096. Do both files declare fixture_match=true? Return only true or false.</question>
+    <answer>true</answer>
+  </qa_pair>
+</evaluation>

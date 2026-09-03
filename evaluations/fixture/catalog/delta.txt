@@ -1,0 +1,4 @@
+record=delta
+region=east
+units=7
+code=D43

@@ -53,4 +53,4 @@ jobs:
       - name: Validate package contents
         run: |
           npm pack --dry-run --json > "$RUNNER_TEMP/npm-pack.json"
-          node -e "const{readFileSync}=require('node:fs');const[{files}]=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/npm-pack.json','utf8'));const paths=new Set(files.map(({path})=>path));for(const path of ['docs/SECURITY-MODEL.md','docs/RELEASE.md'])if(!paths.has(path))throw new Error('Missing package file: '+path)"
+          node -e "const{readFileSync}=require('node:fs');const[{files}]=JSON.parse(readFileSync(process.env.RUNNER_TEMP+'/npm-pack.json','utf8'));const paths=new Set(files.map(({path})=>path));for(const path of ['docs/SECURITY-MODEL.md','docs/RELEASE.md','evaluations/README.md','evaluations/read-only.xml'])if(!paths.has(path))throw new Error('Missing package file: '+path)"
