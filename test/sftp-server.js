@@ -3,7 +3,7 @@
 // real temp directory (`root`) and implements just enough of the SFTP protocol
 // for ssh2-sftp-client to exercise every tool.
 //
-// startSftpServer({ root, user, password })
+// startSftpServer({ root, user, password, publicKey? })
 //   -> Promise<{ port, hostKeySha256, getStats(), close() }>
 
 import crypto from "node:crypto";
@@ -20,8 +20,10 @@ function virtualNormalize(p) {
   return path.posix.normalize("/" + s);
 }
 
-export function startSftpServer({ root, user, password }) {
+export function startSftpServer({ root, user, password, publicKey }) {
   const realRoot = path.resolve(root);
+  const allowedKey = publicKey === undefined ? null : utils.parseKey(publicKey);
+  if (allowedKey instanceof Error) throw allowedKey;
 
   // Virtual path -> real filesystem path under realRoot.
   function toReal(virtualPath) {
@@ -57,18 +59,30 @@ export function startSftpServer({ root, user, password }) {
     const hostKeySha256 =
       "SHA256:" +
       crypto.createHash("sha256").update(parsedHostKey.getPublicSSH()).digest("base64").replace(/=+$/, "");
-    const stats = { authenticationAttempts: 0, sftpSessions: 0 };
+    const stats = { authenticationAttempts: 0, sftpSessions: 0, publicKeyAuthentications: 0 };
+    const clients = new Set();
 
     const server = new Server({ hostKeys: [privateKey] }, (client) => {
+      clients.add(client);
+      client.on("close", () => clients.delete(client));
       // A deliberately rejected host key ends key exchange and emits an error
       // on the server-side client object. It is expected in negative tests.
       client.on("error", () => {});
       client.on("authentication", (ctx) => {
         stats.authenticationAttempts++;
-        if (ctx.method === "password" && ctx.username === user && ctx.password === password) {
+        if (ctx.method === "password" && password !== undefined && ctx.username === user && ctx.password === password) {
+          ctx.accept();
+        } else if (ctx.method === "publickey" && allowedKey && ctx.username === user) {
+          const expected = allowedKey.getPublicSSH();
+          if (ctx.key.algo !== allowedKey.type || ctx.key.data.length !== expected.length ||
+              !crypto.timingSafeEqual(ctx.key.data, expected) ||
+              (ctx.signature && allowedKey.verify(ctx.blob, ctx.signature, ctx.hashAlgo) !== true)) {
+            return ctx.reject();
+          }
+          if (ctx.signature) stats.publicKeyAuthentications++;
           ctx.accept();
         } else if (ctx.method === "none") {
-          ctx.reject(["password"]);
+          ctx.reject([...(password !== undefined ? ["password"] : []), ...(allowedKey ? ["publickey"] : [])]);
         } else {
           ctx.reject();
         }
@@ -88,6 +102,14 @@ export function startSftpServer({ root, user, password }) {
 
     function wireSftp(sftp) {
       const handles = new Map();
+      sftp.on("close", () => {
+        for (const h of handles.values()) {
+          if (h.type === "file") {
+            try { fs.closeSync(h.fd); } catch { /* already closed */ }
+          }
+        }
+        handles.clear();
+      });
       let nextId = 1;
       const makeHandle = (obj) => {
         const id = nextId++;
@@ -282,6 +304,7 @@ export function startSftpServer({ root, user, password }) {
         getStats: () => ({ ...stats }),
         close: () =>
           new Promise((res) => {
+            for (const client of clients) client.end();
             server.close(() => res());
           }),
       });
