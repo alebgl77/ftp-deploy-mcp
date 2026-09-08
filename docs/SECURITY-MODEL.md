@@ -1,5 +1,7 @@
 # Security Model
 
+**English** | [Français](./SECURITY-MODEL.fr.md)
+
 This document describes what ftp-deploy-mcp protects, what it assumes, and
 where operators must provide stronger controls. It applies to the unreleased
 v0.2 source line; verify the release notes for the exact artifact you run.

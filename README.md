@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" width="96" alt="ftp-deploy-mcp logo">
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/logo.svg" width="96" alt="ftp-deploy-mcp logo">
 
 # ftp-deploy-mcp
 
@@ -17,7 +17,7 @@ your own FTP, FTPS, and SFTP servers.
 [![Node >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](./package.json)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-8A2BE2.svg)](https://modelcontextprotocol.io)
 
-<img src="assets/banner.svg" width="100%" alt="ftp-deploy-mcp banner">
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/banner-en.png" width="100%" alt="ftp-deploy-mcp — Controlled deployment for your AI agents; FTP, FTPS, SFTP over MCP stdio">
 
 </div>
 
@@ -32,6 +32,32 @@ runs against local FTP and SFTP servers. There is no telemetry.
 > announced. Existing Glama and MCP Index pages are discovery listings, not
 > proof that an installable package is available. Package and server metadata
 > are aligned at release candidate 0.2.0, pending publication.
+
+## Documentation
+
+| Document | English | Français |
+|---|---|---|
+| Overview and installation | [README](./README.md) | [README](./README.fr.md) |
+| Changes | [Changelog](./CHANGELOG.md) | [Modifications](./CHANGELOG.fr.md) |
+| Contributing | [Guide](./CONTRIBUTING.md) | [Guide](./CONTRIBUTING.fr.md) |
+| Security policy | [Policy](./SECURITY.md) | [Politique](./SECURITY.fr.md) |
+| Security model | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
+| Release process | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
+| Agent evaluation | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
+| MIT license | [Canonical text](./LICENSE) | [Informative translation](./LICENSE.fr.md) |
+
+## Architecture and scenarios
+
+Explore the current and target architecture diagrams and illustrative scenarios
+in the bilingual [interactive HTML guide](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/index.html).
+The guide and its
+[English](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.md) / [French](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.fr.md)
+build instructions are in the repository, outside the npm package. After
+cloning, open `site/index.html` locally and use its language selector.
+
+The README banners were generated with ChatGPT Image. Their
+[provenance and exact prompts](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/README.md)
+document their illustrative role; they are not a certification.
 
 ## First source install
 

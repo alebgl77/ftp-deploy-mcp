@@ -1,5 +1,7 @@
 # Release Guide
 
+**English** | [Français](./RELEASE.fr.md)
+
 This is the maintainer checklist for the first npm and MCP registry
 publication. It intentionally separates repository automation from manual
 account, ownership, and registry work.
@@ -48,7 +50,8 @@ For a v0.2.0 release:
    and generated metadata for stale `0.1.0` strings; expected historical
    references in the changelog are exempt.
 3. At final release approval, replace the v0.2.0 `Release candidate` status in
-   [CHANGELOG.md](../CHANGELOG.md) with the effective publication date. While
+   [CHANGELOG.md](../CHANGELOG.md) and its `Version candidate` equivalent in
+   [CHANGELOG.fr.md](../CHANGELOG.fr.md) with the effective publication date. While
    publication is pending, preserve the candidate status.
 4. Confirm every user-visible v0.2 change is documented in both
    [README.md](../README.md) and [README.fr.md](../README.fr.md).

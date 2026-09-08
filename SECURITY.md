@@ -1,5 +1,7 @@
 # Security Policy
 
+**English** | [Français](./SECURITY.fr.md)
+
 ## Supported versions
 
 The project has not yet completed its first npm or MCP registry publication.

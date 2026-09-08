@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" width="96" alt="logo ftp-deploy-mcp">
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/logo.svg" width="96" alt="logo ftp-deploy-mcp">
 
 # ftp-deploy-mcp
 
@@ -17,7 +17,7 @@ déployer des fichiers sur vos propres serveurs FTP, FTPS et SFTP.
 [![Node >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](./package.json)
 [![Compatible MCP](https://img.shields.io/badge/MCP-compatible-8A2BE2.svg)](https://modelcontextprotocol.io)
 
-<img src="assets/banner.svg" width="100%" alt="bannière ftp-deploy-mcp">
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/banner-fr.png" width="100%" alt="ftp-deploy-mcp — Déploiement contrôlé pour vos agents IA ; FTP, FTPS, SFTP via MCP stdio">
 
 </div>
 
@@ -33,6 +33,33 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 > existantes sont des fiches de découverte, pas la preuve d'un paquet
 > installable. Les métadonnées du paquet et du serveur sont alignées sur la
 > release candidate 0.2.0, en attente de publication.
+
+## Documentation
+
+| Document | English | Français |
+|---|---|---|
+| Présentation et installation | [README](./README.md) | [README](./README.fr.md) |
+| Modifications | [Changelog](./CHANGELOG.md) | [Journal](./CHANGELOG.fr.md) |
+| Contribution | [Guide](./CONTRIBUTING.md) | [Guide](./CONTRIBUTING.fr.md) |
+| Politique de sécurité | [Policy](./SECURITY.md) | [Politique](./SECURITY.fr.md) |
+| Modèle de sécurité | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
+| Publication | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
+| Évaluation d'agents | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
+| Licence MIT | [Texte canonique](./LICENSE) | [Traduction informative](./LICENSE.fr.md) |
+
+## Architecture et scénarios
+
+Explorez les schémas d'architecture actuelle et cible et les scénarios illustratifs
+dans le [guide HTML interactif bilingue](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/index.html).
+Le guide et ses instructions
+de reconstruction en [anglais](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.md) et en
+[français](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.fr.md) se trouvent dans le dépôt, hors du paquet
+npm. Après clonage, ouvrez `site/index.html` localement et utilisez son
+sélecteur de langue.
+
+Les bannières du README ont été générées avec ChatGPT Image. Leur
+[provenance et leurs prompts exacts](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/README.fr.md)
+documentent leur rôle illustratif ; elles ne constituent pas une certification.
 
 ## Première installation depuis les sources
 
@@ -321,7 +348,7 @@ v0.2 n'est encore publié.
 
 Le remplacement atomique des nouvelles configurations sensibles est une
 condition de release v0.2, pas une garantie des métadonnées 0.2.0 de cette
-release candidate. Consultez [docs/RELEASE.md](./docs/RELEASE.md) avant de créer la
+release candidate. Consultez [docs/RELEASE.fr.md](./docs/RELEASE.fr.md) avant de créer la
 release.
 
 ## Sécurité et limites
@@ -338,8 +365,8 @@ release.
 - FTP, `insecureTLS`, `allowUnknownHostKey` et `allowUnsafeRemoteRoot` sont des
   acceptations explicites de risque, pas des fonctions de sécurité.
 
-Lisez le [modèle de sécurité complet](./docs/SECURITY-MODEL.md) et la
-[politique de signalement privé](./SECURITY.md).
+Lisez le [modèle de sécurité complet](./docs/SECURITY-MODEL.fr.md) et la
+[politique de signalement privé](./SECURITY.fr.md).
 
 ## Développement
 
@@ -351,11 +378,12 @@ node src/index.js --help
 
 La suite de tests utilise des serveurs FTP et SFTP locaux, sans réseau externe.
 Les contributions sont bienvenues ; voir
-[CONTRIBUTING.md](./CONTRIBUTING.md). Les mainteneurs doivent suivre le
-[guide de release](./docs/RELEASE.md). Une évaluation agent reproductible, en
+[CONTRIBUTING.fr.md](./CONTRIBUTING.fr.md). Les mainteneurs doivent suivre le
+[guide de release](./docs/RELEASE.fr.md). Une évaluation agent reproductible, en
 lecture seule et hébergée à l'extérieur, est décrite dans
-[evaluations/README.md](./evaluations/README.md).
+[evaluations/README.fr.md](./evaluations/README.fr.md).
 
 ## Licence
 
-MIT — voir [LICENSE](./LICENSE).
+MIT — voir le [texte anglais de référence](./LICENSE) et sa
+[traduction française informative](./LICENSE.fr.md).

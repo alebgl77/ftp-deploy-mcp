@@ -1,27 +1,27 @@
-name: Bug report (English)
-description: Report a problem with ftp-deploy-mcp
+name: Signaler un bogue (français)
+description: Signaler un problème avec ftp-deploy-mcp
 title: "[Bug]: "
 labels: ["bug"]
 body:
   - type: textarea
     id: what-happened
     attributes:
-      label: What happened?
-      description: A clear description of the bug.
+      label: Que s'est-il passé ?
+      description: Une description claire du problème.
     validations:
       required: true
 
   - type: textarea
     id: expected
     attributes:
-      label: What did you expect to happen?
+      label: Quel comportement attendiez-vous ?
     validations:
       required: true
 
   - type: dropdown
     id: client
     attributes:
-      label: MCP client
+      label: Client MCP
       options:
         - Claude Code
         - Claude Desktop
@@ -29,14 +29,14 @@ body:
         - Windsurf
         - Trae
         - Antigravity
-        - Other
+        - Autre
     validations:
       required: true
 
   - type: dropdown
     id: protocol
     attributes:
-      label: Protocol
+      label: Protocole
       options:
         - ftp
         - ftps
@@ -47,27 +47,27 @@ body:
   - type: input
     id: os
     attributes:
-      label: Operating System
-      placeholder: e.g. Windows 11, macOS 15, Ubuntu 24.04
+      label: Système d'exploitation
+      placeholder: Par exemple Windows 11, macOS 15, Ubuntu 24.04
     validations:
       required: true
 
   - type: input
     id: node-version
     attributes:
-      label: Node version
-      placeholder: e.g. v22.23.1 (run `node -v`)
+      label: Version de Node
+      placeholder: Par exemple v22.23.1 (exécutez `node -v`)
     validations:
       required: true
 
   - type: textarea
     id: doctor-output
     attributes:
-      label: "`doctor` output (redacted)"
+      label: "Sortie de `doctor` (informations sensibles masquées)"
       description: >
-        Run `npm run doctor` and paste the output below. **Remove hostnames,
-        usernames, and any other identifying information before pasting** —
-        this is a public issue tracker.
+        Exécutez `npm run doctor` et collez la sortie ci-dessous. **Supprimez les
+        noms d'hôtes, les noms d'utilisateurs et toute autre information
+        permettant de vous identifier avant de coller** : ce suivi est public.
       render: text
     validations:
       required: true

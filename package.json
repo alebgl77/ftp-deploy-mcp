@@ -35,10 +35,15 @@
     "README.fr.md",
     "ftp-servers.example.json",
     "LICENSE",
+    "LICENSE.fr.md",
     "install.cmd",
     "install.sh",
+    "CONTRIBUTING.md",
+    "CONTRIBUTING.fr.md",
     "CHANGELOG.md",
+    "CHANGELOG.fr.md",
     "SECURITY.md",
+    "SECURITY.fr.md",
     "server.json"
   ],
   "keywords": [

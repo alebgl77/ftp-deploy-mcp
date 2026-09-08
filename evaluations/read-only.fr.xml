@@ -1,0 +1,42 @@
+<evaluation>
+  <qa_pair>
+    <question>Appelez ftp_list_servers sans arguments. Parmi les deux serveurs d'évaluation configurés nommés eval-ftp et eval-sftp, lequel utilise SFTP ? Renvoyez uniquement le nom du serveur.</question>
+    <answer>eval-sftp</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_test avec server eval-ftp, puis ftp_read avec server eval-ftp, path /README.txt et max_bytes 4096. Quel fixture_id le fichier déclare-t-il ? Renvoyez uniquement sa valeur.</question>
+    <answer>FDMCP-EVAL-2026-09</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_test avec server eval-sftp, puis ftp_list avec server eval-sftp, path /, limit 200 et offset 0. Combien d'entrées contient la racine du jeu de données ? Renvoyez uniquement l'entier.</question>
+    <answer>3</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_list avec server eval-ftp, path /catalog, limit 2 et offset 2. Depuis le premier niveau de structuredContent, renvoyez les champs de pagination exactement dans cet ordre et ce format : total=N,count=N,offset=N,limit=N,has_more=BOOLEAN,next_offset=N.</question>
+    <answer>total=6,count=2,offset=2,limit=2,has_more=true,next_offset=4</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_list avec server eval-sftp, path /catalog, limit 200 et offset 0. Cet appel teste explicitement la limite maximale autorisée. Quel count est renvoyé ? Renvoyez uniquement l'entier.</question>
+    <answer>6</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_list avec server eval-ftp, path /catalog, limit 1 et offset 5. Cet appel teste explicitement la limite minimale autorisée. Renvoyez uniquement les valeurs de dernière page exactement dans ce format : has_more=BOOLEAN,next_offset=null.</question>
+    <answer>has_more=false,next_offset=null</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_list avec server eval-ftp, path /catalog, limit 200 et offset 0. Puis appelez ftp_read avec server eval-ftp et max_bytes 4096 pour chacun des path /catalog/alpha.txt, /catalog/bravo.txt, /catalog/charlie.txt, /catalog/delta.txt, /catalog/echo.txt et /catalog/foxtrot.txt. Quel enregistrement a la plus grande valeur units ? Renvoyez uniquement la valeur record.</question>
+    <answer>foxtrot</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_list avec server eval-sftp, path /catalog, limit 200 et offset 0. Puis appelez ftp_read avec server eval-sftp et max_bytes 4096 pour chacun des path /catalog/alpha.txt, /catalog/bravo.txt, /catalog/charlie.txt, /catalog/delta.txt, /catalog/echo.txt et /catalog/foxtrot.txt. Quelle est la somme des units des enregistrements dont la region est north ? Renvoyez uniquement l'entier.</question>
+    <answer>31</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_read avec server eval-ftp, path /reports/release.txt et max_bytes 4096. Quel release_codename est enregistré ? Renvoyez uniquement sa valeur.</question>
+    <answer>redwood</answer>
+  </qa_pair>
+  <qa_pair>
+    <question>Appelez ftp_read avec server eval-ftp, path /reports/checks.txt et max_bytes 4096, puis ftp_read avec server eval-sftp, path /reports/checks.txt et max_bytes 4096. Les deux fichiers déclarent-ils fixture_match=true ? Renvoyez uniquement true ou false.</question>
+    <answer>true</answer>
+  </qa_pair>
+</evaluation>

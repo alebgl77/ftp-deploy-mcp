@@ -1,5 +1,7 @@
 # Read-only agent evaluation
 
+**English** | [Français](./README.fr.md)
+
 This directory contains a reproducible 10-question MCP evaluation for the four
 read-only tools: `ftp_list_servers`, `ftp_test`, `ftp_list`, and `ftp_read`.
 It does not include a runner, install dependencies, or perform any setup by
@@ -72,7 +74,9 @@ fixture bytes.
 
 Start an MCP client or evaluation harness over stdio with `node src/index.js`,
 the external configuration selected by `FTP_MCP_CONFIG`, and
-[`read-only.xml`](./read-only.xml) as the evaluation input. The harness must
+[`read-only.xml`](./read-only.xml) as the evaluation input. The
+[French version](./read-only.fr.xml) has the same questions and expected answers.
+The harness must
 allow only the four tools named above. Compare its final answers with each
 `answer` element; do not compare server listing order, connection latency, or
 timestamps.

@@ -8,13 +8,17 @@ import { isMain, readRelease } from "./release-gate.mjs";
 
 // Deliberately exact: adding a shipped file requires an explicit release review.
 export const PACKAGE_FILES = [
-  "package.json", "README.md", "README.fr.md", "LICENSE", "CHANGELOG.md", "SECURITY.md",
+  "package.json", "README.md", "README.fr.md", "LICENSE", "LICENSE.fr.md",
+  "CHANGELOG.md", "CHANGELOG.fr.md", "SECURITY.md", "SECURITY.fr.md",
+  "CONTRIBUTING.md", "CONTRIBUTING.fr.md",
   "ftp-servers.example.json", "install.cmd", "install.sh", "server.json",
-  "docs/RELEASE.md", "docs/SECURITY-MODEL.md",
+  "docs/RELEASE.md", "docs/RELEASE.fr.md",
+  "docs/SECURITY-MODEL.md", "docs/SECURITY-MODEL.fr.md",
   "src/index.js", "src/config.js", "src/clients.js", "src/atomic-write.js",
   "src/tools.js", "src/setup.js", "src/remote-path.js", "src/redact.js", "src/operations.js",
   "src/local-path.js", "src/filezilla.js", "src/adapters/ftp.js", "src/adapters/sftp.js",
-  "evaluations/README.md", "evaluations/read-only.xml", "evaluations/fixture/README.txt",
+  "evaluations/README.md", "evaluations/README.fr.md",
+  "evaluations/read-only.xml", "evaluations/read-only.fr.xml", "evaluations/fixture/README.txt",
   "evaluations/fixture/catalog/alpha.txt", "evaluations/fixture/catalog/bravo.txt",
   "evaluations/fixture/catalog/charlie.txt", "evaluations/fixture/catalog/delta.txt",
   "evaluations/fixture/catalog/echo.txt", "evaluations/fixture/catalog/foxtrot.txt",

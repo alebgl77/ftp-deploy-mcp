@@ -1,10 +1,11 @@
-## What & why
+## What & why / Modification et motivation
 
-<!-- Describe the change and the motivation behind it. -->
+<!-- Describe the change and the motivation behind it. / Décrivez la modification et sa motivation. -->
 
-## Checklist
+## Checklist / Liste de contrôle
 
-- [ ] `npm test` passes
-- [ ] No new runtime dependencies (or it was discussed in an issue first)
-- [ ] Docs updated in both `README.md` (English) and `README.fr.md` (French) if
-      user-facing behavior changed
+- [ ] `npm test` passes / `npm test` passe
+- [ ] No new runtime dependencies (or discussed in an issue first) /
+      Aucune nouvelle dépendance d'exécution (ou discussion préalable dans une issue)
+- [ ] English and French docs updated if user-facing behavior changed /
+      Documentation anglaise et française mise à jour si le comportement utilisateur change

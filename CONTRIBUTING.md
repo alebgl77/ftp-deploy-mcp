@@ -1,5 +1,7 @@
 # Contributing to ftp-deploy-mcp
 
+**English** | [Français](./CONTRIBUTING.fr.md)
+
 Thanks for considering a contribution. This project intentionally stays small and
 dependency-light — please read the principles below before opening a PR.
 
@@ -42,16 +44,22 @@ parse changed JSON examples, check relative Markdown links, and run
 
 ## Running part of the suite
 
-The whole suite lives in a single file:
+Run the main smoke suite:
 
 ```bash
 node test/smoke.test.js
 ```
 
-There is currently no sub-suite filtering — the file is small enough to run in
-full. If you're iterating on one area, comment out unrelated assertions locally
-while you work, but make sure the full file is restored and green before
-opening a PR.
+Run the transport qualification and release gates separately:
+
+```bash
+node --test test/transport-qualification.js
+node --test test/release-gates.js
+```
+
+`npm test` runs the main smoke suite and transport qualification. Before
+opening a PR, run both and any release gates affected by the change; keep
+existing assertions enabled.
 
 ## PR checklist
 
