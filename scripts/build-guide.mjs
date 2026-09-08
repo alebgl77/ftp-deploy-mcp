@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const site = path.join(root, "site");
 const args = process.argv.slice(2);
-assert.ok(args.length === 0 || (args.length === 2 && args[0] === "--output"), "Usage: node scripts/build-guide.mjs [--output <file.html>]");
+const check = args.length === 1 && args[0] === "--check";
+assert.ok(args.length === 0 || check || (args.length === 2 && args[0] === "--output"), "Usage: node scripts/build-guide.mjs [--check | --output <file.html>]");
 const data = JSON.parse(readFileSync(path.join(site, "project-data.json"), "utf8"));
 assert.equal(data.schemaVersion, 2, "Unsupported project data schema");
 assert.equal(data.defaultLocale, "fr", "French must remain the default locale");
@@ -62,10 +63,16 @@ for (const illustration of content.illustrations) {
 const serialized = JSON.stringify(data).replace(/[<>&\u2028\u2029]/g, (character) => `\\u${character.charCodeAt(0).toString(16).padStart(4, "0")}`);
 assert.equal(template.split("__PROJECT_DATA__").length, 2, "Expected exactly one project data marker");
 const html = template.replace("__PROJECT_DATA__", () => serialized);
-const destinations = new Set([path.join(site, "index.html")]);
-if (args.length) destinations.add(path.resolve(args[1]));
-for (const destination of destinations) {
-  mkdirSync(path.dirname(destination), { recursive: true });
-  writeFileSync(destination, html, "utf8");
-  console.log(`Guide built: ${destination} (${Buffer.byteLength(html)} bytes, FR/EN parity verified, ${Object.values(data.locales).reduce((count, content) => count + content.illustrations.length, 0)} embedded illustration(s))`);
+const index = path.join(site, "index.html");
+if (check) {
+  assert.ok(readFileSync(index).equals(Buffer.from(html, "utf8")), "site/index.html is stale or modified; run node scripts/build-guide.mjs and review the result");
+  console.log(`Guide verified: ${Buffer.byteLength(html)} bytes, FR/EN parity verified, site/index.html unchanged`);
+} else {
+  const destinations = new Set([index]);
+  if (args.length) destinations.add(path.resolve(args[1]));
+  for (const destination of destinations) {
+    mkdirSync(path.dirname(destination), { recursive: true });
+    writeFileSync(destination, html, "utf8");
+    console.log(`Guide built: ${destination} (${Buffer.byteLength(html)} bytes, FR/EN parity verified, ${Object.values(data.locales).reduce((count, content) => count + content.illustrations.length, 0)} embedded illustration(s))`);
+  }
 }

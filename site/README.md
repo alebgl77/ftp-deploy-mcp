@@ -1,6 +1,6 @@
 # Interactive architecture notebook
 
-[Français](README.fr.md) | English
+[Français](./README.fr.md) | English
 
 This single HTML guide documents the architecture, flows, evidence and roadmap of `ftp-deploy-mcp` in French and English. It works offline and makes no deployment calls.
 
@@ -14,6 +14,18 @@ node scripts/build-guide.mjs --output ./enterprise-guide.html
 ```
 
 Both commands rebuild `site/index.html`; the second also writes an identical copy to the requested path. Open the HTML directly in a browser (`file://`). No server, CDN or additional package is required. GitHub links require a connection when opened.
+
+To validate documentation without rebuilding the tracked HTML:
+
+```sh
+node scripts/check-docs.mjs
+node scripts/build-guide.mjs --check
+node --test test/build-guide.mjs
+```
+
+`--check` validates both locales and compares the expected HTML byte for byte with `site/index.html`, without writing any file. Missing or stale output fails the check; rebuild and review it before committing. The tests use isolated temporary fixtures to cover translation drift, escaped injection data, modified HTML and deterministic builds. These commands also run in CI and in both manual publication workflows before artifact preparation or registry publication. They require only Node and the checkout, with no browser or additional dependency.
+
+`check-docs.mjs` discovers Markdown language pairs directly in the repository root, `docs`, `evaluations`, `site`, `assets/provenance` and `test/fixtures/transport`. A new document in these directories must have both versions and reciprocal language links. Add any new documentation directory to the script’s explicit list; discovery does not recurse into dependencies or private state. The canonical English `LICENSE` and its French translation are checked separately.
 
 ## Languages and interactions
 

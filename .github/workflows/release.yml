@@ -35,6 +35,15 @@ jobs:
 
       - run: node --test test/release-gates.js
 
+      - name: Validate bilingual documentation
+        run: node scripts/check-docs.mjs
+
+      - name: Check generated bilingual guide
+        run: node scripts/build-guide.mjs --check
+
+      - name: Test documentation and guide checks
+        run: node --test test/build-guide.mjs
+
       - run: npm test
 
       - run: node scripts/release-gate.mjs --runtime

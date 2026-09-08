@@ -1,21 +1,22 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PACKAGE_FILES } from "./release-artifact.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const pairs = [
-  "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md",
-  "docs/RELEASE.md", "docs/SECURITY-MODEL.md", "evaluations/README.md",
-  "test/fixtures/transport/README.md",
-  "assets/provenance/README.md",
-];
+// Keep discovery inside public documentation directories, without traversing
+// dependencies, Git metadata or private state. Extend this list for new roots.
+const directories = ["", "docs", "evaluations", "test/fixtures/transport", "assets/provenance", "site"];
+const pairs = [...new Set(directories.flatMap((directory) => readdirSync(path.join(root, directory), { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && !(directory === "" && entry.name === "LICENSE.fr.md"))
+  .map((entry) => [directory, entry.name.replace(/\.fr\.md$/, ".md")].filter(Boolean).join("/"))))].sort();
 const read = (file) => readFileSync(path.join(root, file), "utf8");
 const docs = ["LICENSE.fr.md", ".github/pull_request_template.md"];
 
 for (const english of pairs) {
   const french = english.replace(/\.md$/, ".fr.md");
+  assert.ok(existsSync(path.join(root, english)) && existsSync(path.join(root, french)), `Missing documentation language pair: ${english} / ${french}`);
   for (const [file, other] of [[english, french], [french, english]]) {
     assert.ok(read(file).includes(`](./${path.basename(other)})`), `${file}: missing language link`);
     docs.push(file);

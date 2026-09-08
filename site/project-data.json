@@ -8,11 +8,11 @@
       "version": "0.2.0",
       "updated": "9 septembre 2026",
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-      "head": "848bbe1f531be190c089cf8c4404bec4d33c5374",
+      "head": "c4da79fc063722ee438f9a06237e39862417e341",
       "scope": "MCP stdio local · usage local supervisé",
       "toolCount": 10,
       "summary": "Préparer, contrôler, déployer. Puis pouvoir expliquer chaque résultat et retrouver un état vérifiable après incident.",
-      "deliveryNote": "Les correctifs de configuration et de masquage, Node 22/24, Hono 4.13.5, le contexte d’exécution, l’annulation et les verrous locaux au processus sont intégrés à main. La CI 34287049770 au commit 848bbe1 réussit sur les six combinaisons OS/Node, transports et chaîne d’approvisionnement compris. Staging et récupération durable restent à livrer. Le paquet npm n’est pas publié.",
+      "deliveryNote": "Les correctifs de configuration et de masquage, Node 22/24, Hono 4.13.5, le contexte d’exécution, l’annulation et les verrous locaux au processus sont intégrés à main. La CI 34287049770 au commit 848bbe1 réussit sur les six combinaisons OS/Node, transports et chaîne d’approvisionnement compris. Staging et récupération durable restent à livrer. Le paquet npm n’est pas publié. Le guide bilingue c9795b2 et la documentation bilingue c4da79f sont poussés ; leur CI 34289885107 est entièrement réussie, avec le même runtime.",
       "metrics": [
         {
           "value": "587",
@@ -508,7 +508,15 @@
       ],
       "quality": [
         {
-          "area": "CI multiplateforme actuelle",
+          "area": "CI de l’édition bilingue poussée — c4da79f",
+          "result": "6 combinaisons + chaîne d’approvisionnement réussies",
+          "level": "verified",
+          "scope": "Run 34289885107 : Linux, macOS, Windows × Node 22/24 ; 587 tests smoke, 6 tests transport et 67 contrôles release",
+          "limit": "Preuve de cette révision documentaire, au runtime inchangé. Ne valide pas les contrôles documentaires ni le staging ajoutés ultérieurement.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34289885107"
+        },
+        {
+          "area": "CI runtime historique — 848bbe1",
           "result": "6 combinaisons + chaîne d’approvisionnement réussies",
           "level": "verified",
           "scope": "Run 34287049770 au commit 848bbe1 : Windows, macOS, Linux × Node 22/24 ; 587 tests smoke et 6 tests transport",
@@ -694,6 +702,18 @@
       ],
       "commits": [
         {
+          "sha": "c4da79fc063722ee438f9a06237e39862417e341",
+          "title": "Documentation et visuels du dépôt en français et anglais",
+          "status": "Poussé sur main · CI réussie",
+          "description": "Édition bilingue poussée. CI 34289885107 entièrement réussie ; runtime inchangé à 587 tests smoke + 6 transport + 67 contrôles release. Aucun staging intégré."
+        },
+        {
+          "sha": "c9795b2f93a2a8f39663089d7fcdd43f876aa31e",
+          "title": "Guide interactif bilingue français et anglais",
+          "status": "Poussé sur main",
+          "description": "Sélecteur de langue, contenus et exports localisés, deux illustrations ChatGPT embarquées. Validation locale du rendu et des interactions ; aucune modification runtime."
+        },
+        {
           "sha": "848bbe1f531be190c089cf8c4404bec4d33c5374",
           "title": "Annulation MCP, délais et verrous locaux au processus",
           "status": "Poussé sur main · revue acceptée",
@@ -793,11 +813,11 @@
       "version": "0.2.0",
       "updated": "9 September 2026",
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-      "head": "848bbe1f531be190c089cf8c4404bec4d33c5374",
+      "head": "c4da79fc063722ee438f9a06237e39862417e341",
       "scope": "Local MCP stdio · supervised local use",
       "toolCount": 10,
       "summary": "Plan, check, deploy. Then explain every outcome and recover a verifiable state after an incident.",
-      "deliveryNote": "Configuration and redaction fixes, Node 22/24, Hono 4.13.5, execution context, cancellation and process-local locks are integrated into main. CI 34287049770 at 848bbe1 passed all six OS/Node combinations, including transport and supply-chain checks. Staging and durable recovery remain target work. The npm package has not been published.",
+      "deliveryNote": "Configuration and redaction fixes, Node 22/24, Hono 4.13.5, execution context, cancellation and process-local locks are integrated into main. CI 34287049770 at 848bbe1 passed all six OS/Node combinations, including transport and supply-chain checks. Staging and durable recovery remain target work. The npm package has not been published. Bilingual guide c9795b2 and bilingual documentation c4da79f are pushed; their CI 34289885107 passed in full with the same runtime.",
       "metrics": [
         {
           "value": "587",
@@ -1293,7 +1313,15 @@
       ],
       "quality": [
         {
-          "area": "Current cross-platform CI",
+          "area": "CI of the pushed bilingual edition — c4da79f",
+          "result": "6 combinations + supply chain passed",
+          "level": "verified",
+          "scope": "Run 34289885107: Linux, macOS, Windows × Node 22/24; 587 smoke tests, 6 transport tests and 67 release checks",
+          "limit": "Evidence for this documentation revision, with unchanged runtime. It does not validate documentation checks or staging added later.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34289885107"
+        },
+        {
+          "area": "Historical runtime CI — 848bbe1",
           "result": "6 combinations + supply chain passed",
           "level": "verified",
           "scope": "Run 34287049770 at 848bbe1: Windows, macOS, Linux × Node 22/24; 587 smoke and 6 transport tests",
@@ -1478,6 +1506,18 @@
         }
       ],
       "commits": [
+        {
+          "sha": "c4da79fc063722ee438f9a06237e39862417e341",
+          "title": "Repository documentation and visuals in French and English",
+          "status": "Pushed to main · CI passed",
+          "description": "Bilingual edition pushed. CI 34289885107 passed in full; runtime unchanged at 587 smoke tests + 6 transport + 67 release checks. Staging is not integrated."
+        },
+        {
+          "sha": "c9795b2f93a2a8f39663089d7fcdd43f876aa31e",
+          "title": "Interactive guide in French and English",
+          "status": "Pushed to main",
+          "description": "Language selector, localized content and exports, two embedded ChatGPT illustrations. Rendering and interactions validated locally; no runtime changes."
+        },
         {
           "sha": "848bbe1f531be190c089cf8c4404bec4d33c5374",
           "title": "MCP cancellation, deadlines and process-local locks",
