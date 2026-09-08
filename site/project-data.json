@@ -1,736 +1,1576 @@
 {
-  "schemaVersion": 1,
-  "project": "ftp-deploy-mcp",
-  "version": "0.2.0",
-  "updated": "9 septembre 2026",
-  "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-  "head": "0764eec78c02ebe64334450d6d7f14fe88b84cc4",
-  "scope": "MCP stdio local · usage local supervisé",
-  "toolCount": 10,
-  "summary": "Préparer, contrôler, déployer. Puis pouvoir expliquer chaque résultat et retrouver un état vérifiable après incident.",
-  "deliveryNote": "Les correctifs de configuration et de masquage, le support Node 22/24, les fixtures macOS et Hono 4.13.5 sont intégrés à main. La CI du commit 0764eec réussit sur les six combinaisons OS/Node, audit compris. Les parcours d’incident et la qualification complémentaire des transports restent à terminer. Le paquet npm n’est pas publié.",
-  "metrics": [
-    {
-      "value": "518",
-      "label": "contrôles réussis",
-      "detail": "Après alignement runtime · baseline : 418"
-    },
-    {
-      "value": "67",
-      "label": "contrôles release",
-      "detail": "Réussis séparément · aucun ignoré"
-    },
-    {
-      "value": "10",
-      "label": "outils MCP",
-      "detail": "Interface actuelle · stdio local"
-    }
-  ],
-  "principles": [
-    {
-      "title": "Une cible explicite",
-      "text": "Une configuration choisie mais invalide bloque le démarrage. Les politiques doivent être définies hors du contrôle du modèle."
-    },
-    {
-      "title": "Des garanties nommées",
-      "text": "Un renommage contrôlé peut protéger un fichier. Il ne rend pas un site entier atomique et ne prouve pas la disponibilité continue."
-    },
-    {
-      "title": "Une preuve à sa portée",
-      "text": "Tests logiciels, incidents injectés, transport réel et réussite d’un agent sont des preuves différentes. La qualification les conserve séparément."
-    }
-  ],
-  "nodes": [
-    {
-      "id": "agent",
-      "name": "Agent / client MCP",
-      "short": "Intention et outils",
-      "zone": "Agent",
-      "x": 38,
-      "y": 100,
-      "w": 175,
-      "h": 90,
-      "current": true,
-      "responsibility": "Formule une demande, sélectionne un outil MCP et interprète les résultats. Le client communique avec le serveur par stdio.",
-      "constraints": [
-        "Le contenu distant reste une donnée, jamais une autorisation.",
-        "Un plan_id ou confirm: true n’est pas une preuve de consentement humain."
-      ],
-      "source": "src/index.js"
-    },
-    {
-      "id": "host",
-      "name": "Hôte local",
-      "short": "Processus et consentement",
-      "zone": "Host local",
-      "x": 255,
-      "y": 100,
-      "w": 190,
-      "h": 90,
-      "current": true,
-      "responsibility": "Lance le processus Node, fournit une configuration et délimite les accès locaux. La cible reste un serveur MCP stdio local.",
-      "constraints": [
-        "L’isolation multiutilisateur n’est pas qualifiée.",
-        "Le consentement de l’hôte et les politiques externes appartiennent à la vue cible."
-      ],
-      "source": "src/index.js"
-    },
-    {
-      "id": "core",
-      "name": "Noyau MCP",
-      "short": "Contrats · sélection · contrôle",
-      "zone": "MCP core",
-      "x": 490,
-      "y": 100,
-      "w": 215,
-      "h": 90,
-      "current": true,
-      "responsibility": "Expose les outils, applique les contrôles de périmètre et de lecture seule, masque les valeurs sensibles et borne les réponses. La baseline expose dix outils.",
-      "constraints": [
-        "Les réussites ont un schéma structuré ; les erreurs partielles doivent encore évoluer.",
-        "La limite globale de réponse ne constitue pas un budget de tokens mesuré."
-      ],
-      "source": "src/tools.js"
-    },
-    {
-      "id": "policy",
-      "name": "Configuration & politiques",
-      "short": "Racines · lecture seule · secrets",
-      "zone": "Config politiques",
-      "x": 280,
-      "y": 285,
-      "w": 230,
-      "h": 90,
-      "current": true,
-      "responsibility": "Décrit les serveurs, racines, identités de transport et secrets reconnus. La sélection explicite échoue désormais sans consulter une configuration de secours.",
-      "constraints": [
-        "Les exclusions de ftp_deploy ne sont pas une politique commune à tous les outils.",
-        "readOnly interdit les mutations distantes ; ftp_download peut écrire localement."
-      ],
-      "source": "src/config.js"
-    },
-    {
-      "id": "state",
-      "name": "Plans & journal durable",
-      "short": "Cible · préconditions · opérations",
-      "zone": "State plans jobs",
-      "x": 555,
-      "y": 285,
-      "w": 230,
-      "h": 90,
-      "current": false,
-      "responsibility": "Vue cible : conserve un plan immuable, son identité de cible, les préconditions, la clé d’idempotence et l’état de chaque fichier. Permet la consultation après perte de réponse.",
-      "constraints": [
-        "À persister hors de la racine web et sans contenu secret.",
-        "Un crash entre écriture distante et journal impose une réconciliation.",
-        "Idempotence ne signifie pas exactly once."
-      ],
-      "source": "src/tools.js",
-      "roadmap": "C"
-    },
-    {
-      "id": "adapters",
-      "name": "Adaptateurs de transport",
-      "short": "FTP / FTPS · SFTP",
-      "zone": "Adapters",
-      "x": 750,
-      "y": 100,
-      "w": 215,
-      "h": 90,
-      "current": true,
-      "responsibility": "Encapsulent connexion, listing, lecture et mutations distantes. Les garanties effectives dépendent du protocole et du serveur.",
-      "constraints": [
-        "FTP clair est refusé par défaut ; la clé hôte SFTP est requise par défaut.",
-        "La baseline écrit directement à destination. Temporaire et promotion appartiennent au lot B."
-      ],
-      "source": "src/adapters/ftp.js",
-      "extraSources": [
-        "src/adapters/sftp.js"
-      ]
-    },
-    {
-      "id": "remote",
-      "name": "Hôte distant",
-      "short": "Compte dédié · racine distante",
-      "zone": "Remote host",
-      "x": 1008,
-      "y": 100,
-      "w": 200,
-      "h": 90,
-      "current": true,
-      "responsibility": "Reçoit les octets et réalise les opérations autorisées par son protocole, son compte et son système de fichiers.",
-      "constraints": [
-        "Les contrôles de chemin ne prouvent pas une isolation absolue.",
-        "Les hashes ne neutralisent pas un serveur malveillant ni toutes les courses.",
-        "Un mutex local ne protège pas contre plusieurs processus."
-      ],
-      "source": "README.md"
-    }
-  ],
-  "scenarios": [
-    {
-      "id": "success",
-      "name": "Succès",
-      "summary": "Parcours cible complet, du plan à un état consultable. L’illustration décrit le comportement attendu ; ce n’est pas une exécution de test.",
-      "currentFact": "Baseline : sélection locale et transferts séquentiels. Le dry run ne contacte pas le serveur. Upload et download écrivent directement à destination.",
-      "steps": [
+  "schemaVersion": 2,
+  "defaultLocale": "fr",
+  "locales": {
+    "fr": {
+      "schemaVersion": 1,
+      "project": "ftp-deploy-mcp",
+      "version": "0.2.0",
+      "updated": "9 septembre 2026",
+      "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
+      "head": "848bbe1f531be190c089cf8c4404bec4d33c5374",
+      "scope": "MCP stdio local · usage local supervisé",
+      "toolCount": 10,
+      "summary": "Préparer, contrôler, déployer. Puis pouvoir expliquer chaque résultat et retrouver un état vérifiable après incident.",
+      "deliveryNote": "Les correctifs de configuration et de masquage, Node 22/24, Hono 4.13.5, le contexte d’exécution, l’annulation et les verrous locaux au processus sont intégrés à main. La CI 34287049770 au commit 848bbe1 réussit sur les six combinaisons OS/Node, transports et chaîne d’approvisionnement compris. Staging et récupération durable restent à livrer. Le paquet npm n’est pas publié.",
+      "metrics": [
         {
-          "name": "Plan",
-          "text": "Figer la sélection, les hashes locaux, l’identité de cible, les politiques et l’expiration.",
-          "state": "Plan préparé",
-          "lot": "C"
+          "value": "587",
+          "label": "tests smoke réussis",
+          "detail": "6 tests transport distincts · baseline : 418"
         },
         {
-          "name": "Validation",
-          "text": "Revalider cible, fichiers, politiques et préconditions distantes avant toute mutation.",
-          "state": "Préconditions valides",
-          "lot": "C"
+          "value": "67",
+          "label": "contrôles release",
+          "detail": "Réussis séparément · aucun ignoré"
         },
         {
-          "name": "Verrou",
-          "text": "Sérialiser les mutations de la même cible et racine dans le périmètre garanti.",
-          "state": "Exécution exclusive",
-          "lot": "B"
+          "value": "10",
+          "label": "outils MCP",
+          "detail": "Interface actuelle · stdio local"
+        }
+      ],
+      "principles": [
+        {
+          "title": "Une cible explicite",
+          "text": "Une configuration choisie mais invalide bloque le démarrage. Les politiques doivent être définies hors du contrôle du modèle."
         },
         {
-          "name": "Temporaire",
-          "text": "Transférer vers un nom temporaire ; conserver la destination antérieure tant que possible.",
-          "state": "En cours de transfert",
-          "lot": "B"
+          "title": "Des garanties nommées",
+          "text": "Un renommage contrôlé peut protéger un fichier. Il ne rend pas un site entier atomique et ne prouve pas la disponibilité continue."
         },
         {
-          "name": "Vérification",
-          "text": "Vérifier le contenu ou afficher le niveau de preuve réellement disponible sur ce serveur.",
-          "state": "Transfert vérifié",
-          "lot": "B"
+          "title": "Une preuve à sa portée",
+          "text": "Tests logiciels, incidents injectés, transport réel et réussite d’un agent sont des preuves différentes. La qualification les conserve séparément."
+        }
+      ],
+      "nodes": [
+        {
+          "id": "agent",
+          "name": "Agent / client MCP",
+          "short": "Intention et outils",
+          "zone": "Agent",
+          "x": 38,
+          "y": 100,
+          "w": 175,
+          "h": 90,
+          "current": true,
+          "responsibility": "Formule une demande, sélectionne un outil MCP et interprète les résultats. Le client communique avec le serveur par stdio.",
+          "constraints": [
+            "Le contenu distant reste une donnée, jamais une autorisation.",
+            "Un plan_id ou confirm: true n’est pas une preuve de consentement humain."
+          ],
+          "source": "src/index.js"
         },
         {
-          "name": "Promotion",
-          "text": "Promouvoir le fichier par renommage contrôlé lorsque le serveur le permet. Atomicité par fichier seulement.",
-          "state": "Fichier promu",
-          "lot": "B"
+          "id": "host",
+          "name": "Hôte local",
+          "short": "Processus et consentement",
+          "zone": "Hôte local",
+          "x": 255,
+          "y": 100,
+          "w": 190,
+          "h": 90,
+          "current": true,
+          "responsibility": "Lance le processus Node, fournit une configuration et délimite les accès locaux. La cible reste un serveur MCP stdio local.",
+          "constraints": [
+            "L’isolation multiutilisateur n’est pas qualifiée.",
+            "Le consentement de l’hôte et les politiques externes appartiennent à la vue cible."
+          ],
+          "source": "src/index.js"
         },
         {
-          "name": "Journal",
-          "text": "Persister le résultat et fournir operation_id, compteurs et action suivante. Une consultation retrouve le résultat.",
-          "state": "Terminé et consultable",
-          "lot": "C"
+          "id": "core",
+          "name": "Noyau MCP",
+          "short": "Contrats · sélection · contrôle",
+          "zone": "Noyau MCP",
+          "x": 490,
+          "y": 100,
+          "w": 215,
+          "h": 90,
+          "current": true,
+          "responsibility": "Expose dix outils, contrôle les périmètres et la lecture seule, masque les valeurs sensibles et borne les réponses. Propage désormais le contexte MCP, l’annulation et la progression opt-in, et sérialise les opérations en conflit dans un processus.",
+          "constraints": [
+            "Les réussites ont un schéma structuré ; les erreurs partielles doivent encore évoluer.",
+            "La limite globale de réponse ne constitue pas un budget de tokens mesuré.",
+            "Les verrous couvrent un seul processus. Timeout configurable : 100..3600000 ms, défaut 120000 ms ; l’état durable reste une cible."
+          ],
+          "source": "src/tools.js"
+        },
+        {
+          "id": "policy",
+          "name": "Configuration & politiques",
+          "short": "Racines · lecture seule · secrets",
+          "zone": "Configuration et politiques",
+          "x": 280,
+          "y": 285,
+          "w": 230,
+          "h": 90,
+          "current": true,
+          "responsibility": "Décrit les serveurs, racines, identités de transport et secrets reconnus. La sélection explicite échoue désormais sans consulter une configuration de secours.",
+          "constraints": [
+            "Les exclusions de ftp_deploy ne sont pas une politique commune à tous les outils.",
+            "readOnly interdit les mutations distantes ; ftp_download peut écrire localement."
+          ],
+          "source": "src/config.js"
+        },
+        {
+          "id": "state",
+          "name": "Plans & journal durable",
+          "short": "Cible · préconditions · opérations",
+          "zone": "Plans, état et opérations",
+          "x": 555,
+          "y": 285,
+          "w": 230,
+          "h": 90,
+          "current": false,
+          "responsibility": "Vue cible : conserve un plan immuable, son identité de cible, les préconditions, la clé d’idempotence et l’état de chaque fichier. Permet la consultation après perte de réponse.",
+          "constraints": [
+            "À persister hors de la racine web et sans contenu secret.",
+            "Un crash entre écriture distante et journal impose une réconciliation.",
+            "Idempotence ne signifie pas exactly once."
+          ],
+          "source": "src/tools.js",
+          "roadmap": "C"
+        },
+        {
+          "id": "adapters",
+          "name": "Adaptateurs de transport",
+          "short": "FTP / FTPS · SFTP",
+          "zone": "Adaptateurs",
+          "x": 750,
+          "y": 100,
+          "w": 215,
+          "h": 90,
+          "current": true,
+          "responsibility": "Encapsulent connexion, listing, lecture et mutations distantes. Les garanties effectives dépendent du protocole et du serveur.",
+          "constraints": [
+            "FTP clair est refusé par défaut ; la clé hôte SFTP est requise par défaut.",
+            "La baseline écrit directement à destination. Temporaire et promotion appartiennent au lot B."
+          ],
+          "source": "src/adapters/ftp.js",
+          "extraSources": [
+            "src/adapters/sftp.js"
+          ]
+        },
+        {
+          "id": "remote",
+          "name": "Hôte distant",
+          "short": "Compte dédié · racine distante",
+          "zone": "Hôte distant",
+          "x": 1008,
+          "y": 100,
+          "w": 200,
+          "h": 90,
+          "current": true,
+          "responsibility": "Reçoit les octets et réalise les opérations autorisées par son protocole, son compte et son système de fichiers.",
+          "constraints": [
+            "Les contrôles de chemin ne prouvent pas une isolation absolue.",
+            "Les hashes ne neutralisent pas un serveur malveillant ni toutes les courses.",
+            "Un mutex local ne protège pas contre plusieurs processus."
+          ],
+          "source": "README.md"
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "success",
+          "name": "Succès",
+          "summary": "Parcours cible complet, du plan à un état consultable. L’illustration décrit le comportement attendu ; ce n’est pas une exécution de test.",
+          "currentFact": "Baseline : sélection locale et transferts séquentiels. Le dry run ne contacte pas le serveur. Upload et download écrivent directement à destination.",
+          "steps": [
+            {
+              "name": "Plan",
+              "text": "Figer la sélection, les hashes locaux, l’identité de cible, les politiques et l’expiration.",
+              "state": "Plan préparé",
+              "lot": "C"
+            },
+            {
+              "name": "Validation",
+              "text": "Revalider cible, fichiers, politiques et préconditions distantes avant toute mutation.",
+              "state": "Préconditions valides",
+              "lot": "C"
+            },
+            {
+              "name": "Verrou",
+              "text": "Sérialiser les mutations de la même cible et racine dans le périmètre garanti.",
+              "state": "Exécution exclusive",
+              "lot": "B"
+            },
+            {
+              "name": "Temporaire",
+              "text": "Transférer vers un nom temporaire ; conserver la destination antérieure tant que possible.",
+              "state": "En cours de transfert",
+              "lot": "B"
+            },
+            {
+              "name": "Vérification",
+              "text": "Vérifier le contenu ou afficher le niveau de preuve réellement disponible sur ce serveur.",
+              "state": "Transfert vérifié",
+              "lot": "B"
+            },
+            {
+              "name": "Promotion",
+              "text": "Promouvoir le fichier par renommage contrôlé lorsque le serveur le permet. Atomicité par fichier seulement.",
+              "state": "Fichier promu",
+              "lot": "B"
+            },
+            {
+              "name": "Journal",
+              "text": "Persister le résultat et fournir operation_id, compteurs et action suivante. Une consultation retrouve le résultat.",
+              "state": "Terminé et consultable",
+              "lot": "C"
+            }
+          ]
+        },
+        {
+          "id": "stale",
+          "name": "Plan périmé",
+          "summary": "Parcours cible de refus avant écriture lorsque l’intention approuvée ne correspond plus à l’état observé.",
+          "currentFact": "Baseline : pas de plan immuable persisté ni d’apply distinct. Une simulation locale ne valide pas les préconditions distantes.",
+          "steps": [
+            {
+              "name": "Plan",
+              "text": "Charger le plan par son identifiant opaque, sans accepter de nouveaux chemins libres.",
+              "state": "Plan retrouvé",
+              "lot": "C"
+            },
+            {
+              "name": "Validation",
+              "text": "Un fichier local, la cible, la politique ou une précondition distante a changé ; ou le plan a expiré.",
+              "state": "Écart détecté",
+              "lot": "C"
+            },
+            {
+              "name": "Refus",
+              "text": "Retourner PLAN_STALE ou TARGET_CHANGED, sans mutation. Proposer de préparer un nouveau plan.",
+              "state": "Bloqué avant écriture",
+              "lot": "C"
+            }
+          ]
+        },
+        {
+          "id": "disconnect",
+          "name": "Coupure",
+          "summary": "Parcours cible après réponse perdue ou arrêt au voisinage d’une écriture : l’état doit pouvoir rester explicitement inconnu.",
+          "currentFact": "Expérience baseline avec adaptateur contrôlé : trois uploads tentés, deux réussis, un échec ; état partiel conservé, isError=true sans structuredContent. Aucune coupure physique testée dans cette expérience.",
+          "steps": [
+            {
+              "name": "Plan",
+              "text": "Retrouver le plan et l’opération associés à la clé d’idempotence.",
+              "state": "Opération identifiée",
+              "lot": "C"
+            },
+            {
+              "name": "Validation",
+              "text": "Contrôler les préconditions avant de démarrer.",
+              "state": "Préconditions valides",
+              "lot": "C"
+            },
+            {
+              "name": "Verrou",
+              "text": "Acquérir l’exclusivité de mutation dans le périmètre documenté.",
+              "state": "Verrou détenu",
+              "lot": "B"
+            },
+            {
+              "name": "Temporaire",
+              "text": "Écrire le nouveau contenu sous un nom temporaire.",
+              "state": "Transfert en cours",
+              "lot": "B"
+            },
+            {
+              "name": "Vérification",
+              "text": "Vérifier les octets transférés selon les capacités observées.",
+              "state": "Contenu contrôlé",
+              "lot": "B"
+            },
+            {
+              "name": "Promotion",
+              "text": "Le serveur peut avoir promu le fichier avant la perte de réponse.",
+              "state": "Réponse perdue",
+              "lot": "B"
+            },
+            {
+              "name": "Partiel / inconnu",
+              "text": "Ne pas annoncer succès ou échec certain. Le journal conserve la dernière étape connue.",
+              "state": "À vérifier",
+              "lot": "C"
+            },
+            {
+              "name": "Réconciliation",
+              "text": "Consulter l’état distant par hash ou relecture. Sans preuve suffisante, bloquer la reprise automatique.",
+              "state": "Rapprochement distant",
+              "lot": "D"
+            },
+            {
+              "name": "Journal",
+              "text": "Enregistrer le résultat réconcilié, puis décider de reprendre ou de demander une action humaine.",
+              "state": "État expliqué",
+              "lot": "D"
+            }
+          ]
+        },
+        {
+          "id": "restore",
+          "name": "Restauration",
+          "summary": "Parcours cible de rollback conditionnel. Une modification tierce détectée bloque la restauration automatique.",
+          "currentFact": "Baseline : aucune reprise ni restauration automatique observée. Une sauvegarde et une procédure de restauration éprouvée restent des conditions du pilote supervisé.",
+          "steps": [
+            {
+              "name": "Journal",
+              "text": "Retrouver l’opération et la version antérieure conservée avec une rétention définie.",
+              "state": "Version identifiée",
+              "lot": "D"
+            },
+            {
+              "name": "Validation",
+              "text": "Appliquer les politiques communes, puis comparer l’état actuel à celui laissé par le déploiement.",
+              "state": "Dérive contrôlée",
+              "lot": "D"
+            },
+            {
+              "name": "Verrou",
+              "text": "Sérialiser la restauration comme toute autre mutation de cette cible.",
+              "state": "Restauration exclusive",
+              "lot": "B"
+            },
+            {
+              "name": "Temporaire",
+              "text": "Préparer la version antérieure. Si une modification tierce est détectée, refuser de l’écraser.",
+              "state": "Ancienne version préparée",
+              "lot": "D"
+            },
+            {
+              "name": "Promotion",
+              "text": "Vérifier puis promouvoir la version restaurée selon les garanties du serveur.",
+              "state": "Version restaurée",
+              "lot": "D"
+            },
+            {
+              "name": "Journal final",
+              "text": "Conserver le rapport de restauration et les limites observées.",
+              "state": "Restauration documentée",
+              "lot": "D"
+            }
+          ]
+        }
+      ],
+      "roadmap": [
+        {
+          "id": "FIX",
+          "priority": "P0",
+          "status": "delivered",
+          "title": "Configuration et masquage",
+          "summary": "Sélection explicite sans repli, masquage des régions ENV et préservation des enums publiques reconnues du contrat MCP.",
+          "effort": "Ciblé",
+          "dependencies": [],
+          "acceptance": [
+            "Configuration explicite invalide : échec fermé, sans repli vers le CWD.",
+            "Les secrets reconnus restent masqués dans les chaînes libres.",
+            "Les quatorze enums testées conservent un contrat valide sur sept chemins de schéma."
+          ],
+          "evidence": "513 tests + 67 contrôles release ; revue critique acceptée ; correctifs intégrés à main.",
+          "commit": "7dfbd6cee63bb13d33d9eab5585f71baf187171a"
+        },
+        {
+          "id": "A",
+          "priority": "P0",
+          "status": "in_progress",
+          "title": "Runtime et qualification de l’artefact",
+          "summary": "Support Node 22/24 implémenté, Docker aligné sur Node 24 et matrice CI actualisée. Compléter la qualification multiplateforme et de l’artefact exact.",
+          "effort": "Faible à moyen",
+          "dependencies": [
+            "FIX"
+          ],
+          "acceptance": [
+            "Déclarer le même support Node dans les surfaces de distribution.",
+            "Installer le tarball exact dans un environnement vierge et initialiser MCP.",
+            "Séparer les transports et plateformes exécutés de ceux seulement configurés."
+          ],
+          "evidence": "Node 22/24 et la matrice OS sont qualifiés. La CI 34287049770 au commit 848bbe1 réussit avec 587 tests smoke et 6 tests transport sur six combinaisons OS/Node, contrôles release et chaîne d’approvisionnement compris. Les tests FTPS/SFTP par clé supplémentaires sont intégrés en 24b8730. La qualification de l’artefact exact distribué reste distincte.",
+          "commit": "24b8730530b5378b8944f06f66cc576377ba8440"
+        },
+        {
+          "id": "B0",
+          "priority": "P0",
+          "status": "delivered",
+          "title": "Contexte, annulation et verrous dans un processus",
+          "summary": "Annulation MCP, délai explicite, progression opt-in et sérialisation des opérations en conflit, y compris les cibles canoniques de téléchargement.",
+          "effort": "Moyen",
+          "dependencies": [
+            "FIX"
+          ],
+          "acceptance": [
+            "Une annulation réelle via le SDK atteint l’opération en cours.",
+            "Les opérations en conflit partagent un verrou dans un processus, téléchargements vers le même chemin canonique compris.",
+            "Le timeout est configurable de 100 à 3600000 ms, avec un défaut de 120000 ms.",
+            "La progression n’est émise que sur demande ; les ressources sont libérées après annulation ou timeout."
+          ],
+          "evidence": "848bbe1 poussé après revue critique indépendante et correction de deux régressions. 587 tests smoke, dont 69 contrôles runtime ciblés, plus 6 tests transport et 67 contrôles release réussis. CI 34287049770 entièrement verte. Ne démontre ni exclusion multiprocessus ni qualification autonome en production.",
+          "commit": "848bbe1f531be190c089cf8c4404bec4d33c5374"
+        },
+        {
+          "id": "B",
+          "priority": "P0",
+          "status": "in_progress",
+          "title": "Maîtriser les transferts",
+          "summary": "Temporaire, vérification et promotion contrôlée ; mutex, annulation, timeouts et quotas explicites.",
+          "effort": "Moyen à élevé",
+          "dependencies": [
+            "A",
+            "B0"
+          ],
+          "acceptance": [
+            "Une interruption conserve l’ancienne destination lorsque la promotion est supportée.",
+            "Deux mutations de la même cible sont sérialisées dans le périmètre documenté.",
+            "Annulation et timeout produisent un état explicite et libèrent les ressources.",
+            "Les limites et quotas sont contrôlés avant et pendant le transfert selon leur nature."
+          ],
+          "evidence": "Contexte d’exécution, verrous locaux au processus, annulation et timeout livrés en B0. Temporaire, vérification, promotion et quotas restent à compléter et démontrer ; aucune garantie universelle de remplacement atomique n’est annoncée."
+        },
+        {
+          "id": "C",
+          "priority": "P0",
+          "status": "planned",
+          "title": "Plan, apply et statut durables",
+          "summary": "Lier chaque décision à une identité de cible, des préconditions et des politiques ; conserver l’état des opérations.",
+          "effort": "Élevé",
+          "dependencies": [
+            "B"
+          ],
+          "acceptance": [
+            "Plan persisté avec cible, racines, hashes, politiques et expiration.",
+            "Un fichier changé ou une cible différente bloque avant mutation.",
+            "Une clé d’idempotence connue retrouve la même opération.",
+            "Une écriture non confirmée reste inconnue jusqu’à réconciliation.",
+            "Les outils bas niveau et le rollback respectent les mêmes politiques."
+          ],
+          "evidence": "Vue cible. L’idempotence ne garantit pas exactly once."
+        },
+        {
+          "id": "D",
+          "priority": "P1",
+          "status": "planned",
+          "title": "Delta, reprise et rollback conditionnel",
+          "summary": "Éviter les transferts inutiles ; retrouver les fichiers après crash et refuser toute restauration qui écrase une dérive tierce.",
+          "effort": "Élevé",
+          "dependencies": [
+            "C"
+          ],
+          "acceptance": [
+            "Manifeste lié à l’identité du serveur et aux racines.",
+            "Niveau de preuve affiché : hash, relecture ou heuristique.",
+            "Reprise fichier par fichier depuis le journal après crash.",
+            "Rollback refusé lorsqu’une modification tierce est détectée.",
+            "Aucune suppression miroir activée par défaut."
+          ],
+          "evidence": "À mesurer ; aucun gain de volume ou de durée annoncé."
+        },
+        {
+          "id": "E",
+          "priority": "P1",
+          "status": "planned",
+          "title": "Réponses et rapports pour les agents",
+          "summary": "Erreurs structurées, lecture par offsets, rapports détaillés consultables par pages et résumés bornés.",
+          "effort": "Moyen",
+          "dependencies": [
+            "C"
+          ],
+          "acceptance": [
+            "Erreurs avec code, retryable, operation_id et next_action selon le contrat.",
+            "Compteurs partiels et échantillon d’échecs accessibles.",
+            "Lecture d’un grand fichier par pages sans suffixe inaccessible.",
+            "Unités des offsets et limites documentées ; rapports hors de la racine web."
+          ],
+          "evidence": "Tests de compatibilité nécessaires : les erreurs partielles de la baseline excluent volontairement structuredContent."
+        },
+        {
+          "id": "F",
+          "priority": "P1",
+          "status": "planned",
+          "title": "Évaluations LLM et preuves reproductibles",
+          "summary": "Runner d’au moins trente scénarios, traces locales masquées, mesures réelles et qualification de l’artefact distribué.",
+          "effort": "Moyen à élevé",
+          "dependencies": [
+            "D",
+            "E"
+          ],
+          "acceptance": [
+            "Scénarios positifs, refus corrects, incidents, concurrence et dérive couverts.",
+            "Alias de modèle et résolution effective, SDK et client enregistrés.",
+            "Mesurer appels, octets, durée et tokens réellement fournis par l’hôte.",
+            "Traces JSONL locales sans contenu de fichiers ni secrets.",
+            "Documenter les transports exécutés et les limites de qualification."
+          ],
+          "evidence": "Dix scénarios XML existent dans la baseline ; aucun runner LLM exécuté ni benchmark concurrent."
+        }
+      ],
+      "quality": [
+        {
+          "area": "CI multiplateforme actuelle",
+          "result": "6 combinaisons + chaîne d’approvisionnement réussies",
+          "level": "verified",
+          "scope": "Run 34287049770 au commit 848bbe1 : Windows, macOS, Linux × Node 22/24 ; 587 tests smoke et 6 tests transport",
+          "limit": "Contrôles release et chaîne d’approvisionnement également réussis. Les garanties de l’artefact distribué et de récupération restent distinctes.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34287049770"
+        },
+        {
+          "area": "Contrôles d’exécution livrés",
+          "result": "587 tests smoke + 6 transport réussis",
+          "level": "verified",
+          "scope": "848bbe1 : 69 contrôles runtime ciblés inclus dans 587 ; 67 contrôles release séparés",
+          "limit": "Verrous locaux au processus, annulation SDK réelle et timeout configurable. Aucune qualification d’exclusion multiprocessus ou de récupération durable.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34287049770"
+        },
+        {
+          "area": "Dépendances de production",
+          "result": "0 vulnérabilité signalée",
+          "level": "verified",
+          "scope": "Audit local après Hono 4.13.2 → 4.13.5 : 108 dépendances",
+          "limit": "Audit également réussi dans la CI 34285445548. Résultat à cet instant ; ne prouve pas l’absence de faille."
+        },
+        {
+          "area": "CI de la base antérieure — 0764eec",
+          "result": "6 combinaisons + audit réussis",
+          "level": "verified",
+          "scope": "Run 34285445548 au commit 0764eec : Linux, macOS, Windows × Node 22/24",
+          "limit": "CI intégralement réussie. Ne qualifie pas les incidents et parcours de transport supplémentaires.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34285445548"
+        },
+        {
+          "area": "Tests après alignement runtime",
+          "result": "518 réussites",
+          "level": "verified",
+          "scope": "Tests locaux et revue indépendante des commits runtime et fixtures macOS",
+          "limit": "Preuve logicielle locale ; les résultats de CI et les transports sont documentés séparément."
+        },
+        {
+          "area": "Tests de la baseline",
+          "result": "418 réussites",
+          "level": "verified",
+          "scope": "Windows · Node 22.23.2 · npm test",
+          "limit": "État initial au commit 7a9f209, conservé séparément."
+        },
+        {
+          "area": "Tests après correctifs",
+          "result": "513 réussites",
+          "level": "verified",
+          "scope": "95 contrôles supplémentaires ; aucun échec",
+          "limit": "Corpus logiciel, sans qualification générale de l’autonomie."
+        },
+        {
+          "area": "Contrôles release",
+          "result": "67 réussites",
+          "level": "verified",
+          "scope": "node --test test/release-gates.js",
+          "limit": "Aucun ignoré ; ne prouve pas l’exécution de toute la CI."
+        },
+        {
+          "area": "Tarball installé",
+          "result": "CLI + MCP réussis",
+          "level": "verified",
+          "scope": "Environnement npm vierge ; scripts désactivés ; dix outils",
+          "limit": "Pas de transfert distant dans ce contrôle de l’artefact."
+        },
+        {
+          "area": "Concurrence baseline",
+          "result": "Chevauchement observé",
+          "level": "observed",
+          "scope": "MCP InMemory + adaptateur contrôlé : maxActive=2",
+          "limit": "Deux écritures sur /same.txt ; pas un transport physique."
+        },
+        {
+          "area": "Échec partiel baseline",
+          "result": "2 réussites / 3 tentatives",
+          "level": "observed",
+          "scope": "Échec injecté au deuxième upload ; troisième envoyé",
+          "limit": "isError=true, aucune structure d’erreur ni rollback."
+        },
+        {
+          "area": "Annulation baseline",
+          "result": "Signal préannulé ignoré",
+          "level": "observed",
+          "scope": "Invocation directe du gestionnaire, adaptateur contrôlé",
+          "limit": "L’annulation MCP de bout en bout n’a pas été exécutée."
+        },
+        {
+          "area": "Autonomie en production",
+          "result": "Non qualifiée",
+          "level": "pending",
+          "scope": "Incidents, concurrence, récupération et transports",
+          "limit": "Le succès des suites ne remplace pas ces démonstrations."
+        },
+        {
+          "area": "Service multiutilisateur",
+          "result": "Non qualifié",
+          "level": "pending",
+          "scope": "Le produit visé reste un serveur stdio local",
+          "limit": "Authentification, isolation et quotas entre utilisateurs non démontrés."
+        },
+        {
+          "area": "Efficacité d’un agent",
+          "result": "À mesurer",
+          "level": "pending",
+          "scope": "Runner LLM, répétitions, alias et conditions identiques",
+          "limit": "Aucun score, gain de tokens ou benchmark concurrent exécuté."
+        }
+      ],
+      "protocols": [
+        {
+          "name": "FTP",
+          "proof": "Transferts loopback réussis",
+          "level": "verified",
+          "limits": "FTP clair refusé par défaut ; opt-in explicite. Incidents réels sur artefact exact à qualifier."
+        },
+        {
+          "name": "FTPS",
+          "proof": "Tests supplémentaires réussis",
+          "level": "verified",
+          "limits": "Qualification ajoutée en 24b8730 et exécutée dans la CI 34287049770. La qualification depuis le tarball exact distribué reste distincte."
+        },
+        {
+          "name": "SFTP",
+          "proof": "Transferts loopback réussis",
+          "level": "verified",
+          "limits": "Pins hôte, rotation et tests complémentaires par clé privée réussis sur checkout/CI. Qualification de l’artefact exact et incidents physiques restent distincts."
+        },
+        {
+          "name": "MCP / stdio",
+          "proof": "2025-11-25 négocié",
+          "level": "verified",
+          "limits": "SDK inspecté : 1.29.0. Aucun support implicite de la révision 2026-07-28."
+        },
+        {
+          "name": "Windows / Node 22",
+          "proof": "Exécuté pendant l’audit",
+          "level": "verified",
+          "limits": "Node 22.23.2 et npm 10.9.8. Node 24 et autres OS non exécutés dans cette preuve."
+        },
+        {
+          "name": "Matrice CI / Node 22–24",
+          "proof": "6 combinaisons réussies",
+          "level": "verified",
+          "limits": "Linux, macOS et Windows sur Node 22 et 24 ; run 34287049770, commit 848bbe1. Les garanties de transport et récupération restent bornées."
+        }
+      ],
+      "competitors": [
+        {
+          "name": "Kynlos / ftp-mcp",
+          "version": "1.5.3",
+          "type": "MCP spécialisé",
+          "capabilities": "Pooling, sync avec manifeste, expectedHash, snapshots, rollback, politiques et télémétrie.",
+          "lesson": "Delta et rollback existent déjà. La différence à démontrer : plan persisté, identité de cible et récupération vérifiable.",
+          "limit": "Aucun plan immuable persisté suivi d’un apply distinct observé dans le périmètre inspecté.",
+          "url": "https://github.com/Kynlos/ftp-mcp/blob/910beeefa489e4b12978f2c82391bed617356edf/index.js"
+        },
+        {
+          "name": "alxspiker / mcp-server-ftp",
+          "version": "1.2.1",
+          "type": "MCP spécialisé",
+          "capabilities": "FTP/FTPS/SFTP, édition, append, opérations sérialisées, annotations et sorties structurées.",
+          "lesson": "Les protocoles et les schémas sont un socle. Le parcours de déploiement complet reste le levier produit.",
+          "limit": "Pas de plan de déploiement ni rollback dans l’interface inspectée.",
+          "url": "https://github.com/alxspiker/mcp-server-ftp/blob/6864ee502a5e0bd645b4f6c41c61371d839ae029/src/index.ts"
+        },
+        {
+          "name": "runter-vom-mattenwagen / ssh-mcp-server",
+          "version": "8fc6721",
+          "type": "MCP SSH généraliste",
+          "capabilities": "Trois outils : exécution SSH, upload et download, avec pooling.",
+          "lesson": "Conserver une spécialisation déploiement permet d’éviter l’ajout d’exécution shell.",
+          "limit": "Portée généraliste ; comparaison fonctionnelle statique seulement.",
+          "url": "https://github.com/runter-vom-mattenwagen/ssh-mcp-server/blob/8fc67213a5782d853a78d9a6026434c6a6c03813/ssh_mcp_server.py"
+        },
+        {
+          "name": "SamKirkland / FTP-Deploy-Action",
+          "version": "4.4.0",
+          "type": "CI adjacent · sans MCP",
+          "capabilities": "État, exclusions et dry run FTP/FTPS transmis à un moteur délégué.",
+          "lesson": "Référence d’ergonomie CI ; pas une preuve de performance ou sécurité relative.",
+          "limit": "Moteur de synchronisation délégué non audité ici.",
+          "url": "https://github.com/SamKirkland/FTP-Deploy-Action/blob/110f9186c050f71550953127052e77650219c287/src/main.ts"
+        }
+      ],
+      "commits": [
+        {
+          "sha": "848bbe1f531be190c089cf8c4404bec4d33c5374",
+          "title": "Annulation MCP, délais et verrous locaux au processus",
+          "status": "Poussé sur main · revue acceptée",
+          "description": "Deux régressions de revue corrigées avant acceptation. 587 tests smoke + 6 transport + 67 contrôles release réussis ; CI 34287049770 entièrement verte. Staging et journaux durables ne sont pas inclus."
+        },
+        {
+          "sha": "24b8730530b5378b8944f06f66cc576377ba8440",
+          "title": "Qualification complémentaire FTPS et SFTP par clé",
+          "status": "Poussé sur main",
+          "description": "Six tests transport intégrés à npm test, à la CI et aux contrôles release. Réussis dans la CI 34287049770 au commit 848bbe1."
+        },
+        {
+          "sha": "0764eec78c02ebe64334450d6d7f14fe88b84cc4",
+          "title": "Dépendance Hono corrigée en 4.13.5",
+          "status": "Poussé sur main · revue acceptée",
+          "description": "Mise à jour transitive minimale depuis 4.13.2. Audit production local : zéro vulnérabilité signalée sur 108 dépendances. CI 34285445548 intégralement réussie, six combinaisons OS/Node et audit compris."
+        },
+        {
+          "sha": "2e02cba1ffbf11e109271652a24c81738b76e107",
+          "title": "Fixtures : chemins canoniques sur macOS",
+          "status": "Poussé sur main · revue acceptée",
+          "description": "Corrige les deux assertions liées à /var et /private/var. Qualification des six combinaisons OS/Node confirmée par la CI 34285445548."
+        },
+        {
+          "sha": "ee5cc16d1f40134043b30759ffadbd89bb2c0d9f",
+          "title": "Support Node 22/24 et Docker Node 24",
+          "status": "Poussé sur main · revue acceptée",
+          "description": "Moteurs, documentation, Docker et matrice CI alignés. 518 tests + 67 contrôles release locaux réussis."
+        },
+        {
+          "sha": "7dfbd6cee63bb13d33d9eab5585f71baf187171a",
+          "title": "Configuration explicite et contrats de masquage corrigés",
+          "status": "Intégré à main",
+          "description": "Trois défauts bornés corrigés ; suites 513 + 67 réussies et revue critique acceptée. Ne qualifie pas les autres lots."
+        },
+        {
+          "sha": "7a9f209a4d7c4401fc62f6b2ee3caab640d5064a",
+          "title": "Baseline de l’audit — version 0.2.0",
+          "status": "Référence historique",
+          "description": "418 tests + 67 contrôles release. Les expériences de concurrence et d’échec injecté décrivent cet état."
+        }
+      ],
+      "documents": [
+        {
+          "title": "Configuration & démarrage",
+          "category": "Sources",
+          "text": "Sélection explicite sans repli, chargement des serveurs, variables d’environnement et initialisation du serveur stdio.",
+          "path": "src/config.js"
+        },
+        {
+          "title": "Contrats & outils",
+          "category": "Sources",
+          "text": "Sélection des fichiers, contrôles de périmètre, sorties structurées et limites de réponse MCP.",
+          "path": "src/tools.js"
+        },
+        {
+          "title": "Masquage des secrets",
+          "category": "Sources",
+          "text": "Reconnaissance des secrets configurés et masquage des chaînes libres. Les valeurs publiques de schéma restent valides.",
+          "path": "src/redact.js"
+        },
+        {
+          "title": "Installation & exploitation",
+          "category": "Documentation",
+          "text": "Configuration du client, racines dédiées, protocoles, lecture seule et limites de confinement.",
+          "path": "README.fr.md"
+        },
+        {
+          "title": "Contrôles du contrat MCP",
+          "category": "Tests",
+          "text": "Régressions sur les réponses, les schémas et les erreurs de l’interface MCP.",
+          "path": "test/mcp-contract.js"
+        },
+        {
+          "title": "Scénarios d’évaluation",
+          "category": "Évaluations",
+          "text": "Dix scénarios XML de la baseline. La présence de scénarios ne constitue pas l’exécution d’un runner LLM.",
+          "path": "evaluations/README.md"
+        }
+      ],
+      "sourceNote": "Synthèse de l’audit local du 8 septembre 2026, actualisée avec les correctifs intégrés à main et les preuves communiquées le 9 septembre. Comparaison des quatre projets par inspection statique uniquement. Aucun concurrent ni modèle n’a été exécuté.",
+      "illustrations": [
+        {
+          "id": "architecture-cible",
+          "file": "assets/architecture-cible.png",
+          "title": "Architecture cible — ftp-deploy-mcp",
+          "alt": "Illustration conceptuelle : agent IA, MCP stdio, moteur de contrôle local avec politiques et plans et journal, adaptateurs FTP FTPS SFTP et serveur distant. La configuration locale alimente le moteur.",
+          "caption": "Vue cible conceptuelle · ChatGPT Image · 9 septembre 2026. Les composants projetés restent soumis aux critères de la feuille de route.",
+          "provenance": "Générée avec ChatGPT Image le 9 septembre 2026, dans une session commencée le 8 septembre. Image examinée visuellement ; illustration de l’intention architecturale, sans valeur de preuve fonctionnelle. Le prompt original ci-dessous est conservé sans traduction.",
+          "prompt": "Use case: infographic-diagram.\nCreate a high-resolution widescreen technical architecture illustration for a professional French engineering documentation portal for the open-source project ftp-deploy-mcp. Exact title: \"Architecture cible\". Subtitle: \"ftp-deploy-mcp\".\nThe diagram is a TARGET CONCEPT, not a claim of delivered functionality. Precise left-to-right system flow: a box \"Agent IA\", arrow labelled \"MCP stdio\" into a locally hosted control engine; inside the engine two clearly separated components \"Politiques\" and \"Plan & journal\"; output to an adapter block labelled \"FTP / FTPS / SFTP\", then arrow to \"Serveur distant\". Beneath the local engine a small protected vault block \"Configuration locale\" connects only to the engine, never to Agent IA. Show an understated dashed trust boundary around the local engine, configuration and journal, excluding the remote server. Arrows must be visually clear and not tangled.\nStyle: exceptionally clean enterprise architecture board inspired by precise Visio diagrams, refined flat vector-like shapes with just slight physical depth, warm ivory background, navy typography and crisp blue/teal connectors, restrained professional editorial aesthetic. Generous whitespace, no shiny neon, no mascots, no decorative charts, no clouds, no vendor logos, no watermarks, no extra labels. Large legible exact French labels. All boxes and connectors comfortably within image margins. This will be embedded next to interactive SVG technical diagrams, so prioritize coherent readable topology over artistic complexity."
         }
       ]
     },
-    {
-      "id": "stale",
-      "name": "Plan périmé",
-      "summary": "Parcours cible de refus avant écriture lorsque l’intention approuvée ne correspond plus à l’état observé.",
-      "currentFact": "Baseline : pas de plan immuable persisté ni d’apply distinct. Une simulation locale ne valide pas les préconditions distantes.",
-      "steps": [
+    "en": {
+      "schemaVersion": 1,
+      "project": "ftp-deploy-mcp",
+      "version": "0.2.0",
+      "updated": "9 September 2026",
+      "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
+      "head": "848bbe1f531be190c089cf8c4404bec4d33c5374",
+      "scope": "Local MCP stdio · supervised local use",
+      "toolCount": 10,
+      "summary": "Plan, check, deploy. Then explain every outcome and recover a verifiable state after an incident.",
+      "deliveryNote": "Configuration and redaction fixes, Node 22/24, Hono 4.13.5, execution context, cancellation and process-local locks are integrated into main. CI 34287049770 at 848bbe1 passed all six OS/Node combinations, including transport and supply-chain checks. Staging and durable recovery remain target work. The npm package has not been published.",
+      "metrics": [
         {
-          "name": "Plan",
-          "text": "Charger le plan par son identifiant opaque, sans accepter de nouveaux chemins libres.",
-          "state": "Plan retrouvé",
-          "lot": "C"
+          "value": "587",
+          "label": "smoke tests passed",
+          "detail": "6 separate transport tests · baseline: 418"
         },
         {
-          "name": "Validation",
-          "text": "Un fichier local, la cible, la politique ou une précondition distante a changé ; ou le plan a expiré.",
-          "state": "Écart détecté",
-          "lot": "C"
+          "value": "67",
+          "label": "release checks",
+          "detail": "Passed separately · none skipped"
         },
         {
-          "name": "Refus",
-          "text": "Retourner PLAN_STALE ou TARGET_CHANGED, sans mutation. Proposer de préparer un nouveau plan.",
-          "state": "Bloqué avant écriture",
-          "lot": "C"
+          "value": "10",
+          "label": "MCP tools",
+          "detail": "Current interface · local stdio"
+        }
+      ],
+      "principles": [
+        {
+          "title": "An explicit target",
+          "text": "An explicitly selected but invalid configuration blocks startup. Policies must be defined outside the model’s control."
+        },
+        {
+          "title": "Clearly stated guarantees",
+          "text": "A controlled rename can protect a file. It does not make an entire site atomic or establish continuous availability."
+        },
+        {
+          "title": "Evidence within its scope",
+          "text": "Software tests, injected incidents, real transports and agent task success provide different evidence. Qualification keeps them separate."
+        }
+      ],
+      "nodes": [
+        {
+          "id": "agent",
+          "name": "Agent / MCP client",
+          "short": "Intent and tools",
+          "zone": "Agent",
+          "x": 38,
+          "y": 100,
+          "w": 175,
+          "h": 90,
+          "current": true,
+          "responsibility": "Expresses a request, selects an MCP tool and interprets the results. The client communicates with the server over stdio.",
+          "constraints": [
+            "Remote content remains data, never authorization.",
+            "A plan_id or confirm: true is not proof of human consent."
+          ],
+          "source": "src/index.js"
+        },
+        {
+          "id": "host",
+          "name": "Local host",
+          "short": "Process and consent",
+          "zone": "Local host",
+          "x": 255,
+          "y": 100,
+          "w": 190,
+          "h": 90,
+          "current": true,
+          "responsibility": "Starts the Node process, supplies configuration and bounds local access. The intended product remains a local MCP stdio server.",
+          "constraints": [
+            "Multiuser isolation has not been qualified.",
+            "Host consent and external policies belong to the target design."
+          ],
+          "source": "src/index.js"
+        },
+        {
+          "id": "core",
+          "name": "MCP core",
+          "short": "Contracts · selection · checks",
+          "zone": "MCP core",
+          "x": 490,
+          "y": 100,
+          "w": 215,
+          "h": 90,
+          "current": true,
+          "responsibility": "Exposes ten tools, enforces scope and read-only checks, redacts sensitive values and bounds responses. Now propagates the MCP execution context, cancellation and opt-in progress, and serializes conflicting operations inside one process.",
+          "constraints": [
+            "Successful results have structured schemas; partial-error results still need to evolve.",
+            "The global response limit is not a measured token budget.",
+            "Locks cover a single process. Configurable timeout: 100..3600000 ms, default 120000 ms; durable state remains target work."
+          ],
+          "source": "src/tools.js"
+        },
+        {
+          "id": "policy",
+          "name": "Configuration & policies",
+          "short": "Roots · read-only · secrets",
+          "zone": "Configuration and policies",
+          "x": 280,
+          "y": 285,
+          "w": 230,
+          "h": 90,
+          "current": true,
+          "responsibility": "Describes servers, roots, transport identities and recognized secrets. An invalid explicit selection now fails without consulting a fallback configuration.",
+          "constraints": [
+            "ftp_deploy exclusions are not a shared policy for every tool.",
+            "readOnly prohibits remote mutations; ftp_download can write locally."
+          ],
+          "source": "src/config.js"
+        },
+        {
+          "id": "state",
+          "name": "Plans & durable journal",
+          "short": "Target · conditions · operations",
+          "zone": "Plans, state and jobs",
+          "x": 555,
+          "y": 285,
+          "w": 230,
+          "h": 90,
+          "current": false,
+          "responsibility": "Target design: stores an immutable plan, target identity, preconditions, idempotency key and each file’s state. Makes status retrievable after a lost response.",
+          "constraints": [
+            "Persist outside the web root and without secret content.",
+            "A crash between a remote write and the journal requires reconciliation.",
+            "Idempotency does not mean exactly once."
+          ],
+          "source": "src/tools.js",
+          "roadmap": "C"
+        },
+        {
+          "id": "adapters",
+          "name": "Transport adapters",
+          "short": "FTP / FTPS · SFTP",
+          "zone": "Adapters",
+          "x": 750,
+          "y": 100,
+          "w": 215,
+          "h": 90,
+          "current": true,
+          "responsibility": "Encapsulate connection, listing, reads and remote mutations. Effective guarantees depend on the protocol and server.",
+          "constraints": [
+            "Plain FTP is rejected by default; an SFTP host key is required by default.",
+            "The baseline writes directly to the destination. Temporary files and promotion belong to work package B."
+          ],
+          "source": "src/adapters/ftp.js",
+          "extraSources": [
+            "src/adapters/sftp.js"
+          ]
+        },
+        {
+          "id": "remote",
+          "name": "Remote host",
+          "short": "Dedicated account · remote root",
+          "zone": "Remote host",
+          "x": 1008,
+          "y": 100,
+          "w": 200,
+          "h": 90,
+          "current": true,
+          "responsibility": "Receives bytes and performs operations allowed by its protocol, account and file system.",
+          "constraints": [
+            "Path checks do not establish absolute isolation.",
+            "Hashes do not neutralize a malicious server or every race condition.",
+            "A local mutex does not protect against multiple processes."
+          ],
+          "source": "README.md"
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "success",
+          "name": "Success",
+          "summary": "The complete target flow, from a plan to retrievable status. This illustration describes expected behavior; it is not a test execution.",
+          "currentFact": "Baseline: local selection and sequential transfers. Dry run does not contact the server. Upload and download write directly to the destination.",
+          "steps": [
+            {
+              "name": "Plan",
+              "text": "Freeze the selection, local hashes, target identity, policies and expiration.",
+              "state": "Plan prepared",
+              "lot": "C"
+            },
+            {
+              "name": "Validation",
+              "text": "Revalidate the target, files, policies and remote preconditions before any mutation.",
+              "state": "Preconditions valid",
+              "lot": "C"
+            },
+            {
+              "name": "Lock",
+              "text": "Serialize mutations for the same target and root within the guaranteed scope.",
+              "state": "Exclusive execution",
+              "lot": "B"
+            },
+            {
+              "name": "Temporary file",
+              "text": "Transfer to a temporary name; preserve the previous destination wherever possible.",
+              "state": "Transfer in progress",
+              "lot": "B"
+            },
+            {
+              "name": "Verification",
+              "text": "Verify the content or disclose the level of evidence actually available on this server.",
+              "state": "Transfer verified",
+              "lot": "B"
+            },
+            {
+              "name": "Promotion",
+              "text": "Promote the file through a controlled rename where the server supports it. Per-file atomicity only.",
+              "state": "File promoted",
+              "lot": "B"
+            },
+            {
+              "name": "Journal",
+              "text": "Persist the outcome and return operation_id, counts and the next action. A status query retrieves the result.",
+              "state": "Complete and retrievable",
+              "lot": "C"
+            }
+          ]
+        },
+        {
+          "id": "stale",
+          "name": "Stale plan",
+          "summary": "The target refusal flow before writing when approved intent no longer matches the observed state.",
+          "currentFact": "Baseline: no persisted immutable plan or separate apply. A local simulation does not validate remote preconditions.",
+          "steps": [
+            {
+              "name": "Plan",
+              "text": "Load the plan by its opaque identifier without accepting new free-form paths.",
+              "state": "Plan retrieved",
+              "lot": "C"
+            },
+            {
+              "name": "Validation",
+              "text": "A local file, target, policy or remote precondition has changed, or the plan has expired.",
+              "state": "Mismatch detected",
+              "lot": "C"
+            },
+            {
+              "name": "Refusal",
+              "text": "Return PLAN_STALE or TARGET_CHANGED without mutation. Recommend preparing a new plan.",
+              "state": "Blocked before writing",
+              "lot": "C"
+            }
+          ]
+        },
+        {
+          "id": "disconnect",
+          "name": "Connection loss",
+          "summary": "The target flow after a lost response or a stop near a write: the state must be allowed to remain explicitly unknown.",
+          "currentFact": "Baseline experiment with a controlled adapter: three uploads attempted, two succeeded, one failed; partial state retained, isError=true without structuredContent. No physical connection loss was tested in this experiment.",
+          "steps": [
+            {
+              "name": "Plan",
+              "text": "Retrieve the plan and operation associated with the idempotency key.",
+              "state": "Operation identified",
+              "lot": "C"
+            },
+            {
+              "name": "Validation",
+              "text": "Check the preconditions before starting.",
+              "state": "Preconditions valid",
+              "lot": "C"
+            },
+            {
+              "name": "Lock",
+              "text": "Acquire exclusive mutation access within the documented scope.",
+              "state": "Lock held",
+              "lot": "B"
+            },
+            {
+              "name": "Temporary file",
+              "text": "Write the new content under a temporary name.",
+              "state": "Transfer in progress",
+              "lot": "B"
+            },
+            {
+              "name": "Verification",
+              "text": "Verify the transferred bytes according to observed capabilities.",
+              "state": "Content checked",
+              "lot": "B"
+            },
+            {
+              "name": "Promotion",
+              "text": "The server may have promoted the file before the response was lost.",
+              "state": "Response lost",
+              "lot": "B"
+            },
+            {
+              "name": "Partial / unknown",
+              "text": "Do not claim a definite success or failure. The journal retains the last known step.",
+              "state": "Needs verification",
+              "lot": "C"
+            },
+            {
+              "name": "Reconciliation",
+              "text": "Inspect remote state through a hash or reread. Without sufficient evidence, block automatic resumption.",
+              "state": "Remote reconciliation",
+              "lot": "D"
+            },
+            {
+              "name": "Journal",
+              "text": "Record the reconciled outcome, then decide whether to resume or request human action.",
+              "state": "State explained",
+              "lot": "D"
+            }
+          ]
+        },
+        {
+          "id": "restore",
+          "name": "Restoration",
+          "summary": "The target conditional rollback flow. A detected third-party modification blocks automatic restoration.",
+          "currentFact": "Baseline: no automatic resumption or restoration was observed. A backup and a tested restoration procedure remain prerequisites for a supervised pilot.",
+          "steps": [
+            {
+              "name": "Journal",
+              "text": "Retrieve the operation and the previous version retained under a defined retention policy.",
+              "state": "Version identified",
+              "lot": "D"
+            },
+            {
+              "name": "Validation",
+              "text": "Apply the shared policies, then compare current state with the state left by the deployment.",
+              "state": "Drift checked",
+              "lot": "D"
+            },
+            {
+              "name": "Lock",
+              "text": "Serialize restoration like every other mutation on this target.",
+              "state": "Exclusive restoration",
+              "lot": "B"
+            },
+            {
+              "name": "Temporary file",
+              "text": "Prepare the previous version. If a third-party modification is detected, refuse to overwrite it.",
+              "state": "Previous version prepared",
+              "lot": "D"
+            },
+            {
+              "name": "Promotion",
+              "text": "Verify and then promote the restored version according to the server’s guarantees.",
+              "state": "Version restored",
+              "lot": "D"
+            },
+            {
+              "name": "Final journal",
+              "text": "Retain the restoration report and the observed limitations.",
+              "state": "Restoration documented",
+              "lot": "D"
+            }
+          ]
+        }
+      ],
+      "roadmap": [
+        {
+          "id": "FIX",
+          "priority": "P0",
+          "status": "delivered",
+          "title": "Configuration and redaction",
+          "summary": "Explicit selection without fallback, redaction of ENV regions and preservation of recognized public enums in the MCP contract.",
+          "effort": "Focused",
+          "dependencies": [],
+          "acceptance": [
+            "Invalid explicit configuration fails closed, without falling back to the CWD.",
+            "Recognized secrets remain redacted in free-form strings.",
+            "The fourteen tested enums retain a valid contract across seven schema paths."
+          ],
+          "evidence": "513 tests + 67 release checks; independent critical review accepted; fixes integrated into main.",
+          "commit": "7dfbd6cee63bb13d33d9eab5585f71baf187171a"
+        },
+        {
+          "id": "A",
+          "priority": "P0",
+          "status": "in_progress",
+          "title": "Runtime and artifact qualification",
+          "summary": "Node 22/24 support implemented, Docker aligned with Node 24 and CI matrix updated. Complete qualification across platforms and on the exact artifact.",
+          "effort": "Low to medium",
+          "dependencies": [
+            "FIX"
+          ],
+          "acceptance": [
+            "Declare consistent Node support across distribution surfaces.",
+            "Install the exact tarball in a clean environment and initialize MCP.",
+            "Separate executed transports and platforms from those only configured."
+          ],
+          "evidence": "Node 22/24 and the OS matrix are qualified. CI 34287049770 at 848bbe1 passed 587 smoke tests and 6 transport tests across six OS/Node combinations, with release and supply-chain checks. Additional FTPS/SFTP private-key tests are integrated by 24b8730. Qualification on the exact distributed artifact remains separate.",
+          "commit": "24b8730530b5378b8944f06f66cc576377ba8440"
+        },
+        {
+          "id": "B0",
+          "priority": "P0",
+          "status": "delivered",
+          "title": "Execution context, cancellation and process-local locks",
+          "summary": "MCP cancellation, explicit deadline, opt-in progress and serialization of conflicting operations, including canonical download targets.",
+          "effort": "Medium",
+          "dependencies": [
+            "FIX"
+          ],
+          "acceptance": [
+            "A real SDK cancellation reaches the running operation.",
+            "Conflicting operations share a lock inside one process, including downloads to the same canonical path.",
+            "Timeout is configurable from 100 to 3600000 ms, with a 120000 ms default.",
+            "Progress is sent only when requested; resources are released after cancellation or timeout."
+          ],
+          "evidence": "848bbe1 pushed after independent critical review and correction of two regressions. 587 smoke tests, including 69 targeted runtime checks, plus 6 transport tests and 67 release checks passed. CI 34287049770 is fully green. This does not establish multiprocess exclusion or autonomous production qualification.",
+          "commit": "848bbe1f531be190c089cf8c4404bec4d33c5374"
+        },
+        {
+          "id": "B",
+          "priority": "P0",
+          "status": "in_progress",
+          "title": "Control transfers",
+          "summary": "Temporary file, verification and controlled promotion; mutex, cancellation, timeouts and explicit quotas.",
+          "effort": "Medium to high",
+          "dependencies": [
+            "A",
+            "B0"
+          ],
+          "acceptance": [
+            "An interruption preserves the previous destination where promotion is supported.",
+            "Two mutations on the same target are serialized within the documented scope.",
+            "Cancellation and timeout produce explicit state and release resources.",
+            "Limits and quotas are checked before and during transfer as appropriate."
+          ],
+          "evidence": "Execution context, process-local locks, cancellation and timeout were delivered in B0. Temporary files, verification, promotion and quotas remain to be completed and demonstrated; no universal atomic replacement guarantee is claimed."
+        },
+        {
+          "id": "C",
+          "priority": "P0",
+          "status": "planned",
+          "title": "Durable plan, apply and status",
+          "summary": "Bind every decision to a target identity, preconditions and policies; retain operation state.",
+          "effort": "High",
+          "dependencies": [
+            "B"
+          ],
+          "acceptance": [
+            "Persist plans with target, roots, hashes, policies and expiration.",
+            "A changed file or different target blocks the operation before mutation.",
+            "A known idempotency key retrieves the same operation.",
+            "An unconfirmed write remains unknown until reconciled.",
+            "Low-level tools and rollback enforce the same policies."
+          ],
+          "evidence": "Target design. Idempotency does not guarantee exactly once."
+        },
+        {
+          "id": "D",
+          "priority": "P1",
+          "status": "planned",
+          "title": "Delta, resumption and conditional rollback",
+          "summary": "Avoid unnecessary transfers, recover files after a crash and refuse restoration that overwrites third-party drift.",
+          "effort": "High",
+          "dependencies": [
+            "C"
+          ],
+          "acceptance": [
+            "Bind the manifest to server identity and roots.",
+            "Disclose the evidence level: hash, reread or heuristic.",
+            "Resume file by file from the journal after a crash.",
+            "Refuse rollback when a third-party modification is detected.",
+            "Do not enable mirror deletion by default."
+          ],
+          "evidence": "To be measured; no volume or duration improvement is claimed."
+        },
+        {
+          "id": "E",
+          "priority": "P1",
+          "status": "planned",
+          "title": "Responses and reports for agents",
+          "summary": "Structured errors, reads by offset, paginated detailed reports and bounded summaries.",
+          "effort": "Medium",
+          "dependencies": [
+            "C"
+          ],
+          "acceptance": [
+            "Errors include code, retryable, operation_id and next_action according to the contract.",
+            "Expose partial counts and a sample of failures.",
+            "Read a large file in pages without an inaccessible suffix.",
+            "Document offset and limit units; store reports outside the web root."
+          ],
+          "evidence": "Compatibility tests are required: baseline partial errors deliberately exclude structuredContent."
+        },
+        {
+          "id": "F",
+          "priority": "P1",
+          "status": "planned",
+          "title": "LLM evaluations and reproducible evidence",
+          "summary": "A runner with at least thirty scenarios, redacted local traces, actual measurements and qualification of the distributed artifact.",
+          "effort": "Medium to high",
+          "dependencies": [
+            "D",
+            "E"
+          ],
+          "acceptance": [
+            "Cover positive scenarios, correct refusals, incidents, concurrency and drift.",
+            "Record model aliases and resolved versions, SDK and client.",
+            "Measure calls, bytes, duration and tokens actually supplied by the host.",
+            "Keep local JSONL traces without file content or secrets.",
+            "Document executed transports and qualification limits."
+          ],
+          "evidence": "Ten XML scenarios exist in the baseline; no LLM runner or competitor benchmark has been executed."
+        }
+      ],
+      "quality": [
+        {
+          "area": "Current cross-platform CI",
+          "result": "6 combinations + supply chain passed",
+          "level": "verified",
+          "scope": "Run 34287049770 at 848bbe1: Windows, macOS, Linux × Node 22/24; 587 smoke and 6 transport tests",
+          "limit": "Release and supply-chain checks also passed. Distributed-artifact and recovery guarantees remain separate.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34287049770"
+        },
+        {
+          "area": "Delivered execution controls",
+          "result": "587 smoke + 6 transport tests passed",
+          "level": "verified",
+          "scope": "848bbe1: 69 targeted runtime checks included in 587; 67 separate release checks",
+          "limit": "Process-local locks, real SDK cancellation and configurable timeout. No multiprocess exclusion or durable recovery qualification.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34287049770"
+        },
+        {
+          "area": "Production dependencies",
+          "result": "0 reported vulnerabilities",
+          "level": "verified",
+          "scope": "Local audit after Hono 4.13.2 → 4.13.5: 108 dependencies",
+          "limit": "The audit also passed in CI 34285445548. This is a point-in-time result, not proof that no vulnerability exists."
+        },
+        {
+          "area": "Earlier base CI — 0764eec",
+          "result": "6 combinations + audit passed",
+          "level": "verified",
+          "scope": "Run 34285445548 at commit 0764eec: Linux, macOS, Windows × Node 22/24",
+          "limit": "The entire CI passed. This does not qualify additional incidents and transport flows.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34285445548"
+        },
+        {
+          "area": "Tests after runtime alignment",
+          "result": "518 passed",
+          "level": "verified",
+          "scope": "Local tests and independent review of runtime and macOS fixture commits",
+          "limit": "Local software evidence; CI and transport results are documented separately."
+        },
+        {
+          "area": "Baseline tests",
+          "result": "418 passed",
+          "level": "verified",
+          "scope": "Windows · Node 22.23.2 · npm test",
+          "limit": "Initial state at commit 7a9f209, retained separately."
+        },
+        {
+          "area": "Tests after the fixes",
+          "result": "513 passed",
+          "level": "verified",
+          "scope": "95 additional checks; no failures",
+          "limit": "Software test corpus, without general qualification of autonomous use."
+        },
+        {
+          "area": "Release checks",
+          "result": "67 passed",
+          "level": "verified",
+          "scope": "node --test test/release-gates.js",
+          "limit": "None skipped; this does not establish that the entire CI ran."
+        },
+        {
+          "area": "Installed tarball",
+          "result": "CLI + MCP passed",
+          "level": "verified",
+          "scope": "Clean npm environment; scripts disabled; ten tools",
+          "limit": "No remote transfer was performed in this artifact check."
+        },
+        {
+          "area": "Baseline concurrency",
+          "result": "Overlap observed",
+          "level": "observed",
+          "scope": "MCP InMemory + controlled adapter: maxActive=2",
+          "limit": "Two writes to /same.txt; not a physical transport."
+        },
+        {
+          "area": "Baseline partial failure",
+          "result": "2 successes / 3 attempts",
+          "level": "observed",
+          "scope": "Failure injected at the second upload; third file sent",
+          "limit": "isError=true, no structured error or rollback."
+        },
+        {
+          "area": "Baseline cancellation",
+          "result": "Pre-aborted signal ignored",
+          "level": "observed",
+          "scope": "Direct handler invocation with a controlled adapter",
+          "limit": "End-to-end MCP cancellation was not executed."
+        },
+        {
+          "area": "Autonomous production use",
+          "result": "Not qualified",
+          "level": "pending",
+          "scope": "Incidents, concurrency, recovery and transports",
+          "limit": "Passing test suites does not replace these demonstrations."
+        },
+        {
+          "area": "Multiuser service",
+          "result": "Not qualified",
+          "level": "pending",
+          "scope": "The intended product remains a local stdio server",
+          "limit": "Authentication, isolation and quotas between users have not been demonstrated."
+        },
+        {
+          "area": "Agent effectiveness",
+          "result": "To be measured",
+          "level": "pending",
+          "scope": "LLM runner, repetitions, aliases and identical conditions",
+          "limit": "No score, token savings or competitor benchmark has been produced."
+        }
+      ],
+      "protocols": [
+        {
+          "name": "FTP",
+          "proof": "Loopback transfers passed",
+          "level": "verified",
+          "limits": "Plain FTP rejected by default; explicit opt-in. Real incidents on the exact artifact remain to be qualified."
+        },
+        {
+          "name": "FTPS",
+          "proof": "Additional tests passed",
+          "level": "verified",
+          "limits": "Qualification added in 24b8730 and executed in CI 34287049770. Qualification from the exact distributed tarball remains separate."
+        },
+        {
+          "name": "SFTP",
+          "proof": "Loopback transfers passed",
+          "level": "verified",
+          "limits": "Host pins, rotation and additional private-key tests passed on checkout/CI. Exact-artifact and physical incident qualification remain separate."
+        },
+        {
+          "name": "MCP / stdio",
+          "proof": "2025-11-25 negotiated",
+          "level": "verified",
+          "limits": "Inspected SDK: 1.29.0. No implied support for revision 2026-07-28."
+        },
+        {
+          "name": "Windows / Node 22",
+          "proof": "Executed during the audit",
+          "level": "verified",
+          "limits": "Node 22.23.2 and npm 10.9.8. Node 24 and other operating systems were not executed in this evidence set."
+        },
+        {
+          "name": "CI matrix / Node 22–24",
+          "proof": "6 combinations passed",
+          "level": "verified",
+          "limits": "Linux, macOS and Windows on Node 22 and 24; run 34287049770, commit 848bbe1. Transport and recovery guarantees remain scoped."
+        }
+      ],
+      "competitors": [
+        {
+          "name": "Kynlos / ftp-mcp",
+          "version": "1.5.3",
+          "type": "Specialized MCP",
+          "capabilities": "Pooling, manifest-based sync, expectedHash, snapshots, rollback, policies and telemetry.",
+          "lesson": "Delta and rollback already exist. The distinction to demonstrate is a persisted plan, target identity and verifiable recovery.",
+          "limit": "No persisted immutable plan followed by a separate apply was observed within the inspected scope.",
+          "url": "https://github.com/Kynlos/ftp-mcp/blob/910beeefa489e4b12978f2c82391bed617356edf/index.js"
+        },
+        {
+          "name": "alxspiker / mcp-server-ftp",
+          "version": "1.2.1",
+          "type": "Specialized MCP",
+          "capabilities": "FTP/FTPS/SFTP, editing, append, serialized operations, annotations and structured outputs.",
+          "lesson": "Protocols and schemas are a foundation. The complete deployment flow remains the product opportunity.",
+          "limit": "No deployment plan or rollback in the inspected interface.",
+          "url": "https://github.com/alxspiker/mcp-server-ftp/blob/6864ee502a5e0bd645b4f6c41c61371d839ae029/src/index.ts"
+        },
+        {
+          "name": "runter-vom-mattenwagen / ssh-mcp-server",
+          "version": "8fc6721",
+          "type": "General-purpose SSH MCP",
+          "capabilities": "Three tools: SSH execution, upload and download, with pooling.",
+          "lesson": "Maintaining a deployment focus avoids adding shell execution.",
+          "limit": "General-purpose scope; static functional comparison only.",
+          "url": "https://github.com/runter-vom-mattenwagen/ssh-mcp-server/blob/8fc67213a5782d853a78d9a6026434c6a6c03813/ssh_mcp_server.py"
+        },
+        {
+          "name": "SamKirkland / FTP-Deploy-Action",
+          "version": "4.4.0",
+          "type": "Adjacent CI tool · no MCP",
+          "capabilities": "State, exclusions and FTP/FTPS dry run forwarded to a delegated engine.",
+          "lesson": "A CI usability reference, without evidence of relative performance or security.",
+          "limit": "The delegated synchronization engine was not audited here.",
+          "url": "https://github.com/SamKirkland/FTP-Deploy-Action/blob/110f9186c050f71550953127052e77650219c287/src/main.ts"
+        }
+      ],
+      "commits": [
+        {
+          "sha": "848bbe1f531be190c089cf8c4404bec4d33c5374",
+          "title": "MCP cancellation, deadlines and process-local locks",
+          "status": "Pushed to main · review accepted",
+          "description": "Two review regressions corrected before acceptance. 587 smoke + 6 transport + 67 release checks passed; CI 34287049770 fully green. Staging and durable journals are not included."
+        },
+        {
+          "sha": "24b8730530b5378b8944f06f66cc576377ba8440",
+          "title": "Additional FTPS and SFTP private-key qualification",
+          "status": "Pushed to main",
+          "description": "Six transport tests integrated into npm test, CI and release checks. Passed in CI 34287049770 at 848bbe1."
+        },
+        {
+          "sha": "0764eec78c02ebe64334450d6d7f14fe88b84cc4",
+          "title": "Hono dependency patched to 4.13.5",
+          "status": "Pushed to main · review accepted",
+          "description": "Minimal transitive update from 4.13.2. Local production audit: zero reported vulnerabilities across 108 dependencies. CI 34285445548 passed in full, including six OS/Node combinations and the audit."
+        },
+        {
+          "sha": "2e02cba1ffbf11e109271652a24c81738b76e107",
+          "title": "Fixtures: canonical paths on macOS",
+          "status": "Pushed to main · review accepted",
+          "description": "Fixes the two assertions involving /var and /private/var. CI 34285445548 confirms qualification across the six OS/Node combinations."
+        },
+        {
+          "sha": "ee5cc16d1f40134043b30759ffadbd89bb2c0d9f",
+          "title": "Node 22/24 support and Docker Node 24",
+          "status": "Pushed to main · review accepted",
+          "description": "Engines, documentation, Docker and CI matrix aligned. 518 tests + 67 local release checks passed."
+        },
+        {
+          "sha": "7dfbd6cee63bb13d33d9eab5585f71baf187171a",
+          "title": "Explicit configuration and redaction contracts fixed",
+          "status": "Integrated into main",
+          "description": "Three bounded defects fixed; suites 513 + 67 passed and critical review accepted. This does not qualify other work packages."
+        },
+        {
+          "sha": "7a9f209a4d7c4401fc62f6b2ee3caab640d5064a",
+          "title": "Audit baseline — version 0.2.0",
+          "status": "Historical reference",
+          "description": "418 tests + 67 release checks. Concurrency and injected-failure experiments describe this state."
+        }
+      ],
+      "documents": [
+        {
+          "title": "Configuration & startup",
+          "category": "Sources",
+          "text": "Explicit selection without fallback, server loading, environment variables and stdio server initialization.",
+          "path": "src/config.js"
+        },
+        {
+          "title": "Contracts & tools",
+          "category": "Sources",
+          "text": "File selection, scope checks, structured outputs and MCP response limits.",
+          "path": "src/tools.js"
+        },
+        {
+          "title": "Secret redaction",
+          "category": "Sources",
+          "text": "Recognition of configured secrets and redaction of free-form strings. Public schema values remain valid.",
+          "path": "src/redact.js"
+        },
+        {
+          "title": "Installation & operations",
+          "category": "Documentation",
+          "text": "Client configuration, dedicated roots, protocols, read-only mode and confinement limits.",
+          "path": "README.fr.md"
+        },
+        {
+          "title": "MCP contract checks",
+          "category": "Tests",
+          "text": "Regression tests for responses, schemas and errors in the MCP interface.",
+          "path": "test/mcp-contract.js"
+        },
+        {
+          "title": "Evaluation scenarios",
+          "category": "Evaluations",
+          "text": "Ten baseline XML scenarios. Having scenarios does not establish that an LLM runner has executed them.",
+          "path": "evaluations/README.md"
+        }
+      ],
+      "sourceNote": "Summary of the local audit of 8 September 2026, updated with fixes integrated into main and evidence reported on 9 September. The four projects were compared through static inspection only. No competitor or model was executed.",
+      "illustrations": [
+        {
+          "id": "architecture-cible",
+          "file": "assets/architecture-target.png",
+          "title": "Target architecture — ftp-deploy-mcp",
+          "alt": "Concept illustration: AI agent, MCP stdio, local control engine with policies and plans and journal, FTP FTPS SFTP adapters and remote server. Local configuration feeds the engine.",
+          "caption": "Target concept · ChatGPT Image · 9 September 2026. Proposed components remain subject to the roadmap’s acceptance criteria.",
+          "provenance": "English counterpart generated with ChatGPT Image on 9 September 2026 from the French illustration, in a session that began on 8 September. Visually inspected; illustrates architectural intent and provides no functional evidence. The original editing prompt is preserved verbatim below, including its quoted French source labels.",
+          "prompt": "Edit the referenced technical architecture illustration into its English-language counterpart. Keep the exact same architecture topology, layout, arrows, icons, trust boundary, colors, typography style, ivory background, visual proportions and project name. Replace ALL French text with the following exact English text: 'Architecture cible' -> 'Target architecture'; 'Agent IA' -> 'AI agent'; 'Moteur de contrôle local' -> 'Local control engine'; 'Politiques' -> 'Policies'; 'Plan & journal' -> 'Plan & journal'; 'Serveur distant' -> 'Remote server'; 'Configuration locale' -> 'Local configuration'. Preserve 'ftp-deploy-mcp', 'MCP stdio' and 'FTP / FTPS / SFTP' exactly. Ensure large readable English labels fit their boxes, no French words remaining, no additional labels or claims, no watermark. This is a target-concept architecture for a bilingual professional offline documentation portal; the software is not thereby claimed delivered. Widescreen output, crisp legible enterprise Visio-style diagram."
         }
       ]
-    },
-    {
-      "id": "disconnect",
-      "name": "Coupure",
-      "summary": "Parcours cible après réponse perdue ou arrêt au voisinage d’une écriture : l’état doit pouvoir rester explicitement inconnu.",
-      "currentFact": "Expérience baseline avec adaptateur contrôlé : trois uploads tentés, deux réussis, un échec ; état partiel conservé, isError=true sans structuredContent. Aucune coupure physique testée dans cette expérience.",
-      "steps": [
-        {
-          "name": "Plan",
-          "text": "Retrouver le plan et l’opération associés à la clé d’idempotence.",
-          "state": "Opération identifiée",
-          "lot": "C"
-        },
-        {
-          "name": "Validation",
-          "text": "Contrôler les préconditions avant de démarrer.",
-          "state": "Préconditions valides",
-          "lot": "C"
-        },
-        {
-          "name": "Verrou",
-          "text": "Acquérir l’exclusivité de mutation dans le périmètre documenté.",
-          "state": "Verrou détenu",
-          "lot": "B"
-        },
-        {
-          "name": "Temporaire",
-          "text": "Écrire le nouveau contenu sous un nom temporaire.",
-          "state": "Transfert en cours",
-          "lot": "B"
-        },
-        {
-          "name": "Vérification",
-          "text": "Vérifier les octets transférés selon les capacités observées.",
-          "state": "Contenu contrôlé",
-          "lot": "B"
-        },
-        {
-          "name": "Promotion",
-          "text": "Le serveur peut avoir promu le fichier avant la perte de réponse.",
-          "state": "Réponse perdue",
-          "lot": "B"
-        },
-        {
-          "name": "Partiel / inconnu",
-          "text": "Ne pas annoncer succès ou échec certain. Le journal conserve la dernière étape connue.",
-          "state": "À vérifier",
-          "lot": "C"
-        },
-        {
-          "name": "Réconciliation",
-          "text": "Consulter l’état distant par hash ou relecture. Sans preuve suffisante, bloquer la reprise automatique.",
-          "state": "Rapprochement distant",
-          "lot": "D"
-        },
-        {
-          "name": "Journal",
-          "text": "Enregistrer le résultat réconcilié, puis décider de reprendre ou de demander une action humaine.",
-          "state": "État expliqué",
-          "lot": "D"
-        }
-      ]
-    },
-    {
-      "id": "restore",
-      "name": "Restauration",
-      "summary": "Parcours cible de rollback conditionnel. Une modification tierce détectée bloque la restauration automatique.",
-      "currentFact": "Baseline : aucune reprise ni restauration automatique observée. Une sauvegarde et une procédure de restauration éprouvée restent des conditions du pilote supervisé.",
-      "steps": [
-        {
-          "name": "Journal",
-          "text": "Retrouver l’opération et la version antérieure conservée avec une rétention définie.",
-          "state": "Version identifiée",
-          "lot": "D"
-        },
-        {
-          "name": "Validation",
-          "text": "Appliquer les politiques communes, puis comparer l’état actuel à celui laissé par le déploiement.",
-          "state": "Dérive contrôlée",
-          "lot": "D"
-        },
-        {
-          "name": "Verrou",
-          "text": "Sérialiser la restauration comme toute autre mutation de cette cible.",
-          "state": "Restauration exclusive",
-          "lot": "B"
-        },
-        {
-          "name": "Temporaire",
-          "text": "Préparer la version antérieure. Si une modification tierce est détectée, refuser de l’écraser.",
-          "state": "Ancienne version préparée",
-          "lot": "D"
-        },
-        {
-          "name": "Promotion",
-          "text": "Vérifier puis promouvoir la version restaurée selon les garanties du serveur.",
-          "state": "Version restaurée",
-          "lot": "D"
-        },
-        {
-          "name": "Journal final",
-          "text": "Conserver le rapport de restauration et les limites observées.",
-          "state": "Restauration documentée",
-          "lot": "D"
-        }
-      ]
     }
-  ],
-  "roadmap": [
-    {
-      "id": "FIX",
-      "priority": "P0",
-      "status": "delivered",
-      "title": "Configuration et masquage",
-      "summary": "Sélection explicite sans repli, masquage des régions ENV et préservation des enums publiques reconnues du contrat MCP.",
-      "effort": "Ciblé",
-      "dependencies": [],
-      "acceptance": [
-        "Configuration explicite invalide : échec fermé, sans repli vers le CWD.",
-        "Les secrets reconnus restent masqués dans les chaînes libres.",
-        "Les quatorze enums testées conservent un contrat valide sur sept chemins de schéma."
-      ],
-      "evidence": "513 tests + 67 contrôles release ; revue critique acceptée ; correctifs intégrés à main.",
-      "commit": "7dfbd6cee63bb13d33d9eab5585f71baf187171a"
-    },
-    {
-      "id": "A",
-      "priority": "P0",
-      "status": "in_progress",
-      "title": "Runtime et qualification de l’artefact",
-      "summary": "Support Node 22/24 implémenté, Docker aligné sur Node 24 et matrice CI actualisée. Compléter la qualification multiplateforme et de l’artefact exact.",
-      "effort": "Faible à moyen",
-      "dependencies": [
-        "FIX"
-      ],
-      "acceptance": [
-        "Déclarer le même support Node dans les surfaces de distribution.",
-        "Installer le tarball exact dans un environnement vierge et initialiser MCP.",
-        "Séparer les transports et plateformes exécutés de ceux seulement configurés."
-      ],
-      "evidence": "Runtime, fixtures et Hono corrigés, revus et poussés. 518 tests + 67 contrôles release locaux réussis. CI 34285445548 au commit 0764eec : six combinaisons OS × Node 22/24 et audit réussis. Audit production local : zéro vulnérabilité signalée sur 108 dépendances. Qualification complémentaire FTPS et SFTP par clé depuis l’artefact exact encore à terminer.",
-      "commit": "0764eec78c02ebe64334450d6d7f14fe88b84cc4"
-    },
-    {
-      "id": "B",
-      "priority": "P0",
-      "status": "in_progress",
-      "title": "Maîtriser les transferts",
-      "summary": "Temporaire, vérification et promotion contrôlée ; mutex, annulation, timeouts et quotas explicites.",
-      "effort": "Moyen à élevé",
-      "dependencies": [
-        "A"
-      ],
-      "acceptance": [
-        "Une interruption conserve l’ancienne destination lorsque la promotion est supportée.",
-        "Deux mutations de la même cible sont sérialisées dans le périmètre documenté.",
-        "Annulation et timeout produisent un état explicite et libèrent les ressources.",
-        "Les limites et quotas sont contrôlés avant et pendant le transfert selon leur nature."
-      ],
-      "evidence": "Mutex et annulation en cours d’implémentation. Temporaire, promotion et garanties d’incident restent à démontrer avant livraison du lot."
-    },
-    {
-      "id": "C",
-      "priority": "P0",
-      "status": "planned",
-      "title": "Plan, apply et statut durables",
-      "summary": "Lier chaque décision à une identité de cible, des préconditions et des politiques ; conserver l’état des opérations.",
-      "effort": "Élevé",
-      "dependencies": [
-        "B"
-      ],
-      "acceptance": [
-        "Plan persisté avec cible, racines, hashes, politiques et expiration.",
-        "Un fichier changé ou une cible différente bloque avant mutation.",
-        "Une clé d’idempotence connue retrouve la même opération.",
-        "Une écriture non confirmée reste inconnue jusqu’à réconciliation.",
-        "Les outils bas niveau et le rollback respectent les mêmes politiques."
-      ],
-      "evidence": "Vue cible. L’idempotence ne garantit pas exactly once."
-    },
-    {
-      "id": "D",
-      "priority": "P1",
-      "status": "planned",
-      "title": "Delta, reprise et rollback conditionnel",
-      "summary": "Éviter les transferts inutiles ; retrouver les fichiers après crash et refuser toute restauration qui écrase une dérive tierce.",
-      "effort": "Élevé",
-      "dependencies": [
-        "C"
-      ],
-      "acceptance": [
-        "Manifeste lié à l’identité du serveur et aux racines.",
-        "Niveau de preuve affiché : hash, relecture ou heuristique.",
-        "Reprise fichier par fichier depuis le journal après crash.",
-        "Rollback refusé lorsqu’une modification tierce est détectée.",
-        "Aucune suppression miroir activée par défaut."
-      ],
-      "evidence": "À mesurer ; aucun gain de volume ou de durée annoncé."
-    },
-    {
-      "id": "E",
-      "priority": "P1",
-      "status": "planned",
-      "title": "Réponses et rapports pour les agents",
-      "summary": "Erreurs structurées, lecture par offsets, rapports détaillés consultables par pages et résumés bornés.",
-      "effort": "Moyen",
-      "dependencies": [
-        "C"
-      ],
-      "acceptance": [
-        "Erreurs avec code, retryable, operation_id et next_action selon le contrat.",
-        "Compteurs partiels et échantillon d’échecs accessibles.",
-        "Lecture d’un grand fichier par pages sans suffixe inaccessible.",
-        "Unités des offsets et limites documentées ; rapports hors de la racine web."
-      ],
-      "evidence": "Tests de compatibilité nécessaires : les erreurs partielles de la baseline excluent volontairement structuredContent."
-    },
-    {
-      "id": "F",
-      "priority": "P1",
-      "status": "planned",
-      "title": "Évaluations LLM et preuves reproductibles",
-      "summary": "Runner d’au moins trente scénarios, traces locales masquées, mesures réelles et qualification de l’artefact distribué.",
-      "effort": "Moyen à élevé",
-      "dependencies": [
-        "D",
-        "E"
-      ],
-      "acceptance": [
-        "Scénarios positifs, refus corrects, incidents, concurrence et dérive couverts.",
-        "Alias de modèle et résolution effective, SDK et client enregistrés.",
-        "Mesurer appels, octets, durée et tokens réellement fournis par l’hôte.",
-        "Traces JSONL locales sans contenu de fichiers ni secrets.",
-        "Documenter les transports exécutés et les limites de qualification."
-      ],
-      "evidence": "Dix scénarios XML existent dans la baseline ; aucun runner LLM exécuté ni benchmark concurrent."
-    }
-  ],
-  "quality": [
-    {
-      "area": "Dépendances de production",
-      "result": "0 vulnérabilité signalée",
-      "level": "verified",
-      "scope": "Audit local après Hono 4.13.2 → 4.13.5 : 108 dépendances",
-      "limit": "Audit également réussi dans la CI 34285445548. Résultat à cet instant ; ne prouve pas l’absence de faille."
-    },
-    {
-      "area": "CI multiplateforme",
-      "result": "6 combinaisons + audit réussis",
-      "level": "verified",
-      "scope": "Run 34285445548 au commit 0764eec : Linux, macOS, Windows × Node 22/24",
-      "limit": "CI intégralement réussie. Ne qualifie pas les incidents et parcours de transport supplémentaires.",
-      "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34285445548"
-    },
-    {
-      "area": "Tests après alignement runtime",
-      "result": "518 réussites",
-      "level": "verified",
-      "scope": "Tests locaux et revue indépendante des commits runtime et fixtures macOS",
-      "limit": "Preuve logicielle locale ; les résultats de CI et les transports sont documentés séparément."
-    },
-    {
-      "area": "Tests de la baseline",
-      "result": "418 réussites",
-      "level": "verified",
-      "scope": "Windows · Node 22.23.2 · npm test",
-      "limit": "État initial au commit 7a9f209, conservé séparément."
-    },
-    {
-      "area": "Tests après correctifs",
-      "result": "513 réussites",
-      "level": "verified",
-      "scope": "95 contrôles supplémentaires ; aucun échec",
-      "limit": "Corpus logiciel, sans qualification générale de l’autonomie."
-    },
-    {
-      "area": "Contrôles release",
-      "result": "67 réussites",
-      "level": "verified",
-      "scope": "node --test test/release-gates.js",
-      "limit": "Aucun ignoré ; ne prouve pas l’exécution de toute la CI."
-    },
-    {
-      "area": "Tarball installé",
-      "result": "CLI + MCP réussis",
-      "level": "verified",
-      "scope": "Environnement npm vierge ; scripts désactivés ; dix outils",
-      "limit": "Pas de transfert distant dans ce contrôle de l’artefact."
-    },
-    {
-      "area": "Concurrence baseline",
-      "result": "Chevauchement observé",
-      "level": "observed",
-      "scope": "MCP InMemory + adaptateur contrôlé : maxActive=2",
-      "limit": "Deux écritures sur /same.txt ; pas un transport physique."
-    },
-    {
-      "area": "Échec partiel baseline",
-      "result": "2 réussites / 3 tentatives",
-      "level": "observed",
-      "scope": "Échec injecté au deuxième upload ; troisième envoyé",
-      "limit": "isError=true, aucune structure d’erreur ni rollback."
-    },
-    {
-      "area": "Annulation baseline",
-      "result": "Signal préannulé ignoré",
-      "level": "observed",
-      "scope": "Invocation directe du gestionnaire, adaptateur contrôlé",
-      "limit": "L’annulation MCP de bout en bout n’a pas été exécutée."
-    },
-    {
-      "area": "Autonomie en production",
-      "result": "Non qualifiée",
-      "level": "pending",
-      "scope": "Incidents, concurrence, récupération et transports",
-      "limit": "Le succès des suites ne remplace pas ces démonstrations."
-    },
-    {
-      "area": "Service multiutilisateur",
-      "result": "Non qualifié",
-      "level": "pending",
-      "scope": "Le produit visé reste un serveur stdio local",
-      "limit": "Authentification, isolation et quotas entre utilisateurs non démontrés."
-    },
-    {
-      "area": "Efficacité d’un agent",
-      "result": "À mesurer",
-      "level": "pending",
-      "scope": "Runner LLM, répétitions, alias et conditions identiques",
-      "limit": "Aucun score, gain de tokens ou benchmark concurrent exécuté."
-    }
-  ],
-  "protocols": [
-    {
-      "name": "FTP",
-      "proof": "Transferts loopback réussis",
-      "level": "verified",
-      "limits": "FTP clair refusé par défaut ; opt-in explicite. Incidents réels sur artefact exact à qualifier."
-    },
-    {
-      "name": "FTPS",
-      "proof": "Adaptateur existant",
-      "level": "pending",
-      "limits": "Certificat valide et rejet d’un certificat invalide depuis le tarball exact à qualifier."
-    },
-    {
-      "name": "SFTP",
-      "proof": "Transferts loopback réussis",
-      "level": "verified",
-      "limits": "Pins hôte et rotation couverts sur checkout. Clé privée, rotation et incidents depuis le tarball exact à qualifier."
-    },
-    {
-      "name": "MCP / stdio",
-      "proof": "2025-11-25 négocié",
-      "level": "verified",
-      "limits": "SDK inspecté : 1.29.0. Aucun support implicite de la révision 2026-07-28."
-    },
-    {
-      "name": "Windows / Node 22",
-      "proof": "Exécuté pendant l’audit",
-      "level": "verified",
-      "limits": "Node 22.23.2 et npm 10.9.8. Node 24 et autres OS non exécutés dans cette preuve."
-    },
-    {
-      "name": "Matrice CI / Node 22–24",
-      "proof": "6 combinaisons réussies",
-      "level": "verified",
-      "limits": "Linux, macOS et Windows sur Node 22 et 24 ; run 34285445548, commit 0764eec. Les preuves de transport restent distinctes."
-    }
-  ],
-  "competitors": [
-    {
-      "name": "Kynlos / ftp-mcp",
-      "version": "1.5.3",
-      "type": "MCP spécialisé",
-      "capabilities": "Pooling, sync avec manifeste, expectedHash, snapshots, rollback, politiques et télémétrie.",
-      "lesson": "Delta et rollback existent déjà. La différence à démontrer : plan persisté, identité de cible et récupération vérifiable.",
-      "limit": "Aucun plan immuable persisté suivi d’un apply distinct observé dans le périmètre inspecté.",
-      "url": "https://github.com/Kynlos/ftp-mcp/blob/910beeefa489e4b12978f2c82391bed617356edf/index.js"
-    },
-    {
-      "name": "alxspiker / mcp-server-ftp",
-      "version": "1.2.1",
-      "type": "MCP spécialisé",
-      "capabilities": "FTP/FTPS/SFTP, édition, append, opérations sérialisées, annotations et sorties structurées.",
-      "lesson": "Les protocoles et les schémas sont un socle. Le parcours de déploiement complet reste le levier produit.",
-      "limit": "Pas de plan de déploiement ni rollback dans l’interface inspectée.",
-      "url": "https://github.com/alxspiker/mcp-server-ftp/blob/6864ee502a5e0bd645b4f6c41c61371d839ae029/src/index.ts"
-    },
-    {
-      "name": "runter-vom-mattenwagen / ssh-mcp-server",
-      "version": "8fc6721",
-      "type": "MCP SSH généraliste",
-      "capabilities": "Trois outils : exécution SSH, upload et download, avec pooling.",
-      "lesson": "Conserver une spécialisation déploiement permet d’éviter l’ajout d’exécution shell.",
-      "limit": "Portée généraliste ; comparaison fonctionnelle statique seulement.",
-      "url": "https://github.com/runter-vom-mattenwagen/ssh-mcp-server/blob/8fc67213a5782d853a78d9a6026434c6a6c03813/ssh_mcp_server.py"
-    },
-    {
-      "name": "SamKirkland / FTP-Deploy-Action",
-      "version": "4.4.0",
-      "type": "CI adjacent · sans MCP",
-      "capabilities": "État, exclusions et dry run FTP/FTPS transmis à un moteur délégué.",
-      "lesson": "Référence d’ergonomie CI ; pas une preuve de performance ou sécurité relative.",
-      "limit": "Moteur de synchronisation délégué non audité ici.",
-      "url": "https://github.com/SamKirkland/FTP-Deploy-Action/blob/110f9186c050f71550953127052e77650219c287/src/main.ts"
-    }
-  ],
-  "commits": [
-    {
-      "sha": "0764eec78c02ebe64334450d6d7f14fe88b84cc4",
-      "title": "Dépendance Hono corrigée en 4.13.5",
-      "status": "Poussé sur main · revue acceptée",
-      "description": "Mise à jour transitive minimale depuis 4.13.2. Audit production local : zéro vulnérabilité signalée sur 108 dépendances. CI 34285445548 intégralement réussie, six combinaisons OS/Node et audit compris."
-    },
-    {
-      "sha": "2e02cba1ffbf11e109271652a24c81738b76e107",
-      "title": "Fixtures : chemins canoniques sur macOS",
-      "status": "Poussé sur main · revue acceptée",
-      "description": "Corrige les deux assertions liées à /var et /private/var. Qualification des six combinaisons OS/Node confirmée par la CI 34285445548."
-    },
-    {
-      "sha": "ee5cc16d1f40134043b30759ffadbd89bb2c0d9f",
-      "title": "Support Node 22/24 et Docker Node 24",
-      "status": "Poussé sur main · revue acceptée",
-      "description": "Moteurs, documentation, Docker et matrice CI alignés. 518 tests + 67 contrôles release locaux réussis."
-    },
-    {
-      "sha": "7dfbd6cee63bb13d33d9eab5585f71baf187171a",
-      "title": "Configuration explicite et contrats de masquage corrigés",
-      "status": "Intégré à main",
-      "description": "Trois défauts bornés corrigés ; suites 513 + 67 réussies et revue critique acceptée. Ne qualifie pas les autres lots."
-    },
-    {
-      "sha": "7a9f209a4d7c4401fc62f6b2ee3caab640d5064a",
-      "title": "Baseline de l’audit — version 0.2.0",
-      "status": "Référence historique",
-      "description": "418 tests + 67 contrôles release. Les expériences de concurrence et d’échec injecté décrivent cet état."
-    }
-  ],
-  "documents": [
-    {
-      "title": "Configuration & démarrage",
-      "category": "Sources",
-      "text": "Sélection explicite sans repli, chargement des serveurs, variables d’environnement et initialisation du serveur stdio.",
-      "path": "src/config.js"
-    },
-    {
-      "title": "Contrats & outils",
-      "category": "Sources",
-      "text": "Sélection des fichiers, contrôles de périmètre, sorties structurées et limites de réponse MCP.",
-      "path": "src/tools.js"
-    },
-    {
-      "title": "Masquage des secrets",
-      "category": "Sources",
-      "text": "Reconnaissance des secrets configurés et masquage des chaînes libres. Les valeurs publiques de schéma restent valides.",
-      "path": "src/redact.js"
-    },
-    {
-      "title": "Installation & exploitation",
-      "category": "Documentation",
-      "text": "Configuration du client, racines dédiées, protocoles, lecture seule et limites de confinement.",
-      "path": "README.fr.md"
-    },
-    {
-      "title": "Contrôles du contrat MCP",
-      "category": "Tests",
-      "text": "Régressions sur les réponses, les schémas et les erreurs de l’interface MCP.",
-      "path": "test/mcp-contract.js"
-    },
-    {
-      "title": "Scénarios d’évaluation",
-      "category": "Évaluations",
-      "text": "Dix scénarios XML de la baseline. La présence de scénarios ne constitue pas l’exécution d’un runner LLM.",
-      "path": "evaluations/README.md"
-    }
-  ],
-  "sourceNote": "Synthèse de l’audit local du 8 septembre 2026, actualisée avec les correctifs intégrés à main et les preuves communiquées le 9 septembre. Comparaison des quatre projets par inspection statique uniquement. Aucun concurrent ni modèle n’a été exécuté.",
-  "illustrations": [
-    {
-      "id": "architecture-cible",
-      "file": "assets/architecture-cible.png",
-      "title": "Architecture cible — ftp-deploy-mcp",
-      "alt": "Illustration conceptuelle : agent IA, MCP stdio, moteur de contrôle local avec politiques et plans et journal, adaptateurs FTP FTPS SFTP et serveur distant. La configuration locale alimente le moteur.",
-      "caption": "Vue cible conceptuelle · ChatGPT Image · 9 septembre 2026. Les composants projetés restent soumis aux critères de la feuille de route.",
-      "provenance": "Générée avec ChatGPT Image le 9 septembre 2026, dans une session commencée le 8 septembre. Image examinée visuellement ; illustration de l’intention architecturale, sans valeur de preuve fonctionnelle.",
-      "prompt": "Use case: infographic-diagram.\nCreate a high-resolution widescreen technical architecture illustration for a professional French engineering documentation portal for the open-source project ftp-deploy-mcp. Exact title: \"Architecture cible\". Subtitle: \"ftp-deploy-mcp\".\nThe diagram is a TARGET CONCEPT, not a claim of delivered functionality. Precise left-to-right system flow: a box \"Agent IA\", arrow labelled \"MCP stdio\" into a locally hosted control engine; inside the engine two clearly separated components \"Politiques\" and \"Plan & journal\"; output to an adapter block labelled \"FTP / FTPS / SFTP\", then arrow to \"Serveur distant\". Beneath the local engine a small protected vault block \"Configuration locale\" connects only to the engine, never to Agent IA. Show an understated dashed trust boundary around the local engine, configuration and journal, excluding the remote server. Arrows must be visually clear and not tangled.\nStyle: exceptionally clean enterprise architecture board inspired by precise Visio diagrams, refined flat vector-like shapes with just slight physical depth, warm ivory background, navy typography and crisp blue/teal connectors, restrained professional editorial aesthetic. Generous whitespace, no shiny neon, no mascots, no decorative charts, no clouds, no vendor logos, no watermarks, no extra labels. Large legible exact French labels. All boxes and connectors comfortably within image margins. This will be embedded next to interactive SVG technical diagrams, so prioritize coherent readable topology over artistic complexity."
-    }
-  ]
+  }
 }
