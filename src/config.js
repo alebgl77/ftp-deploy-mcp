@@ -23,15 +23,20 @@ export function expandHome(p) {
   return p;
 }
 
-// Ordered list of candidate config locations. `configFlag` is the value of the
-// --config CLI option, if any.
+// An explicit selector is authoritative, even when it is empty or invalid.
+// Discovery is only used when neither --config nor FTP_MCP_CONFIG is present.
 export function configCandidates(configFlag) {
-  const out = [];
-  if (configFlag) out.push(path.resolve(configFlag));
-  if (process.env.FTP_MCP_CONFIG) out.push(path.resolve(process.env.FTP_MCP_CONFIG));
-  out.push(path.resolve(process.cwd(), "ftp-servers.json"));
-  out.push(path.join(os.homedir(), ".ftp-mcp", "servers.json"));
-  return out;
+  const explicit = configFlag ?? process.env.FTP_MCP_CONFIG;
+  if (explicit !== undefined) {
+    if (typeof explicit !== "string" || explicit.length === 0) {
+      throw new Error("explicit config path must be a non-empty string");
+    }
+    return [path.resolve(explicit)];
+  }
+  return [
+    path.resolve(process.cwd(), "ftp-servers.json"),
+    path.join(os.homedir(), ".ftp-mcp", "servers.json"),
+  ];
 }
 
 // Replace ${ENV:NAME} occurrences in a string. Unset variables are recorded in
@@ -303,15 +308,23 @@ export function insecureWarningText(server) {
 // Load configuration. Always returns an object; never throws.
 //   { found, path, searched, error, config, serverNames, defaultServer }
 export function loadConfig(configFlag) {
-  const searched = configCandidates(configFlag);
+  let searched;
+  try {
+    searched = configCandidates(configFlag);
+  } catch (err) {
+    return errorResult(null, [], err.message);
+  }
+  const explicit = configFlag != null || process.env.FTP_MCP_CONFIG !== undefined;
   let filePath = null;
   for (const c of searched) {
     try {
-      if (fs.existsSync(c) && fs.statSync(c).isFile()) {
+      if ((explicit || fs.existsSync(c)) && fs.statSync(c).isFile()) {
         filePath = c;
         break;
       }
-    } catch {
+      if (explicit) return errorResult(c, searched, "explicit config path is not a file");
+    } catch (err) {
+      if (explicit) return errorResult(c, searched, `cannot access explicit config file: ${err.message}`);
       // ignore inaccessible candidates
     }
   }

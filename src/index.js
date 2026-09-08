@@ -30,6 +30,9 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--config" || a === "--file" || a === "--out") {
+      if (a === "--config" && (argv[i + 1] === undefined || argv[i + 1].startsWith("-"))) {
+        throw new Error("--config requires a path value");
+      }
       opts.flags[a.slice(2)] = argv[++i];
     } else if (a === "--force") {
       opts.flags.force = true;
@@ -50,8 +53,9 @@ An MCP stdio server exposing FTP/FTPS/SFTP deploy tools to AI coding agents.
 Usage:
   ftp-deploy-mcp [--config <path>]
       Start the MCP server on stdio (default). Configure your MCP client to run
-      this command. Reads server definitions from (first found wins):
-        --config <path>, $FTP_MCP_CONFIG,
+      this command. --config <path> takes priority over $FTP_MCP_CONFIG.
+      An explicit path must load successfully; no fallback is attempted.
+      Without either selector, reads the first configuration found:
         ./ftp-servers.json, ~/.ftp-mcp/servers.json
 
   ftp-deploy-mcp import-filezilla [--file <sitemanager.xml>] [--out <path>] [--force]

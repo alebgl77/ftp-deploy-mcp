@@ -236,12 +236,30 @@ function boundedString(value, maxBytes = 2048) {
   return truncateUtf8(value == null ? "" : value, maxBytes);
 }
 
-function redactStructured(value, redactor) {
-  if (typeof value === "string") return boundedString(redactor.strictText(value));
-  if (Array.isArray(value)) return value.map((item) => redactStructured(item, redactor));
+// Only these exact public enum fields may coincide with a credential. Free
+// text at every other path still goes through literal secret redaction.
+const PUBLIC_STRUCTURED_ENUMS = new Map([
+  ["status", new Set(["configured", "missing", "invalid"])],
+  ["protocol", new Set(["ftp", "ftps", "sftp"])],
+  ["servers.*.protocol", new Set(["ftp", "ftps", "sftp"])],
+  ["servers.*.auth", new Set(["key", "password"])],
+  ["entries.*.type", new Set(["dir", "file", "link"])],
+  ["mode", new Set(["dry_run", "deploy"])],
+  ["entry_type", new Set(["file", "directory"])],
+]);
+
+function redactStructured(value, redactor, fieldPath = "") {
+  if (typeof value === "string") {
+    if (PUBLIC_STRUCTURED_ENUMS.get(fieldPath)?.has(value)) return value;
+    return boundedString(redactor.strictText(value));
+  }
+  if (Array.isArray(value)) return value.map((item) => redactStructured(item, redactor, `${fieldPath}.*`));
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, redactStructured(item, redactor)])
+    Object.entries(value).map(([key, item]) => [
+      key,
+      redactStructured(item, redactor, fieldPath ? `${fieldPath}.${key}` : key),
+    ])
   );
 }
 

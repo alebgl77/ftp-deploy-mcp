@@ -80,12 +80,19 @@ au serveur MCP.
 
 ## Configuration des serveurs
 
-La première configuration trouvée est utilisée :
+Un chemin de configuration explicite fait autorité :
 
 1. `--config <chemin>`
-2. `FTP_MCP_CONFIG`
-3. `./ftp-servers.json`
-4. `~/.ftp-mcp/servers.json`
+2. `FTP_MCP_CONFIG`, en l'absence de `--config`
+
+Une configuration explicite vide, absente, illisible ou invalide produit une
+erreur sans repli vers un autre fichier. Les outils MCP restent disponibles
+pour signaler le problème. `--config` exige un argument de chemin.
+
+Sans ces deux sélecteurs, la première configuration trouvée est utilisée :
+
+1. `./ftp-servers.json`
+2. `~/.ftp-mcp/servers.json`
 
 L'exemple pédagogique ci-dessous contient des commentaires. Un vrai fichier de
 configuration doit être du JSON strict ; partez de

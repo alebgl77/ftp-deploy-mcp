@@ -23,6 +23,7 @@ import { loadConfig, normalizeServer, insecureTransport, resolveServer } from ".
 import { getClients, mergeConfigFile, applyClient, buildEntry } from "../src/clients.js";
 import { runToolsSecurityTests } from "./tools-security.js";
 import { runMcpContractTests } from "./mcp-contract.js";
+import { runConfigDiscoveryTests } from "./config-discovery.js";
 import { atomicWriteFileSync } from "../src/atomic-write.js";
 import { createRedactor } from "../src/redact.js";
 import { registerTools } from "../src/tools.js";
@@ -261,6 +262,30 @@ async function partRedaction(root) {
     contains(cleaned, "abc", "redaction: does not replace short strings globally");
     const placeholderJson = redactor.text(JSON.stringify({ password: `\${ENV:${envName}}` }));
     contains(placeholderJson, envName, "redaction: preserves an ENV name used as a password placeholder");
+
+    const collision = createRedactor({ password: "sentinel_secret" });
+    for (const [input, expected] of [
+      ["ENV sentinel_secret", "ENV [REDACTED]"],
+      ["env var sentinel_secret", "env var [REDACTED]"],
+      ["${ENV:sentinel_secret}", "${ENV:[REDACTED]}"],
+      ["ENV sentinel_secret,", "ENV [REDACTED],"],
+      ["env var sentinel_secret;", "env var [REDACTED];"],
+      ["${ENV:sentinel_secret}.", "${ENV:[REDACTED]}."],
+      ["\u0000FTPMCP_ENV_0\u0000 ENV sentinel_secret", "\u0000FTPMCP_ENV_0\u0000 ENV [REDACTED]"],
+      ["\u0000FTPMCP_ENV_0\u0000", "\u0000FTPMCP_ENV_0\u0000"],
+      ["ENV PUBLIC_NAME env var PUBLIC_NAME ${ENV:PUBLIC_NAME}", "ENV PUBLIC_NAME env var PUBLIC_NAME ${ENV:PUBLIC_NAME}"],
+    ]) {
+      ok(collision.strictText(input) === expected && collision.text(input) === expected,
+        `redaction: ENV grammar never exempts literal secrets in ${JSON.stringify(input)}`);
+    }
+    for (const secret of ["a", "ab", "abc"]) {
+      const short = createRedactor({ password: secret });
+      const diagnostic = `ENV ${secret}, env var ${secret}; \${ENV:${secret}}.`;
+      ok(short.strictText(diagnostic) === "ENV [REDACTED], env var [REDACTED]; ${ENV:[REDACTED]}.",
+        `redaction: ENV mentions mask isolated short secret ${secret}`);
+      ok(short.text(diagnostic) === diagnostic,
+        `redaction: successful text retains historical short-secret policy for ${secret}`);
+    }
 
     const privateKey = "-----BEGIN PRIVATE KEY-----\nPRIVATE-CONTENT-SENTINEL\n-----END PRIVATE KEY-----";
     const loaded = {
@@ -1008,6 +1033,7 @@ async function main() {
   const homeRoot = normalizeServer("x", { protocol: "sftp", host: "h", user: "u", password: "p", localRoot: "~/site" });
   ok(path.isAbsolute(homeRoot.localRoot) && homeRoot.localRoot === path.join(os.homedir(), "site"), "config: localRoot expands a leading tilde", homeRoot.localRoot);
 
+  await runConfigDiscoveryTests({ root: path.join(baseDir, "config-discovery"), ok });
   await runToolsSecurityTests({
     root: path.join(baseDir, "tools-security"),
     ok,

@@ -78,12 +78,19 @@ and `ftp_download`. This limits which local files the MCP server can access.
 
 ## Server configuration
 
-The first configuration found wins:
+An explicit configuration path is authoritative:
 
 1. `--config <path>`
-2. `FTP_MCP_CONFIG`
-3. `./ftp-servers.json`
-4. `~/.ftp-mcp/servers.json`
+2. `FTP_MCP_CONFIG`, when `--config` is absent
+
+An empty, missing, unreadable, or invalid explicit configuration reports an
+error without falling back to another file. The MCP tools remain available
+to report the configuration problem. `--config` requires a path argument.
+
+Without either selector, the first configuration found wins:
+
+1. `./ftp-servers.json`
+2. `~/.ftp-mcp/servers.json`
 
 The teaching example below is JSON with comments. Real configuration files
 must be strict JSON; start from

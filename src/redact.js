@@ -49,21 +49,11 @@ function redactString(input, secrets, minimumLength) {
     (match, prefix) => (match.includes("${ENV:") ? match : `${prefix}${REDACTED}`)
   );
   text = text.replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)([^@\s/]+)(@)/gi, `$1${REDACTED}$3`);
-  const protectedEnv = [];
-  text = text.replace(
-    /\$\{ENV:[^}]+\}|\bENV\s+[A-Za-z_][A-Za-z0-9_]*|\benv var\s+[A-Za-z_][A-Za-z0-9_]*/gi,
-    (segment) => {
-      const marker = `\u0000FTPMCP_ENV_${protectedEnv.length}\u0000`;
-      protectedEnv.push(segment);
-      return marker;
-    }
-  );
   for (const secret of [...secrets]
     .filter((value) => value.length >= minimumLength)
     .sort((a, b) => b.length - a.length)) {
     text = redactLiteral(text, secret, minimumLength);
   }
-  text = text.replace(/\u0000FTPMCP_ENV_(\d+)\u0000/g, (_match, index) => protectedEnv[Number(index)]);
   return text;
 }
 

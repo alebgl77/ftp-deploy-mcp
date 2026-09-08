@@ -65,6 +65,95 @@ async function withClient(loaded, openAdapter, run) {
   }
 }
 
+async function enumCollisionTests({ root, ok }) {
+  const secrets = ["configured", "missing", "invalid", "ftp", "ftps", "sftp", "key", "password",
+    "dir", "file", "link", "dry_run", "deploy", "directory"];
+  const protocols = ["ftp", "ftps", "sftp"];
+  for (const credential of ["password", "passphrase"]) {
+    const loaded = loadedConfig(root);
+    const template = loaded.config.servers.test;
+    loaded.serverNames = secrets;
+    loaded.defaultServer = "file";
+    loaded.config.defaultServer = "file";
+    loaded.config.servers = Object.fromEntries(secrets.map((secret, index) => [secret, {
+      ...template,
+      protocol: protocols[index % protocols.length],
+      host: secret,
+      allowInsecure: true,
+      [credential]: secret,
+      ...(index % 2 === 0 ? { privateKeyPath: path.join(root, "test-key") } : {}),
+    }]));
+    let mutations = 0;
+    const adapter = async () => ({
+      async list() {
+        return ["dir", "file", "link"].map((type) => ({ name: type, type, size: 0, modifiedAt: "file" }));
+      },
+      async stat(remotePath) { return { type: remotePath.endsWith("directory") ? "dir" : "file" }; },
+      async deleteFile() { mutations += 1; },
+      async deleteDir() { mutations += 1; },
+      async uploadFile() { mutations += 1; },
+      async close() {},
+    });
+    await withClient(loaded, adapter, async (client) => {
+      const listed = await client.callTool({ name: "ftp_list_servers", arguments: {} });
+      const servers = listed.structuredContent;
+      ok(listed.isError !== true && servers?.status === "configured" && servers.servers.length === secrets.length,
+        `MCP enum collision (${credential}): configured status remains schema-valid`);
+      ok(servers.servers.every((server, index) => server.protocol === protocols[index % protocols.length] &&
+        server.auth === (index % 2 === 0 ? "key" : "password")),
+      `MCP enum collision (${credential}): nested protocols and both auth enums remain exact`);
+      ok(servers.default_server === "[REDACTED]" && servers.servers.every((server) =>
+        server.name === "[REDACTED]" && server.host === "[REDACTED]"),
+      `MCP enum collision (${credential}): server names, host and default remain redacted`);
+      for (const protocol of protocols) {
+        const serverName = secrets[protocols.indexOf(protocol)];
+        const tested = await client.callTool({ name: "ftp_test", arguments: { server: serverName } });
+        ok(tested.isError !== true && tested.structuredContent?.protocol === protocol &&
+          tested.structuredContent.server === "[REDACTED]" && tested.structuredContent.host === "[REDACTED]",
+        `MCP enum collision (${credential}): root ${protocol} enum survives while free fields are masked`);
+      }
+      const listedFiles = await client.callTool({ name: "ftp_list", arguments: { path: "file" } });
+      const entries = listedFiles.structuredContent;
+      ok(listedFiles.isError !== true && entries?.entries.map((entry) => entry.type).sort().join(",") === "dir,file,link",
+        `MCP enum collision (${credential}): all directory-entry enums remain schema-valid`);
+      ok(entries.path === "/[REDACTED]" && entries.entries.every((entry) =>
+        entry.name === "[REDACTED]" && entry.modified_at === "[REDACTED]"),
+      `MCP enum collision (${credential}): entry names, path and other strings have no enum exemption`);
+      for (const [remotePath, expectedType] of [["file", "file"], ["directory", "directory"]]) {
+        const before = mutations;
+        const deleted = await client.callTool({ name: "ftp_delete", arguments: { path: remotePath, recursive: true } });
+        ok(mutations === before + 1 && deleted.isError !== true && deleted.structuredContent?.deleted === true &&
+          deleted.structuredContent.entry_type === expectedType && deleted.structuredContent.path === "/[REDACTED]",
+        `MCP enum collision (${credential}): deleting ${expectedType} performs exactly one mutation and returns valid success`);
+      }
+      for (const dryRun of [true, false]) {
+        const before = mutations;
+        const deployed = await client.callTool({ name: "ftp_deploy", arguments: {
+          local_dir: "deploy-empty", remote_dir: "deploy", dry_run: dryRun,
+        } });
+        ok(deployed.isError !== true && deployed.structuredContent?.mode === (dryRun ? "dry_run" : "deploy") &&
+          deployed.structuredContent.remote_base === "/[REDACTED]" && mutations === before,
+        `MCP enum collision (${credential}): ${dryRun ? "dry_run" : "deploy"} mode remains exact and remote path is masked`);
+      }
+      // Retain the redactor's known credentials while exercising both diagnostic
+      // statuses, as well as identically named words in their free-text errors.
+      loaded.config = null;
+      loaded.searched = [];
+      for (const status of ["missing", "invalid"]) {
+        loaded.found = status === "invalid";
+        loaded.error = status === "invalid" ? secrets.join(" | ") : null;
+        const result = await client.callTool({ name: "ftp_list_servers", arguments: {} });
+        ok(result.isError !== true && result.structuredContent?.status === status,
+          `MCP enum collision (${credential}): ${status} status remains schema-valid`);
+        if (loaded.error) {
+          ok(result.structuredContent.errors[0].message === secrets.map(() => "[REDACTED]").join(" | "),
+            `MCP enum collision (${credential}): enum words in configuration errors stay redacted`);
+        }
+      }
+    });
+  }
+}
+
 export async function runMcpContractTests({ root, ok, contains, notContains }) {
   fs.mkdirSync(root, { recursive: true });
   const uploadPath = path.join(root, "upload.txt");
@@ -76,6 +165,7 @@ export async function runMcpContractTests({ root, ok, contains, notContains }) {
   makeFiles(deployMany, 121, "ok");
   makeFiles(deployMixed, 210, "mix", true);
   fs.mkdirSync(deployEmpty, { recursive: true });
+  await enumCollisionTests({ root, ok });
 
   const entries = Array.from({ length: 251 }, (_unused, index) => ({
     name: `entry-${String(index).padStart(3, "0")}.txt`,
