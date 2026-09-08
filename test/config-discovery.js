@@ -22,7 +22,7 @@ export async function runConfigDiscoveryTests({ root, ok }) {
     } }));
     return file;
   };
-  const cwdFile = writeConfig(path.join(cwd, "ftp-servers.json"), "cwd");
+  writeConfig(path.join(cwd, "ftp-servers.json"), "cwd");
   const homeFile = writeConfig(path.join(home, ".ftp-mcp", "servers.json"), "home");
   const envFile = writeConfig(path.join(root, "env.json"), "env");
   const cliFile = writeConfig(path.join(root, "cli.json"), "cli");
@@ -38,6 +38,8 @@ export async function runConfigDiscoveryTests({ root, ok }) {
   const stats = [];
   try {
     process.chdir(cwd);
+    // macOS may canonicalize /var to /private/var when changing directories.
+    const cwdFile = path.join(process.cwd(), "ftp-servers.json");
     os.homedir = () => home;
     fs.readFileSync = (file, ...args) => {
       reads.push(file);
