@@ -116,6 +116,23 @@ MCP error and a partial-deployment summary. Transfers completed earlier in the
 same call remain on the server. Operators should inspect and reconcile remote
 state before retrying.
 
+Within one Node process, remote mutations share a FIFO lock by normalized
+protocol, hostname, port, and username, regardless of server alias or root.
+Downloads instead lock the resolved local destination and recheck overwrite
+permission under that lock. Read-only remote calls do not acquire endpoint
+mutation locks. Other processes, DNS aliases, different accounts, hard-linked
+local files, and external writers are outside this coordination boundary.
+
+The per-server `operationTimeoutMs` deadline defaults to 120000 ms and accepts
+integers from 100 to 3600000, including queue and connection time. MCP request
+cancellation and deadline checks close transports and prevent subsequent
+operations in the same call. Cancellation is cooperative: an underlying
+mutation may still settle after the error response, and its lock remains held
+until its promise and cleanup settle. A permanently stuck adapter can therefore
+keep that target busy until the process exits. The server never retries an
+uncertain mutation automatically. Cancellation does not undo completed writes,
+prove the final remote state, or make file transfer atomic.
+
 Setup keeps timestamped backups when changing existing MCP client
 configuration. Atomic replacement of newly written sensitive configuration is
 a release gate for v0.2; do not infer that every historical or unpublished

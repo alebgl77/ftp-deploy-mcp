@@ -24,6 +24,7 @@ import { getClients, mergeConfigFile, applyClient, buildEntry } from "../src/cli
 import { runToolsSecurityTests } from "./tools-security.js";
 import { runMcpContractTests } from "./mcp-contract.js";
 import { runConfigDiscoveryTests } from "./config-discovery.js";
+import { runOperationTests } from "./operations.js";
 import { atomicWriteFileSync } from "../src/atomic-write.js";
 import { createRedactor } from "../src/redact.js";
 import { registerTools } from "../src/tools.js";
@@ -1052,6 +1053,7 @@ async function main() {
   ok(path.isAbsolute(homeRoot.localRoot) && homeRoot.localRoot === path.join(os.homedir(), "site"), "config: localRoot expands a leading tilde", homeRoot.localRoot);
 
   await runConfigDiscoveryTests({ root: path.join(baseDir, "config-discovery"), ok });
+  await runOperationTests({ root: path.join(baseDir, "operations"), ok });
   await runToolsSecurityTests({
     root: path.join(baseDir, "tools-security"),
     ok,

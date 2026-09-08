@@ -97,7 +97,7 @@ export function resolveLocalDestination(server, input) {
         if (!isContained(realRoot, realParent)) {
           throw new Error(`local destination parent resolves outside the configured "localRoot"`);
         }
-        return { path: candidate, exists: false, stat: null };
+        return { path: candidate, canonicalPath: path.resolve(realRoot, rel), exists: false, stat: null };
       }
       throw new Error(`local destination is inaccessible inside "localRoot": ${err.message}`);
     }
@@ -119,7 +119,7 @@ export function resolveLocalDestination(server, input) {
   if (!finalStat.isFile()) {
     throw new Error(`local destination is not a regular file`);
   }
-  return { path: candidate, exists: true, stat: finalStat };
+  return { path: candidate, canonicalPath: path.resolve(realRoot, rel), exists: true, stat: finalStat };
 }
 
 export function localRootStatus(server) {

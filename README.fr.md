@@ -146,6 +146,7 @@ base64 sans remplissage.
 | `hostKeySha256` | SFTP | Empreinte obligatoire, chaîne ou tableau non vide. Format : `SHA256:<43 caractères base64 sans remplissage>`. Incompatible avec `allowUnknownHostKey`. |
 | `allowUnknownHostKey` | SFTP | Dérogation de compatibilité urgente. `true` accepte une identité serveur non vérifiée et affiche un avertissement. |
 | `readOnly` | tous | Bloque upload, deploy, mkdir, rename et delete. Le dry-run de deploy reste possible. |
+| `operationTimeoutMs` | tous | Délai d'un appel, attente et connexion comprises : 120000 ms par défaut. Entier de 100 à 3600000. Les délais natifs du transport restent actifs. |
 | `implicitTLS` | FTPS | Active TLS implicite, normalement sur le port 990. |
 | `insecureTLS` | FTPS | Désactive la vérification du certificat. Exige `allowInsecure: true`. |
 | `allowInsecure` | FTP/FTPS | Accepte explicitement FTP en clair ou FTPS non vérifié. Ne sécurise pas la connexion. |
@@ -190,6 +191,27 @@ optionnel lorsqu'un `defaultServer` est défini ou qu'un seul serveur existe.
 | `ftp_mkdir` | `server?`, `path` | Crée un dossier distant récursivement. |
 | `ftp_rename` | `server?`, `from_path`, `to_path` | Renomme ou déplace. |
 | `ftp_delete` | `server?`, `path`, `recursive?` | Supprime un fichier ou, avec récursion explicite, un dossier. |
+
+### Exécution, annulation et contention
+
+Dans un même processus Node, upload, deploy, mkdir, rename et delete suivent
+une file FIFO pour un protocole, nom d'hôte, port et utilisateur normalisés
+identiques. Les alias de serveur et les racines partagent ce verrou. Les
+téléchargements sont sérialisés par destination locale résolue, y compris
+entre serveurs. Les lectures distantes peuvent se chevaucher.
+
+Une annulation MCP ou l'expiration du délai ferme les transports actifs et
+arrête les fichiers suivants du déploiement. Les erreurs portent `CANCELLED`
+ou `TIMEOUT` ; `TARGET_BUSY` indique l'attente d'une autre opération. Une
+réponse peut précéder le règlement réel d'une opération bloquée, mais son
+verrou reste détenu jusqu'au règlement et au nettoyage. Aucune mutation
+incertaine n'est réessayée automatiquement. Inspectez l'état distant et local
+partiel avant de réessayer ; il n'y a ni transaction ni rollback.
+
+La progression n'est envoyée qu'avec un token fourni par l'appelant, sous
+forme de compteurs croissants, sans chemins ni texte d'identifiants. Les
+verrous ne coordonnent pas les autres processus Node, alias DNS, comptes ou
+clients externes présents sur le même hôte.
 
 ### Compatibilité des réponses, pagination et annotations
 

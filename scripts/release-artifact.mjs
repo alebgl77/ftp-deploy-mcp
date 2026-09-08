@@ -12,7 +12,7 @@ export const PACKAGE_FILES = [
   "ftp-servers.example.json", "install.cmd", "install.sh", "server.json",
   "docs/RELEASE.md", "docs/SECURITY-MODEL.md",
   "src/index.js", "src/config.js", "src/clients.js", "src/atomic-write.js",
-  "src/tools.js", "src/setup.js", "src/remote-path.js", "src/redact.js",
+  "src/tools.js", "src/setup.js", "src/remote-path.js", "src/redact.js", "src/operations.js",
   "src/local-path.js", "src/filezilla.js", "src/adapters/ftp.js", "src/adapters/sftp.js",
   "evaluations/README.md", "evaluations/read-only.xml", "evaluations/fixture/README.txt",
   "evaluations/fixture/catalog/alpha.txt", "evaluations/fixture/catalog/bravo.txt",

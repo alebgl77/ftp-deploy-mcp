@@ -10,6 +10,7 @@ import { Client } from "basic-ftp";
 import { Writable } from "node:stream";
 import path from "node:path";
 import fs from "node:fs";
+import { checkedMethods } from "../operations.js";
 
 import {
   insecureTransport,
@@ -61,7 +62,8 @@ function friendlyError(err, ctx) {
   return new Error(orig);
 }
 
-export async function connect(serverCfg) {
+export async function connect(serverCfg, operation) {
+  operation?.check();
   // FTP has no portable REALPATH/LSTAT equivalent. Refuse a client-side
   // sub-root before network I/O unless the operator explicitly accepts that it
   // is not an anti-symlink jail.
@@ -80,7 +82,15 @@ export async function connect(serverCfg) {
   }
 
   const ctx = { host: serverCfg.host, port: serverCfg.port, user: serverCfg.user };
-  const client = new Client(30000);
+  const transport = new Client(30000);
+  const client = checkedMethods(transport, operation, [
+    "access", "list", "ensureDir", "uploadFrom", "downloadTo", "remove", "removeDir", "rename",
+  ]);
+  const close = () => {
+    operation?.signal.removeEventListener("abort", close);
+    try { transport.close(); } catch { /* ignore */ }
+  };
+  operation?.signal.addEventListener("abort", close, { once: true });
   client.ftp.verbose = false;
 
   // Plain "ftps" is explicit AUTH TLS (secure: true). When implicitTLS is
@@ -102,11 +112,7 @@ export async function connect(serverCfg) {
   try {
     await client.access(access);
   } catch (err) {
-    try {
-      client.close();
-    } catch {
-      /* ignore */
-    }
+    close();
     throw friendlyError(err, ctx);
   }
 
@@ -168,6 +174,7 @@ export async function connect(serverCfg) {
 
     async downloadFile(remotePath, localPath) {
       try {
+        operation?.check();
         fs.mkdirSync(path.dirname(localPath), { recursive: true });
         await client.downloadTo(localPath, remotePath);
       } catch (err) {
@@ -250,12 +257,6 @@ export async function connect(serverCfg) {
       }
     },
 
-    close() {
-      try {
-        client.close();
-      } catch {
-        /* ignore */
-      }
-    },
+    close,
   };
 }

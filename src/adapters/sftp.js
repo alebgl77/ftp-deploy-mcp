@@ -11,6 +11,7 @@ import { Writable } from "node:stream";
 import crypto from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
+import { checkedMethods } from "../operations.js";
 
 import { unknownHostKeyBlockedMessage } from "../config.js";
 import { normalizeRoot, relativeRemote, rebaseRemote } from "../remote-path.js";
@@ -91,18 +92,14 @@ function decodeHostPins(value) {
   });
 }
 
-export async function connect(serverCfg) {
+export async function connect(serverCfg, operation) {
+  operation?.check();
   const ctx = { host: serverCfg.host, port: serverCfg.port, user: serverCfg.user };
   const configuredRoot = normalizeRoot(serverCfg.root);
   const expectedHostKeys = decodeHostPins(serverCfg.hostKeySha256);
   if (expectedHostKeys.length === 0 && serverCfg.allowUnknownHostKey !== true) {
     throw new Error(unknownHostKeyBlockedMessage(serverCfg.name ?? serverCfg.host));
   }
-  const sftp = new SftpClient();
-  // Prevent a late connection-level 'error' from crashing the whole process
-  // after we've already translated/handled the operational failure.
-  sftp.on("error", () => {});
-
   const connOpts = {
     host: serverCfg.host,
     port: serverCfg.port,
@@ -138,15 +135,31 @@ export async function connect(serverCfg) {
     connOpts.password = serverCfg.password;
   }
 
+  const transport = new SftpClient();
+  // Retain the library's native transport timeouts and absorb late errors.
+  transport.on("error", () => {});
+  const sftp = checkedMethods(transport, operation, [
+    "connect", "lstat", "realPath", "list", "mkdir", "put", "get", "delete", "rmdir", "rename",
+  ]);
+  let closing;
+  const close = () => {
+    operation?.signal.removeEventListener("abort", onAbort);
+    closing ??= Promise.resolve().then(() => transport.end()).catch(() => {});
+    return closing;
+  };
+  const onAbort = () => {
+    // end() alone can be a no-op before SFTP is ready. Destroy the SSH
+    // transport as well so cancellation interrupts an in-flight handshake.
+    try { transport.client.destroy(); } catch { /* end() still runs below */ }
+    void close();
+  };
+  operation?.signal.addEventListener("abort", onAbort, { once: true });
+
   try {
     await sftp.connect(connOpts);
     await canonicalRoot();
   } catch (err) {
-    try {
-      await sftp.end();
-    } catch {
-      /* ignore */
-    }
+    await close();
     throw friendlyError(err, ctx);
   }
 
@@ -313,6 +326,7 @@ export async function connect(serverCfg) {
     async downloadFile(remotePath, localPath) {
       try {
         const source = await safePath(remotePath);
+        operation?.check();
         fs.mkdirSync(path.dirname(localPath), { recursive: true });
         await sftp.get(source.path, localPath);
       } catch (err) {
@@ -429,12 +443,6 @@ export async function connect(serverCfg) {
       }
     },
 
-    async close() {
-      try {
-        await sftp.end();
-      } catch {
-        /* ignore */
-      }
-    },
+    close,
   };
 }

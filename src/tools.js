@@ -28,6 +28,7 @@ import {
 import { resolveRemote, isRootPath, normalizeRoot } from "./remote-path.js";
 import { resolveLocalSource, resolveLocalDestination, localRootStatus } from "./local-path.js";
 import { createRedactor } from "./redact.js";
+import { createOperation, connectOperation, remoteLockKey, localLockKey } from "./operations.js";
 import * as ftpAdapter from "./adapters/ftp.js";
 import * as sftpAdapter from "./adapters/sftp.js";
 
@@ -367,9 +368,9 @@ function formatSize(n) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function openAdapter(serverCfg) {
+function openAdapter(serverCfg, operation) {
   const mod = serverCfg.protocol === "sftp" ? sftpAdapter : ftpAdapter;
-  return mod.connect(serverCfg);
+  return mod.connect(serverCfg, operation);
 }
 
 // Append a loud, visible security warning to a tool result when the server
@@ -415,42 +416,49 @@ function requireConfig(loaded) {
 // run `run({ name, server, adapter })`, and always close.
 async function withResolvedServer(name, server, opts, run, connectAdapter) {
   const write = opts && opts.write;
+  const operation = opts.operation;
   try {
     if (write && server.readOnly) {
       throw new Error(
         `server "${name}" is read-only — upload, deploy, mkdir, rename and delete are blocked`
       );
     }
-    const adapter = await connectAdapter(server);
-    let result;
-    let operationError = null;
-    let operationFailed = false;
-    try {
-      result = await run({ name, server, adapter });
-    } catch (err) {
-      operationFailed = true;
-      operationError = err;
-    }
-    let closeError = null;
-    let closeFailed = false;
-    try {
-      await adapter.close();
-    } catch (err) {
-      closeFailed = true;
-      closeError = err;
-    }
-    if (operationFailed) {
-      if (closeFailed) {
-        const primary = operationError && operationError.message ? operationError.message : String(operationError);
-        const secondary = closeError && closeError.message ? closeError.message : String(closeError);
-        throw new Error(`${primary}\n\nConnection close also failed: ${secondary}`, {
-          cause: operationError,
-        });
+    return await operation.lock(write ? [remoteLockKey(server)] : (opts.lockKeys || []), async () => {
+      operation.check();
+      opts.beforeConnect?.();
+      const adapter = await connectOperation(connectAdapter, server, operation);
+      operation.progress();
+      let result;
+      let operationError = null;
+      let operationFailed = false;
+      try {
+        result = await operation.step(() => run({ name, server, adapter, operation }));
+        operation.progress();
+      } catch (err) {
+        operationFailed = true;
+        operationError = err;
       }
-      throw operationError;
-    }
-    if (closeFailed) throw closeError;
-    return withTransportNotices(result, server);
+      let closeError = null;
+      let closeFailed = false;
+      try {
+        await adapter.close();
+      } catch (err) {
+        closeFailed = true;
+        closeError = err;
+      }
+      if (operationFailed) {
+        if (closeFailed) {
+          const primary = operationError && operationError.message ? operationError.message : String(operationError);
+          const secondary = closeError && closeError.message ? closeError.message : String(closeError);
+          throw new Error(`${primary}\n\nConnection close also failed: ${secondary}`, {
+            cause: operationError,
+          });
+        }
+        throw operationError;
+      }
+      if (closeFailed) throw closeError;
+      return withTransportNotices(result, server);
+    });
   } catch (err) {
     throw withTransportError(err, server);
   }
@@ -463,10 +471,16 @@ async function withServer(loaded, requestedServer, opts, run, connectAdapter) {
 }
 
 // Wrap a handler so any throw becomes a clean isError result.
-function guard(fn, redactor) {
-  return async (args, _extra) => {
+function guard(fn, redactor, loaded) {
+  return async (args, extra = {}) => {
+    let selected;
+    let operation;
     try {
-      const redacted = redactor.result(await fn(args || {}));
+      if (loaded?.config) {
+        try { selected = resolveServer(loaded, args?.server).server; } catch { /* handler reports selection errors */ }
+      }
+      operation = createOperation(extra, selected?.operationTimeoutMs);
+      const redacted = redactor.result(await operation.run(() => fn(args || {}, operation)));
       if (redacted && redacted.isError === true) {
         const { structuredContent: _discarded, ...errorOnly } = redacted;
         return capToolResult(errorOnly);
@@ -476,6 +490,7 @@ function guard(fn, redactor) {
       }
       return capToolResult(redacted);
     } catch (err) {
+      if (operation?.signal.aborted && selected) err = withTransportError(operation.signal.reason, selected);
       const msg = err && err.message ? err.message : String(err);
       return capToolResult(errorResult(redactor.strictText(msg)));
     }
@@ -649,7 +664,7 @@ function boundedDeploySamples(items, project = (item) => item) {
 export function registerTools(server, loaded, options = {}) {
   const connectAdapter = options.openAdapter || openAdapter;
   const redactor = createRedactor(loaded && loaded.config);
-  const guardTool = (handler) => guard(handler, redactor);
+  const guardTool = (handler) => guard(handler, redactor, loaded);
   const useServer = (requested, opts, run) =>
     withServer(loaded, requested, opts, run, connectAdapter);
   const serverField = z
@@ -795,8 +810,8 @@ export function registerTools(server, loaded, options = {}) {
       outputSchema: OUTPUT_SCHEMAS.test,
       annotations: annotations(true, false, true, true),
     },
-    guardTool((args) =>
-      useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
+    guardTool((args, operation) =>
+      useServer(args.server, { write: false, operation }, async ({ server: s, adapter }) => {
         const root = resolveRemote(s.root, "");
         const entries = await adapter.list(root);
         return successResult(
@@ -831,8 +846,8 @@ export function registerTools(server, loaded, options = {}) {
       outputSchema: OUTPUT_SCHEMAS.list,
       annotations: annotations(true, false, true, true),
     },
-    guardTool((args) =>
-      useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
+    guardTool((args, operation) =>
+      useServer(args.server, { write: false, operation }, async ({ server: s, adapter }) => {
         const target = resolveRemote(s.root, args.path ?? "");
         const entries = await adapter.list(target);
         entries.sort((a, b) => {
@@ -919,8 +934,8 @@ export function registerTools(server, loaded, options = {}) {
       },
       annotations: annotations(true, false, true, true),
     },
-    guardTool((args) =>
-      useServer(args.server, { write: false }, async ({ server: s, adapter }) => {
+    guardTool((args, operation) =>
+      useServer(args.server, { write: false, operation }, async ({ server: s, adapter }) => {
         let maxBytes = args.max_bytes ?? READ_DEFAULT_BYTES;
         if (maxBytes > READ_MAX_BYTES) maxBytes = READ_MAX_BYTES;
         if (maxBytes < 1) maxBytes = 1;
@@ -959,18 +974,20 @@ export function registerTools(server, loaded, options = {}) {
       outputSchema: OUTPUT_SCHEMAS.upload,
       annotations: annotations(false, true, false, true),
     },
-    guardTool(async (args) => {
+    guardTool(async (args, operation) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
       try {
-        const source = resolveLocalSource(s, args.local_path, "file");
+        let source = resolveLocalSource(s, args.local_path, "file");
         const base = path.basename(source.path);
         const remoteRel = args.remote_path && args.remote_path.trim() ? args.remote_path : base;
         const target = resolveRemote(s.root, remoteRel);
         return await withResolvedServer(
           name,
           s,
-          { write: true },
+          { write: true, operation, beforeConnect: () => {
+            source = resolveLocalSource(s, args.local_path, "file");
+          } },
           async ({ adapter }) => {
             await adapter.uploadFile(source.path, target);
             return successResult(
@@ -1016,11 +1033,12 @@ export function registerTools(server, loaded, options = {}) {
       outputSchema: OUTPUT_SCHEMAS.deploy,
       annotations: annotations(false, true, false, true),
     },
-    guardTool(async (args) => {
+    guardTool(async (args, operation) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
       try {
         const source = resolveLocalSource(s, args.local_dir, "directory");
+        const lexicalDir = path.resolve(s.localRoot, args.local_dir);
         const files = selectDeployFiles(source.path, args.include, args.exclude);
         const remoteBase = resolveRemote(s.root, args.remote_dir ?? "");
         const totalBytes = files.reduce((a, f) => a + f.size, 0);
@@ -1109,116 +1127,124 @@ export function registerTools(server, loaded, options = {}) {
         }
 
         const t0 = Date.now();
-        const created = new Set();
-        const uploadedList = [];
-        const failures = [];
-        let bytes = 0;
-        let consecutive = 0;
-        let abortedEarly = false;
-        let adapter = null;
-        let deployFailure = null;
-        let closeFailure = null;
+        return await operation.lock([remoteLockKey(s)], async () => {
+          const created = new Set();
+          const uploadedList = [];
+          const failures = [];
+          let bytes = 0;
+          let consecutive = 0;
+          let abortedEarly = false;
+          let adapter = null;
+          let deployFailure = null;
+          let closeFailure = null;
 
-        try {
-          adapter = await connectAdapter(s);
           try {
-            for (const f of files) {
-              const relForRemote = args.remote_dir
-                ? posix.join(String(args.remote_dir).replace(/\\/g, "/"), f.rel)
-                : f.rel;
-              try {
-                const target = resolveRemote(s.root, relForRemote);
-                const parent = posix.dirname(target);
-                if (parent && parent !== "/" && !created.has(parent)) {
-                  await adapter.mkdirp(parent);
-                  created.add(parent);
-                }
-                await adapter.uploadFile(f.abs, target);
-                uploadedList.push({ path: f.rel, size_bytes: f.size });
-                bytes += f.size;
-                consecutive = 0;
-              } catch (err) {
-                failures.push(`${f.rel}: ${err.message}`);
-                consecutive += 1;
-                if (consecutive > 5) {
-                  abortedEarly = true;
-                  break;
+            adapter = await connectOperation(connectAdapter, s, operation);
+            operation.progress();
+            try {
+              for (const f of files) {
+                operation.check();
+                const relForRemote = args.remote_dir
+                  ? posix.join(String(args.remote_dir).replace(/\\/g, "/"), f.rel)
+                  : f.rel;
+                try {
+                  const target = resolveRemote(s.root, relForRemote);
+                  const parent = posix.dirname(target);
+                  if (parent && parent !== "/" && !created.has(parent)) {
+                    await adapter.mkdirp(parent);
+                    created.add(parent);
+                  }
+                  const current = resolveLocalSource(s, path.resolve(lexicalDir, f.rel), "file");
+                  await adapter.uploadFile(current.path, target);
+                  operation.progress();
+                  uploadedList.push({ path: f.rel, size_bytes: f.size });
+                  bytes += f.size;
+                  consecutive = 0;
+                } catch (err) {
+                  operation.check();
+                  failures.push(`${f.rel}: ${err.message}`);
+                  consecutive += 1;
+                  if (consecutive > 5) {
+                    abortedEarly = true;
+                    break;
+                  }
                 }
               }
+            } catch (err) {
+              deployFailure = err;
             }
           } catch (err) {
             deployFailure = err;
-          }
-        } catch (err) {
-          deployFailure = err;
-        } finally {
-          if (adapter) {
-            try {
-              await adapter.close();
-            } catch (err) {
-              closeFailure = err;
+          } finally {
+            if (adapter) {
+              try {
+                await adapter.close();
+              } catch (err) {
+                closeFailure = err;
+              }
             }
           }
-        }
 
-        const durationMs = Date.now() - t0;
-        const secs = (durationMs / 1000).toFixed(1);
-        if (deployFailure) failures.push(`deploy: ${deployFailure.message}`);
-        if (closeFailure) failures.push(`connection close: ${closeFailure.message}`);
-        const partial =
-          failures.length > 0 ||
-          abortedEarly ||
-          uploadedList.length !== files.length ||
-          deployFailure !== null ||
-          closeFailure !== null;
-        const lines = partial ? ["PARTIAL DEPLOY — ERROR"] : [];
-        lines.push(
-          `Deployed ${uploadedList.length}/${files.length} files (${formatSize(bytes)}) to ${remoteBase} on "${name}" in ${secs}s.`
-        );
-        if (abortedEarly) {
-          lines.push("ABORTED after more than 5 consecutive failures — this is a partial deploy.");
-        }
-        lines.push("");
-        lines.push("Uploaded:");
-        const shown = uploadedList.slice(0, DEPLOY_SAMPLE_LIMIT);
-        for (const item of shown) lines.push(`  ${item.path}`);
-        if (uploadedList.length > shown.length) lines.push(`  ... and ${uploadedList.length - shown.length} more`);
-        if (uploadedList.length === 0) lines.push("  (none)");
-        if (failures.length) {
-          lines.push("");
-          lines.push(`Failures (${failures.length}):`);
-          const shownFailures = failures.slice(0, DEPLOY_SAMPLE_LIMIT);
-          for (const fmsg of shownFailures) lines.push(`  ${fmsg}`);
-          if (failures.length > shownFailures.length) {
-            lines.push(`  ... and ${failures.length - shownFailures.length} more`);
+          operation.check();
+          const durationMs = Date.now() - t0;
+          const secs = (durationMs / 1000).toFixed(1);
+          if (deployFailure) failures.push(`deploy: ${deployFailure.message}`);
+          if (closeFailure) failures.push(`connection close: ${closeFailure.message}`);
+          const partial =
+            failures.length > 0 ||
+            abortedEarly ||
+            uploadedList.length !== files.length ||
+            deployFailure !== null ||
+            closeFailure !== null;
+          const lines = partial ? ["PARTIAL DEPLOY — ERROR"] : [];
+          lines.push(
+            `Deployed ${uploadedList.length}/${files.length} files (${formatSize(bytes)}) to ${remoteBase} on "${name}" in ${secs}s.`
+          );
+          if (abortedEarly) {
+            lines.push("ABORTED after more than 5 consecutive failures — this is a partial deploy.");
           }
-        }
-        const text = lines.join("\n");
-        if (partial) return withTransportNotices(explicitErrorResult(text), s);
-        const uploaded = boundedDeploySamples(uploadedList);
-        return withTransportNotices(
-          successResult(text, {
-            mode: "deploy",
-            server: boundedString(name),
-            remote_base: boundedString(remoteBase),
-            total_files: files.length,
-            total_bytes: totalBytes,
-            uploaded_count: uploadedList.length,
-            uploaded_bytes: bytes,
-            failed_count: 0,
-            aborted_early: false,
-            complete: true,
-            duration_ms: durationMs,
-            security_warning: securityWarning(s),
-            uploaded: uploaded.sample,
-            uploaded_omitted: uploaded.omitted,
-            planned: [],
-            planned_omitted: 0,
-            failures: [],
-            failures_omitted: 0,
-          }),
-          s
-        );
+          lines.push("");
+          lines.push("Uploaded:");
+          const shown = uploadedList.slice(0, DEPLOY_SAMPLE_LIMIT);
+          for (const item of shown) lines.push(`  ${item.path}`);
+          if (uploadedList.length > shown.length) lines.push(`  ... and ${uploadedList.length - shown.length} more`);
+          if (uploadedList.length === 0) lines.push("  (none)");
+          if (failures.length) {
+            lines.push("");
+            lines.push(`Failures (${failures.length}):`);
+            const shownFailures = failures.slice(0, DEPLOY_SAMPLE_LIMIT);
+            for (const fmsg of shownFailures) lines.push(`  ${fmsg}`);
+            if (failures.length > shownFailures.length) {
+              lines.push(`  ... and ${failures.length - shownFailures.length} more`);
+            }
+          }
+          const text = lines.join("\n");
+          if (partial) return withTransportNotices(explicitErrorResult(text), s);
+          const uploaded = boundedDeploySamples(uploadedList);
+          return withTransportNotices(
+            successResult(text, {
+              mode: "deploy",
+              server: boundedString(name),
+              remote_base: boundedString(remoteBase),
+              total_files: files.length,
+              total_bytes: totalBytes,
+              uploaded_count: uploadedList.length,
+              uploaded_bytes: bytes,
+              failed_count: 0,
+              aborted_early: false,
+              complete: true,
+              duration_ms: durationMs,
+              security_warning: securityWarning(s),
+              uploaded: uploaded.sample,
+              uploaded_omitted: uploaded.omitted,
+              planned: [],
+              planned_omitted: 0,
+              failures: [],
+              failures_omitted: 0,
+            }),
+            s
+          );
+        });
       } catch (err) {
         throw withTransportError(err, s);
       }
@@ -1240,12 +1266,12 @@ export function registerTools(server, loaded, options = {}) {
       outputSchema: OUTPUT_SCHEMAS.download,
       annotations: annotations(false, true, false, true),
     },
-    guardTool(async (args) => {
+    guardTool(async (args, operation) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
       try {
         const target = resolveRemote(s.root, args.remote_path);
-        const destination = resolveLocalDestination(s, args.local_path);
+        let destination = resolveLocalDestination(s, args.local_path);
         if (destination.exists && !args.overwrite) {
           throw new Error(
             `local file already exists inside "localRoot" — pass overwrite:true to replace it`
@@ -1254,7 +1280,16 @@ export function registerTools(server, loaded, options = {}) {
         return await withResolvedServer(
           name,
           s,
-          { write: false },
+          { write: false, operation, lockKeys: [localLockKey(destination.canonicalPath)], beforeConnect: () => {
+            const current = resolveLocalDestination(s, args.local_path);
+            if (localLockKey(current.canonicalPath) !== localLockKey(destination.canonicalPath)) {
+              throw new Error("TARGET_CHANGED: local destination changed while waiting for the operation lock");
+            }
+            if (current.exists && !args.overwrite) {
+              throw new Error('local file already exists inside "localRoot" — pass overwrite:true to replace it');
+            }
+            destination = current;
+          } },
           async ({ adapter }) => {
             await adapter.downloadFile(target, destination.path);
             const written = resolveLocalDestination(s, args.local_path);
@@ -1291,8 +1326,8 @@ export function registerTools(server, loaded, options = {}) {
       outputSchema: OUTPUT_SCHEMAS.mkdir,
       annotations: annotations(false, false, true, true),
     },
-    guardTool((args) =>
-      useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
+    guardTool((args, operation) =>
+      useServer(args.server, { write: true, operation }, async ({ server: s, adapter }) => {
         const target = resolveRemote(s.root, args.path);
         await adapter.mkdirp(target);
         return successResult(`Created directory ${target}`, {
@@ -1319,8 +1354,8 @@ export function registerTools(server, loaded, options = {}) {
       outputSchema: OUTPUT_SCHEMAS.rename,
       annotations: annotations(false, true, false, true),
     },
-    guardTool((args) =>
-      useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
+    guardTool((args, operation) =>
+      useServer(args.server, { write: true, operation }, async ({ server: s, adapter }) => {
         if (isRootPath(s.root, args.from_path)) throw new Error("refusing to rename the server root");
         if (isRootPath(s.root, args.to_path)) throw new Error("refusing to overwrite the server root");
         const from = resolveRemote(s.root, args.from_path);
@@ -1352,8 +1387,8 @@ export function registerTools(server, loaded, options = {}) {
       outputSchema: OUTPUT_SCHEMAS.delete,
       annotations: annotations(false, true, true, true),
     },
-    guardTool((args) =>
-      useServer(args.server, { write: true }, async ({ server: s, adapter }) => {
+    guardTool((args, operation) =>
+      useServer(args.server, { write: true, operation }, async ({ server: s, adapter }) => {
         if (isRootPath(s.root, args.path)) throw new Error("refusing to delete the server root directory");
         const target = resolveRemote(s.root, args.path);
         const st = await adapter.stat(target);

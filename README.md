@@ -143,6 +143,7 @@ entry is exactly `SHA256:` plus 43 characters of unpadded base64.
 | `hostKeySha256` | SFTP | Required fingerprint string or non-empty array of pins. Format: `SHA256:<43-character unpadded base64>`. Cannot be combined with `allowUnknownHostKey`. |
 | `allowUnknownHostKey` | SFTP | Emergency compatibility override. `true` accepts an unverified server identity and visibly warns on results. |
 | `readOnly` | all | Blocks upload, deploy, mkdir, rename, and delete. A deploy dry run remains available. |
+| `operationTimeoutMs` | all | Tool deadline including queue and connection time, default 120000 ms. Integer from 100 to 3600000. Native transport timeouts also apply. |
 | `implicitTLS` | FTPS | Uses implicit TLS, normally on port 990. |
 | `insecureTLS` | FTPS | Disables certificate verification. Requires `allowInsecure: true`. |
 | `allowInsecure` | FTP/FTPS | Explicitly accepts plaintext FTP or unverified FTPS. It does not make the connection secure. |
@@ -188,6 +189,25 @@ exists.
 | `ftp_mkdir` | `server?`, `path` | Create a remote directory recursively. |
 | `ftp_rename` | `server?`, `from_path`, `to_path` | Rename or move. |
 | `ftp_delete` | `server?`, `path`, `recursive?` | Delete a file or, with explicit recursion, a directory. |
+
+### Execution, cancellation, and contention
+
+Within one Node process, upload, deploy, mkdir, rename, and delete run in FIFO
+order for the same normalized protocol, hostname, port, and username. Server
+aliases and roots share that lock. Downloads serialize by resolved local
+destination, including across servers. Read-only remote operations can overlap.
+
+MCP cancellation and deadlines close active transports and stop subsequent
+deploy files. Errors identify `CANCELLED` or `TIMEOUT`; `TARGET_BUSY` indicates
+waiting for another operation. A timed-out call can return before an underlying
+operation settles, but its lock remains owned until settlement and cleanup.
+No uncertain mutation is retried automatically. Inspect partial remote/local
+state before retrying; this is not transactional deployment or rollback.
+
+Progress notifications are sent only when the caller supplies a progress
+token, with increasing counters and no paths or credential text. Locks do not
+coordinate other Node processes, DNS aliases, other accounts, or external
+clients on the same host.
 
 ### Response compatibility, pagination, and annotations
 

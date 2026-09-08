@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { normalizeRoot } from "./remote-path.js";
+import { DEFAULT_OPERATION_TIMEOUT_MS } from "./operations.js";
 
 const PROTOCOLS = new Set(["ftp", "ftps", "sftp"]);
 
@@ -102,6 +103,10 @@ function validateServer(name, s) {
   if (s.port !== undefined && (typeof s.port !== "number" || !Number.isInteger(s.port) || s.port <= 0)) {
     return `${prefix} field "port" must be a positive integer`;
   }
+  if (s.operationTimeoutMs !== undefined && (!Number.isInteger(s.operationTimeoutMs) ||
+      s.operationTimeoutMs < 100 || s.operationTimeoutMs > 3600000)) {
+    return `${prefix} field "operationTimeoutMs" must be an integer between 100 and 3600000`;
+  }
   const hasPassword = nonEmptyString(s.password);
   const hasKey = nonEmptyString(s.privateKeyPath);
   if (!hasPassword && !hasKey) {
@@ -187,6 +192,7 @@ export function normalizeServer(name, s) {
     protocol,
     host: s.host,
     port,
+    operationTimeoutMs: s.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
     user: s.user,
     password: nonEmptyString(s.password) ? s.password : undefined,
     privateKeyPath: nonEmptyString(s.privateKeyPath) ? expandHome(s.privateKeyPath) : undefined,
