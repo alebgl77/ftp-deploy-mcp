@@ -14,7 +14,7 @@ your own FTP, FTPS, and SFTP servers.
 
 [![CI](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Node >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](./package.json)
+[![Node >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](./package.json)
 [![MCP compatible](https://img.shields.io/badge/MCP-compatible-8A2BE2.svg)](https://modelcontextprotocol.io)
 
 <img src="assets/banner.svg" width="100%" alt="ftp-deploy-mcp banner">
@@ -35,7 +35,7 @@ runs against local FTP and SFTP servers. There is no telemetry.
 
 ## First source install
 
-1. Install Node.js 18 or newer.
+1. Install a supported Node.js LTS version: 22 or 24 (minimum: 22).
 2. Run `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, then
    `cd ftp-deploy-mcp`.
 3. Run `npm install`.

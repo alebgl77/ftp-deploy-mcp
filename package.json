@@ -15,7 +15,7 @@
   },
   "homepage": "https://github.com/alebgl77/ftp-deploy-mcp#readme",
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "bin": {
     "ftp-deploy-mcp": "src/index.js"

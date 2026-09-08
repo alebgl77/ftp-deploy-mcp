@@ -540,8 +540,8 @@ export async function runSetup(argv) {
 
   for (const line of BANNER) W(line);
 
-  if (nodeMajor() < 18) {
-    E(`Node.js >= 18 is required (found ${process.version}). Please upgrade Node and retry.`);
+  if (nodeMajor() < 22) {
+    E(`Node.js >= 22 is required (found ${process.version}). Please upgrade Node and retry.`);
     return 1;
   }
 

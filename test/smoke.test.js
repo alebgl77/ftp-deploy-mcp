@@ -27,6 +27,7 @@ import { runConfigDiscoveryTests } from "./config-discovery.js";
 import { atomicWriteFileSync } from "../src/atomic-write.js";
 import { createRedactor } from "../src/redact.js";
 import { registerTools } from "../src/tools.js";
+import { runSetup } from "../src/setup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -760,6 +761,23 @@ async function partH() {
   const serversPath = path.join(tmpH, ".ftp-mcp", "servers.json");
   const setupArgs = ["setup", "--yes", "--from-filezilla", fixture, "--home", tmpH, "--clients", "all", "--skip-test"];
   try {
+    // H.0 exercise the runtime gate without requiring multiple Node binaries.
+    const versionDescriptor = Object.getOwnPropertyDescriptor(process, "version");
+    try {
+      for (const major of [18, 20, 21, 22, 24]) {
+        Object.defineProperty(process, "version", { ...versionDescriptor, value: `v${major}.0.0` });
+        const runtimeHome = path.join(tmpH, `runtime-${major}`);
+        const code = await runSetup([
+          "setup", "--yes", "--from-filezilla", fixture, "--home", runtimeHome,
+          "--clients", "none", "--skip-test", "--dry-run",
+        ]);
+        ok(code === (major < 22 ? 1 : 0) && !fs.existsSync(runtimeHome),
+          `setup H.0: Node ${major} ${major < 22 ? "refused" : "accepted"} without writes`, `code=${code}`);
+      }
+    } finally {
+      Object.defineProperty(process, "version", versionDescriptor);
+    }
+
     // seed tmpH
     fs.mkdirSync(path.join(tmpH, ".cursor"), { recursive: true });
     fs.writeFileSync(path.join(tmpH, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { other: { command: "x" } } }, null, 2));

@@ -6,7 +6,7 @@ where node >nul 2>nul
 if errorlevel 1 (
   echo.
   echo [ERREUR] Node.js est introuvable / Node.js was not found.
-  echo Installez Node.js 18+ depuis https://nodejs.org puis relancez ce script.
+  echo Installez Node.js 22+ depuis https://nodejs.org puis relancez ce script.
   echo.
   pause
   exit /b 1

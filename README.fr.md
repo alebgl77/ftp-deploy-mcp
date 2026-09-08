@@ -14,7 +14,7 @@ déployer des fichiers sur vos propres serveurs FTP, FTPS et SFTP.
 
 [![CI](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml)
 [![Licence : MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Node >=18](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](./package.json)
+[![Node >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](./package.json)
 [![Compatible MCP](https://img.shields.io/badge/MCP-compatible-8A2BE2.svg)](https://modelcontextprotocol.io)
 
 <img src="assets/banner.svg" width="100%" alt="bannière ftp-deploy-mcp">
@@ -36,7 +36,7 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 
 ## Première installation depuis les sources
 
-1. Installez Node.js 18 ou plus récent.
+1. Installez une version LTS de Node.js prise en charge : 22 ou 24 (minimum : 22).
 2. Lancez `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, puis
    `cd ftp-deploy-mcp`.
 3. Lancez `npm install`.
