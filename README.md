@@ -48,6 +48,12 @@ runs against local FTP and SFTP servers. There is no telemetry.
 | Release process | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
 | Agent evaluation | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
 | Scripted MCP conformance | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
+| CLI and MCP languages | [Guide](./docs/LANGUAGES.md) | [Guide](./docs/LANGUAGES.fr.md) |
+| MCP error contract | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |
+| Verified staged transfers | [Guide](./docs/TRANSFERS.md) | [Guide](./docs/TRANSFERS.fr.md) |
+| Scan and admission limits | [Limits](./docs/RESOURCE-BOUNDS.md) | [Limites](./docs/RESOURCE-BOUNDS.fr.md) |
+| State storage primitives (internal library, no MCP tool) | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
+| Durable workflow model (internal library, no MCP tool) | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
 | MIT license | [Canonical text](./LICENSE) | [Informative translation](./LICENSE.fr.md) |
 
 ## Architecture and scenarios
