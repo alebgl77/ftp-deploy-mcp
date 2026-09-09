@@ -49,9 +49,18 @@ export function integrity(bytes) {
   return `sha512-${createHash("sha512").update(bytes).digest("base64")}`;
 }
 
+// `npm pack --json` emits an array through npm 11 and an object keyed by package name from
+// npm 12. Accept both so a release never depends on the runner's bundled npm version.
+export function packEntries(pack) {
+  if (Array.isArray(pack)) return pack;
+  if (pack && typeof pack === "object") return Object.values(pack);
+  return [];
+}
+
 export function validatePack(pack, release) {
-  assert.ok(Array.isArray(pack) && pack.length === 1, "Exactly one packed artifact is required");
-  const item = pack[0];
+  const entries = packEntries(pack);
+  assert.ok(entries.length === 1, "Exactly one packed artifact is required");
+  const item = entries[0];
   assert.equal(item.name, release.name, "Packed name mismatch");
   assert.equal(item.version, release.version, "Packed version mismatch");
   assert.equal(item.filename, `${release.name}-${release.version}.tgz`, "Unexpected artifact filename");

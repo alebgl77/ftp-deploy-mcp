@@ -36,6 +36,17 @@ export function validateMetadata(pkg, lock, server, ref, runtimeVersion) {
   return { name: pkg.name, version: pkg.version, mcpName: pkg.mcpName };
 }
 
+// docs/RELEASE.md requires the effective publication date at release approval, so a tag must
+// never be cut while a changelog still reads "Release candidate" / "Version candidate".
+export function validateChangelog(text, version, label) {
+  const heading = text.split(/\r?\n/).find((line) => line.startsWith("## ["));
+  assert.ok(heading, `${label}: no release section found`);
+  const match = /^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/.exec(heading.trim());
+  assert.ok(match, `${label}: newest section must read "## [x.y.z] - YYYY-MM-DD", found ${JSON.stringify(heading)}`);
+  assert.equal(match[1], version, `${label}: newest section documents ${match[1]}, expected ${version}`);
+  return match[2];
+}
+
 export function readRelease(root = process.cwd(), ref = process.env.GITHUB_REF) {
   const read = (file) => JSON.parse(readFileSync(path.join(root, file), "utf8"));
   const pkg = read("package.json");
@@ -55,5 +66,7 @@ if (isMain(import.meta.url)) {
     const version = execFileSync(process.execPath, ["src/index.js", "--version"], { encoding: "utf8", timeout: 15000 }).trim();
     validateMetadata(pkg, lock, server, process.env.GITHUB_REF, version);
   }
+  const changelog = (file) => validateChangelog(readFileSync(path.join(process.cwd(), file), "utf8"), release.version, file);
+  assert.equal(changelog("CHANGELOG.fr.md"), changelog("CHANGELOG.md"), "CHANGELOG.md and CHANGELOG.fr.md must document the same release date");
   console.log(`Release gate passed: ${release.name}@${release.version}`);
 }
