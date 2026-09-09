@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { MCP_NAME, PACKAGE_NAME, SCHEMA, validateMetadata } from "../scripts/release-gate.mjs";
+import { MCP_NAME, PACKAGE_NAME, SCHEMA, validateChangelog, validateMetadata } from "../scripts/release-gate.mjs";
 import { PACKAGE_FILES, checkArtifact, integrity, validateFiles, validatePack, validatePublished, verifyPublished } from "../scripts/release-artifact.mjs";
 
 const release = { name: PACKAGE_NAME, version: "0.2.0", mcpName: MCP_NAME };
@@ -94,10 +94,33 @@ test("archive rejects missing or duplicate files", () => {
   assert.throws(() => validateFiles([...PACKAGE_FILES, PACKAGE_FILES[0]]));
   assert.throws(() => validateFiles(undefined));
 });
+test("changelog gate requires a dated newest section matching the release", () => {
+  assert.equal(validateChangelog(`# Changelog
+
+## [0.2.0] - 2026-09-09
+
+### Added
+
+## [0.1.0] - 2026-07-20
+`, "0.2.0", "CHANGELOG.md"), "2026-09-09");
+  assert.equal(validateChangelog("# Changelog\r\n\r\n## [0.2.0] - 2026-09-09\r\n", "0.2.0", "CHANGELOG.fr.md"), "2026-09-09");
+  for (const bad of [
+    "## [0.2.0] - Release candidate (2026-09-03)",
+    "## [0.2.0] - Version candidate (2026-09-03)",
+    "## [0.1.0] - 2026-07-20",
+    "## [0.2.0]",
+    "## [0.2.0] - 2026-09-09 (pending)",
+    "## [0.2.0] - 2026-9-9",
+    "no release section here",
+  ]) assert.throws(() => validateChangelog(bad, "0.2.0", "CHANGELOG.md"));
+});
 test("pack metadata binds a single archive to the release", () => {
   const pack = { ...release, filename: `${PACKAGE_NAME}-0.2.0.tgz`, files: PACKAGE_FILES.map((file) => ({ path: file })) };
   assert.equal(validatePack([pack], release), pack);
-  for (const invalid of [[], [pack, pack], [{ ...pack, name: "other" }], [{ ...pack, version: "0.1.0" }], [{ ...pack, filename: "../escape.tgz" }]]) {
+  // npm 11 and earlier emit an array; npm 12 emits an object keyed by package name.
+  assert.equal(validatePack({ [PACKAGE_NAME]: pack }, release), pack);
+  for (const invalid of [[], [pack, pack], [{ ...pack, name: "other" }], [{ ...pack, version: "0.1.0" }], [{ ...pack, filename: "../escape.tgz" }],
+    {}, { a: pack, b: pack }, { [PACKAGE_NAME]: { ...pack, version: "0.1.0" } }, null, undefined, "pack"]) {
     assert.throws(() => validatePack(invalid, release));
   }
 });
