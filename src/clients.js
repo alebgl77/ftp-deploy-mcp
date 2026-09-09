@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { atomicWriteFileSync } from "./atomic-write.js";
+import { createI18n } from "./i18n.js";
 
 // The single mcpServers key we install everywhere.
 const KEY = "ftp";
@@ -100,9 +101,13 @@ export function getClients(ctx) {
 // Build the mcpServers.ftp entry. `configPath` (already forward-slashed) is
 // added as an env override ONLY for a non-default config destination; for the
 // default ~/.ftp-mcp/servers.json the caller passes null and discovery finds it.
-export function buildEntry({ absIndexJs, configPath }) {
+export function buildEntry({ absIndexJs, configPath, locale }) {
   const entry = { command: "node", args: [absIndexJs] };
   if (configPath) entry.env = { FTP_MCP_CONFIG: configPath };
+  if (locale !== undefined) {
+    createI18n(locale);
+    entry.env = { ...entry.env, FTP_MCP_LANG: locale };
+  }
   return entry;
 }
 

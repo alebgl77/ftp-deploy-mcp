@@ -12,6 +12,9 @@ your own FTP, FTPS, and SFTP servers.
 
 *Version française → [README.fr.md](./README.fr.md)*
 
+CLI language: English by default; use `--lang fr` or `FTP_MCP_LANG=fr`.
+[Language scope and precedence](./docs/LANGUAGES.md).
+
 [![CI](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Node >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](./package.json)

@@ -13,10 +13,11 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import { loadConfig, normalizeServer, insecureTransport, insecureRiskText } from "./config.js";
+import { loadConfig, normalizeServer, insecureTransport } from "./config.js";
 import { registerTools } from "./tools.js";
 import { runImport } from "./filezilla.js";
 import { createRedactor } from "./redact.js";
+import { createI18n, extractLanguage } from "./i18n.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
@@ -25,13 +26,13 @@ const outputRedactor = createRedactor();
 const E = (message) => console.error(outputRedactor.strictText(message));
 
 // Minimal hand-rolled argv parsing.
-function parseArgs(argv) {
+function parseArgs(argv, t) {
   const opts = { _: [], flags: {} };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--config" || a === "--file" || a === "--out") {
       if (a === "--config" && (argv[i + 1] === undefined || argv[i + 1].startsWith("-"))) {
-        throw new Error("--config requires a path value");
+        throw new Error(t("cli.configPath"));
       }
       opts.flags[a.slice(2)] = argv[++i];
     } else if (a === "--force") {
@@ -47,71 +48,37 @@ function parseArgs(argv) {
   return opts;
 }
 
-const USAGE = `ftp-deploy-mcp v${VERSION}
-An MCP stdio server exposing FTP/FTPS/SFTP deploy tools to AI coding agents.
-
-Usage:
-  ftp-deploy-mcp [--config <path>]
-      Start the MCP server on stdio (default). Configure your MCP client to run
-      this command. --config <path> takes priority over $FTP_MCP_CONFIG.
-      An explicit path must load successfully; no fallback is attempted.
-      Without either selector, reads the first configuration found:
-        ./ftp-servers.json, ~/.ftp-mcp/servers.json
-
-  ftp-deploy-mcp import-filezilla [--file <sitemanager.xml>] [--out <path>] [--force]
-      Convert a FileZilla Site Manager export into ftp-servers.json.
-      Without --out, prints the JSON to stdout.
-
-  ftp-deploy-mcp setup [--yes] [--clients <all|none|id,id>] [--from-filezilla [path]]
-                       [--config-dest <path>] [--skip-test] [--dry-run] [--force]
-      Interactive one-command installer: build/import the server config, test
-      connections, and write your MCP clients' config files automatically
-      (Claude Code/Desktop, Cursor, Windsurf, Antigravity) with backups, plus a
-      paste-ready block for Trae. --yes runs non-interactively.
-
-  ftp-deploy-mcp doctor
-      Read-only diagnostic: Node version, which config won, servers (no secrets),
-      and per-client wiring status.
-
-  ftp-deploy-mcp --version
-  ftp-deploy-mcp --help
-`;
-
-async function startServer(configFlag) {
+async function startServer(configFlag, i18n) {
+  const { t } = i18n;
   const loaded = loadConfig(configFlag);
   outputRedactor.add(loaded.config);
 
   const configDesc = loaded.found
     ? loaded.error
-      ? `${loaded.path} (ERROR)`
+      ? t("cli.configError", { path: loaded.path })
       : loaded.path
-    : "none found";
+    : t("cli.noneFound");
   const serversDesc = loaded.serverNames.length ? loaded.serverNames.join(",") : "-";
-  E(`ftp-deploy-mcp v${VERSION} — config: ${configDesc}, servers: ${serversDesc}`);
+  E(t("cli.started", { version: VERSION, config: configDesc, servers: serversDesc }));
   if (loaded.error) {
-    E(`ftp-deploy-mcp: configuration problem — ${loaded.error}`);
+    E(t("cli.configProblem", { error: loaded.error }));
   }
   if (loaded.config) {
     for (const name of loaded.serverNames) {
       const s = normalizeServer(name, loaded.config.servers[name]);
       const reason = insecureTransport(s);
       if (!reason) continue;
+      const risk = t(reason === "plain-ftp" ? "security.ftpRisk" : "security.tlsRisk", { name });
       if (s.allowInsecure) {
-        E(
-          `ftp-deploy-mcp: ⚠ SECURITY WARNING — ${insecureRiskText(name, reason)}. ` +
-            `Explicitly allowed by "allowInsecure": true — switch to sftp as soon as possible.`
-        );
+        E(t("cli.allowed", { risk }));
       } else {
-        E(
-          `ftp-deploy-mcp: ⚠ ${insecureRiskText(name, reason)}. ` +
-            `Connections to this server will be REFUSED — switch it to sftp, or set "allowInsecure": true to accept the risk.`
-        );
+        E(t("cli.refused", { risk }));
       }
     }
   }
 
   const server = new McpServer({ name: "ftp-deploy-mcp", version: VERSION });
-  registerTools(server, loaded);
+  registerTools(server, loaded, { i18n });
 
   const transport = new StdioServerTransport();
 
@@ -135,15 +102,17 @@ async function startServer(configFlag) {
   await server.connect(transport);
 }
 
-async function main() {
-  const opts = parseArgs(process.argv.slice(2));
+async function run(argv, i18n) {
+  const { t } = i18n;
+  const opts = parseArgs(argv, t);
 
   if (opts.flags.version) {
     process.stdout.write(`${VERSION}\n`);
     return;
   }
   if (opts.flags.help) {
-    process.stdout.write(USAGE);
+    const help = { setup: "help.setup", doctor: "help.doctor", "import-filezilla": "help.import" }[opts._[0]] ?? "help.main";
+    process.stdout.write(t(help, { version: VERSION }));
     return;
   }
 
@@ -153,32 +122,40 @@ async function main() {
       file: opts.flags.file,
       out: opts.flags.out,
       force: opts.flags.force,
-    });
+    }, undefined, i18n);
     process.exitCode = code;
     return;
   }
   if (sub === "setup") {
     // Lazy-import so pure server startup never pulls in readline/adapters.
     const { runSetup } = await import("./setup.js");
-    process.exitCode = await runSetup(process.argv.slice(2));
+    process.exitCode = await runSetup(argv, i18n);
     return;
   }
   if (sub === "doctor") {
     const { runDoctor } = await import("./setup.js");
-    process.exitCode = await runDoctor(process.argv.slice(2));
+    process.exitCode = await runDoctor(argv, i18n);
     return;
   }
   if (sub) {
-    E(`Unknown command: ${sub}`);
-    E(USAGE);
+    E(t("cli.unknown", { command: sub }));
+    E(t("help.main", { version: VERSION }));
     process.exitCode = 1;
     return;
   }
 
-  await startServer(opts.flags.config);
+  await startServer(opts.flags.config, i18n);
 }
 
-main().catch((err) => {
-  E(`ftp-deploy-mcp fatal: ${err && err.stack ? err.stack : err}`);
-  process.exit(1);
-});
+async function main() {
+  let i18n = createI18n(process.env.FTP_MCP_LANG === "fr" ? "fr" : "en");
+  try {
+    const selected = extractLanguage(process.argv.slice(2));
+    i18n = createI18n(selected.locale);
+    await run(selected.argv, i18n);
+  } catch (err) {
+    E(i18n.t("cli.fatal", { error: err && err.stack ? err.stack : err }));
+    process.exitCode = 1;
+  }
+}
+void main();

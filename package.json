@@ -22,7 +22,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/smoke.test.js && node --test test/transport-qualification.js",
+    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js",
     "test:transports": "node --test test/transport-qualification.js",
     "setup": "node src/index.js setup",
     "doctor": "node src/index.js doctor"

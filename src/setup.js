@@ -19,7 +19,6 @@ import {
   configCandidates,
   normalizeServer,
   insecureTransport,
-  insecureLabel,
   unsafeRemoteRoot,
   unsafeRemoteRootBlockedMessage,
   unsafeRemoteRootWarningText,
@@ -32,6 +31,7 @@ import { resolveRemote } from "./remote-path.js";
 import { getClients, buildEntry, applyClient, mergeConfigFile } from "./clients.js";
 import { atomicWriteFileSync } from "./atomic-write.js";
 import { createRedactor } from "./redact.js";
+import { createI18n, affirmative, negative } from "./i18n.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -155,16 +155,17 @@ function safeRead(p) {
 // Import a FileZilla sitemanager.xml into a config object.
 //   pathOrNull null -> search the default locations (ctx-aware)
 // Returns { config, warnings, sourceFile } or { error }.
-function importFileZilla(pathOrNull, ctx) {
+function importFileZilla(pathOrNull, ctx, i18n) {
+  const { t } = i18n;
   const file = pathOrNull ? path.resolve(pathOrNull) : firstExistingFile(fileZillaDefaultPaths(ctx));
   if (!file) {
-    return { error: "no FileZilla sitemanager.xml found at the default location" };
+    return { error: t("setup.filezillaMissing") };
   }
   const xml = safeRead(file);
-  if (xml == null) return { error: `cannot read ${file}` };
-  const parsed = parseSiteManager(xml);
+  if (xml == null) return { error: t("setup.cannotRead", { file }) };
+  const parsed = parseSiteManager(xml, i18n);
   if (Object.keys(parsed.servers).length === 0) {
-    return { error: `no importable servers found in ${file}` };
+    return { error: t("setup.noImportable", { file }) };
   }
   return { config: buildConfig(parsed), warnings: parsed.warnings, sourceFile: file };
 }
@@ -239,7 +240,7 @@ function writeConfigDest(destPath, newConfig, { dryRun, platform }) {
 function withTimeout(promise, ms, message) {
   let timer;
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message || "timed out")), ms);
+    timer = setTimeout(() => reject(Object.assign(new Error(message), { code: "ETIMEDOUT" })), ms);
   });
   return Promise.race([Promise.resolve(promise).finally(() => clearTimeout(timer)), timeout]);
 }
@@ -263,7 +264,7 @@ function unresolvedEnvVars(srv) {
   return [...names];
 }
 
-async function testOneServer(name, srv) {
+async function testOneServer(name, srv, { t }) {
   const normalized = normalizeServer(name, srv);
   const mod =
     normalized.protocol === "sftp"
@@ -273,9 +274,9 @@ async function testOneServer(name, srv) {
   const budget = 10000;
   const start = Date.now();
   try {
-    adapter = await withTimeout(mod.connect(normalized), budget, "connection timed out");
+    adapter = await withTimeout(mod.connect(normalized), budget, t("connection.timeout"));
     const remaining = Math.max(1000, budget - (Date.now() - start));
-    await withTimeout(adapter.list(resolveRemote(normalized.root, "")), remaining, "listing timed out");
+    await withTimeout(adapter.list(resolveRemote(normalized.root, "")), remaining, t("connection.listTimeout"));
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err };
@@ -290,35 +291,36 @@ async function testOneServer(name, srv) {
   }
 }
 
-function connectionHint(err) {
+export function connectionHint(err, { t } = createI18n()) {
   const msg = err && err.message ? err.message : String(err);
   if (/INSECURE CONNECTION REFUSED/.test(msg)) {
-    return 'switch this server to sftp, or explicitly set "allowInsecure": true to accept the risk';
+    return t("connection.insecureHint");
   }
-  if (/auth/i.test(msg)) return "check the user / password / key";
-  if (/timed out|timeout|firewall|passive/i.test(msg)) return "check the firewall or passive-mode settings";
-  if (/not found|ENOTFOUND|getaddrinfo/i.test(msg)) return "check the host name";
-  if (/refused/i.test(msg)) return "is the server reachable on that port?";
-  return "see the message above";
+  if (/auth/i.test(msg)) return t("connection.authHint");
+  if (err?.code === "ETIMEDOUT" || /timed out|timeout|firewall|passive|délai/i.test(msg)) return t("connection.timeoutHint");
+  if (err?.code === "ENOTFOUND" || /not found|ENOTFOUND|getaddrinfo/i.test(msg)) return t("connection.hostHint");
+  if (err?.code === "ECONNREFUSED" || /refused|refusée?/i.test(msg)) return t("connection.refusedHint");
+  return t("connection.otherHint");
 }
 
-async function runConnectionTests(servers, W) {
+async function runConnectionTests(servers, W, i18n) {
+  const { t } = i18n;
   W("");
-  W("Testing connections (10s each):");
+  W(t("connection.header"));
   for (const [name, srv] of Object.entries(servers || {})) {
     const missing = unresolvedEnvVars(srv);
     if (missing.length) {
-      W(`  - ${name}: skipped (set ${missing.map((v) => `ENV ${v}`).join(", ")} first)`);
+      W(t("connection.skipped", { name, variables: missing.map((v) => `ENV ${v}`).join(", ") }));
       continue;
     }
     const proto = srv.protocol || "?";
-    const res = await testOneServer(name, srv);
+    const res = await testOneServer(name, srv, i18n);
     if (res.ok) {
       const insecure = insecureTransport(normalizeServer(name, srv));
-      W(`  ✓ ${name} (${proto}://${srv.host})${insecure ? "  ⚠ INSECURE transport" : ""}`);
+      W(`  ✓ ${name} (${proto}://${srv.host})${insecure ? t("connection.insecure") : ""}`);
     } else {
       const short = (res.error && res.error.message ? res.error.message : String(res.error)).split("[")[0].trim();
-      W(`  ✗ ${name} — ${short} — ${connectionHint(res.error)}`);
+      W(`  ✗ ${name} — ${short} — ${connectionHint(res.error, i18n)}`);
     }
   }
 }
@@ -366,24 +368,23 @@ function manualSnippet(entry) {
 }
 
 // Render one merge result line and return whether a manual snippet is warranted.
-function renderResult(W, client, res) {
+function renderResult(W, client, res, { t }) {
   switch (res.status) {
     case "created":
-      W(`  ✓ ${client.name}: created ${res.path}`);
+      W(t("client.created", { name: client.name, path: res.path }));
       return false;
     case "updated":
-      W(`  ✓ ${client.name}: updated ${res.path}${res.backupPath ? ` (backup: ${res.backupPath})` : ""}`);
+      W(t("client.updated", { name: client.name, path: res.path,
+        backup: res.backupPath ? t("client.backup", { path: res.backupPath }) : "" }));
       return false;
     case "already":
-      W(`  = ${client.name}: already up to date (${res.path})`);
+      W(t("client.already", { name: client.name, path: res.path }));
       return false;
     case "skipped-different":
-      W(
-        `  ! ${client.name}: kept existing ftp entry (${entryOneLiner(res.existing)}) at ${res.path} — re-run with --force to overwrite`
-      );
+      W(t("client.kept", { name: client.name, entry: entryOneLiner(res.existing), path: res.path }));
       return true;
     case "unparseable":
-      W(`  ✗ ${client.name}: ${res.path} is not valid JSON — left untouched`);
+      W(t("client.invalid", { name: client.name, path: res.path }));
       return true;
     default:
       W(`  ? ${client.name}: ${res.status} (${res.path})`);
@@ -401,9 +402,9 @@ async function ask(rl, query, def) {
 
 // Masked question: mute the echoed characters on a TTY; fall back to visible
 // input (with a notice) when stdin is not a TTY.
-async function askMasked(rl, query) {
+async function askMasked(rl, query, { t }) {
   if (!process.stdin.isTTY) {
-    process.stdout.write("(input is not a TTY — the value will be visible)\n");
+    process.stdout.write(t("prompt.visible"));
     return (await rl.question(`${query}: `)).trim();
   }
   const output = rl.output;
@@ -423,52 +424,53 @@ async function askMasked(rl, query) {
 
 // Manual server-entry loop. Returns { config: { defaultServer?, servers } },
 // the same shape importFileZilla produces.
-async function manualEntry(rl, W) {
+export async function manualEntry(rl, W, i18n = createI18n()) {
+  const { t } = i18n;
   const servers = {};
   let first = null;
   for (;;) {
-    const name = await ask(rl, "Server name", `server-${Object.keys(servers).length + 1}`);
-    let protocol = (await ask(rl, "Protocol (sftp/ftp/ftps)", "sftp")).toLowerCase();
+    const name = await ask(rl, t("prompt.server"), `server-${Object.keys(servers).length + 1}`);
+    let protocol = (await ask(rl, t("prompt.protocol"), "sftp")).toLowerCase();
     let allowInsecure = false;
     if (protocol === "ftp") {
       // Plain FTP needs an explicit, deliberate confirmation — SFTP is the default.
       W("");
-      W("  ⚠ SECURITY WARNING: plain FTP is NOT encrypted — credentials and files can be");
-      W("  intercepted or altered by anyone on the network. SFTP is strongly recommended.");
+      W(t("prompt.ftpWarning1"));
+      W(t("prompt.ftpWarning2"));
       const confirm = (
-        await ask(rl, '  Type "insecure" to keep plain FTP anyway, or press Enter to use sftp', "sftp")
+        await ask(rl, t("prompt.keepFtp"), "sftp")
       ).toLowerCase();
       if (confirm === "insecure") {
         allowInsecure = true;
       } else {
         protocol = "sftp";
-        W("  → using sftp.");
+        W(t("prompt.usingSftp"));
       }
     }
-    const host = await ask(rl, "Host", "");
+    const host = await ask(rl, t("prompt.host"), "");
     const defPort = protocol === "sftp" ? "22" : "21";
-    const portStr = await ask(rl, "Port", defPort);
-    const user = await ask(rl, "User", "");
-    const authKind = (await ask(rl, "Auth (password/key)", "password")).toLowerCase();
+    const portStr = await ask(rl, t("prompt.port"), defPort);
+    const user = await ask(rl, t("prompt.user"), "");
+    const authKind = (await ask(rl, t("prompt.auth"), t("answer.password"))).toLowerCase();
     const entry = { protocol, host, user };
     if (allowInsecure) entry.allowInsecure = true;
     const port = Number(portStr);
     if (Number.isInteger(port) && String(port) !== defPort) entry.port = port;
-    if (authKind.startsWith("k")) {
-      entry.privateKeyPath = await ask(rl, "Private key path", "~/.ssh/id_ed25519");
-      const passphrase = await askMasked(rl, "Key passphrase (blank if none)");
+    if (authKind.startsWith("k") || authKind === "clé" || authKind === "cle") {
+      entry.privateKeyPath = await ask(rl, t("prompt.keyPath"), "~/.ssh/id_ed25519");
+      const passphrase = await askMasked(rl, t("prompt.passphrase"), i18n);
       if (nonEmpty(passphrase)) entry.passphrase = passphrase;
     } else {
-      entry.password = await askMasked(rl, "Password");
+      entry.password = await askMasked(rl, t("prompt.password"), i18n);
     }
-    const root = await ask(rl, "Root directory", "/");
+    const root = await ask(rl, t("prompt.root"), "/");
     if (nonEmpty(root)) entry.root = root;
-    const ro = (await ask(rl, "Read-only?", "n")).toLowerCase();
-    if (ro.startsWith("y")) entry.readOnly = true;
+    const ro = await ask(rl, t("prompt.readOnly"), t("answer.noLower"));
+    if (affirmative(ro)) entry.readOnly = true;
     servers[name] = entry;
     if (!first) first = name;
-    const more = (await ask(rl, "Add another server?", "N")).toLowerCase();
-    if (!more.startsWith("y")) break;
+    const more = await ask(rl, t("prompt.more"), t("answer.noUpper"));
+    if (!affirmative(more)) break;
   }
   return { config: { defaultServer: first, servers } };
 }
@@ -481,7 +483,9 @@ async function manualEntry(rl, W) {
 // auto-allowed). Must run on the config that will actually be USED (after any
 // merge), because grants mutate the entries in place. Returns the number of
 // servers the user explicitly allowed.
-async function reviewInsecureServers(config, rl, W) {
+export async function reviewInsecureServers(config, rl, W, i18n = createI18n()) {
+  const { t } = i18n;
+  const label = (reason) => t(reason === "plain-ftp" ? "security.ftpLabel" : "security.tlsLabel");
   const entries = Object.entries((config && config.servers) || {});
   const insecure = [];
   const allowed = [];
@@ -493,27 +497,27 @@ async function reviewInsecureServers(config, rl, W) {
   }
   if (allowed.length > 0) {
     W("");
-    W('⚠ SECURITY WARNING — insecure transports explicitly allowed ("allowInsecure": true):');
+    W(t("security.allowedHeader"));
     for (const { name, reason } of allowed) {
-      W(`  - ${name}: ${insecureLabel(reason)} — prefer switching to sftp`);
+      W(t("security.prefer", { name, label: label(reason) }));
     }
   }
   if (insecure.length === 0) return 0;
   W("");
-  W("⚠ SECURITY WARNING — insecure server transport(s) in this config:");
+  W(t("security.insecureHeader"));
   for (const { name, reason } of insecure) {
-    W(`  - ${name}: ${insecureLabel(reason)}`);
+    W(`  - ${name}: ${label(reason)}`);
   }
-  W("  Credentials and files on these connections can be intercepted on the network,");
-  W("  so they are REFUSED by default. Prefer switching them to sftp (or verified ftps).");
+  W(t("security.intercepted"));
+  W(t("security.refusedDefault"));
   if (!rl) {
-    W('  To accept the risk for a server anyway, set "allowInsecure": true on it in the config file.');
+    W(t("security.acceptHint"));
     return 0;
   }
   let granted = 0;
   for (const { name, srv } of insecure) {
     const a = (
-      await ask(rl, `  Allow INSECURE connections to "${name}" anyway? Type "insecure" to accept the risk`, "no")
+      await ask(rl, t("security.confirm", { name }), t("answer.noWord"))
     ).toLowerCase();
     if (a === "insecure") {
       srv.allowInsecure = true;
@@ -525,23 +529,17 @@ async function reviewInsecureServers(config, rl, W) {
 
 // ---- setup -----------------------------------------------------------------
 
-const BANNER = [
-  "",
-  "ftp-deploy-mcp — setup",
-  "==========================",
-  "",
-];
-
-export async function runSetup(argv) {
+export async function runSetup(argv, i18n = createI18n()) {
+  const { t } = i18n;
   const opts = parseSetupArgs(argv);
   const redactor = createRedactor();
   const W = (s = "") => process.stdout.write(`${redactor.strictText(s)}\n`);
   const E = (s = "") => process.stderr.write(`${redactor.strictText(s)}\n`);
 
-  for (const line of BANNER) W(line);
+  for (const line of ["", t("setup.banner"), "==========================", ""]) W(line);
 
   if (nodeMajor() < 22) {
-    E(`Node.js >= 22 is required (found ${process.version}). Please upgrade Node and retry.`);
+    E(t("setup.node", { version: process.version }));
     return 1;
   }
 
@@ -559,7 +557,7 @@ export async function runSetup(argv) {
     : null;
   if (rl) {
     rl.on("SIGINT", () => {
-      W("\nAborted.");
+      W(t("setup.aborted"));
       rl.close();
       process.exit(130);
     });
@@ -571,32 +569,32 @@ export async function runSetup(argv) {
     let keptPath = null; // path of an existing config we keep as-is
 
     if (opts.fromFilezillaGiven) {
-      const imp = importFileZilla(opts.fromFilezilla, ctx);
+      const imp = importFileZilla(opts.fromFilezilla, ctx, i18n);
       if (imp.error) {
-        E(`Error: ${imp.error}`);
+        E(t("common.error", { error: imp.error }));
         return 1;
       }
       produced = imp;
-      for (const w of imp.warnings || []) E(`Warning: ${w}`);
-      E(
-        "Warning: any imported plaintext passwords are stored in the config file — keep it out of version control and restrict its permissions."
-      );
+      redactor.add(imp.config);
+      for (const w of imp.warnings || []) E(t("common.warning", { warning: w }));
+      E(t("setup.importWarning"));
     } else {
       const existing = findExistingConfig(ctx, isolated, configDest);
       if (existing) {
-        W(`Found ${Object.keys(existing.config.servers).length} server(s) at ${existing.path}`);
+        W(t("setup.found", { count: Object.keys(existing.config.servers).length, path: existing.path }));
         if (interactive) {
-          const choice = (await ask(rl, "(K)eep / (A)dd a server / (R)e-import from FileZilla", "K")).toLowerCase();
+          const choice = (await ask(rl, t("prompt.existing"), t("answer.keep"))).toLowerCase();
           if (choice.startsWith("a")) {
-            produced = await manualEntry(rl, W);
+            produced = await manualEntry(rl, W, i18n);
           } else if (choice.startsWith("r")) {
-            const imp = importFileZilla(null, ctx);
+            const imp = importFileZilla(null, ctx, i18n);
             if (imp.error) {
-              E(`Error: ${imp.error} — keeping the existing config.`);
+              E(t("setup.keepError", { error: imp.error }));
               keptPath = existing.path;
             } else {
               produced = imp;
-              for (const w of imp.warnings || []) E(`Warning: ${w}`);
+              redactor.add(imp.config);
+              for (const w of imp.warnings || []) E(t("common.warning", { warning: w }));
             }
           } else {
             keptPath = existing.path;
@@ -607,29 +605,28 @@ export async function runSetup(argv) {
       } else if (interactive) {
         const fzDefault = firstExistingFile(fileZillaDefaultPaths(ctx));
         if (fzDefault) {
-          const yn = (await ask(rl, `Import your FileZilla sites from ${fzDefault}?`, "Y")).toLowerCase();
-          if (!yn.startsWith("n")) {
-            const imp = importFileZilla(fzDefault, ctx);
+          const yn = await ask(rl, t("prompt.import", { path: fzDefault }), t("answer.yesUpper"));
+          if (!negative(yn)) {
+            const imp = importFileZilla(fzDefault, ctx, i18n);
             if (imp.error) {
-              E(`Error: ${imp.error}`);
-              produced = await manualEntry(rl, W);
+              E(t("common.error", { error: imp.error }));
+              produced = await manualEntry(rl, W, i18n);
             } else {
               produced = imp;
-              for (const w of imp.warnings || []) E(`Warning: ${w}`);
-              E(
-                "Warning: imported plaintext passwords are stored in the config file — keep it out of version control and restrict its permissions."
-              );
+              redactor.add(imp.config);
+              for (const w of imp.warnings || []) E(t("common.warning", { warning: w }));
+              E(t("setup.importWarningInteractive"));
             }
           } else {
-            produced = await manualEntry(rl, W);
+            produced = await manualEntry(rl, W, i18n);
           }
         } else {
-          produced = await manualEntry(rl, W);
+          produced = await manualEntry(rl, W, i18n);
         }
       } else {
         // Non-interactive with no source at all.
-        E("No existing configuration was found and no --from-filezilla was given.");
-        E("Re-run interactively, or pass --from-filezilla [path], or create a config first.");
+        E(t("setup.noSource"));
+        E(t("setup.sourceHint"));
         return 2;
       }
     }
@@ -646,16 +643,16 @@ export async function runSetup(argv) {
       effectiveConfig = wres.finalConfig;
       configPathForEntry = configDest;
       for (const name of wres.skipped) {
-        W(`Note: server "${name}" already exists in ${configDest} — kept the existing entry.`);
+        W(t("setup.keptServer", { name, path: configDest }));
       }
-      W(opts.dryRun ? `Would write config to ${configDest}` : `Config written to ${configDest}`);
+      W(t(opts.dryRun ? "setup.wouldWrite" : "setup.wrote", { path: configDest }));
     } else {
       keptPath = keptPath || configDest;
       const raw = safeRead(keptPath);
       effectiveConfig = raw ? safeParse(raw) || { servers: {} } : { servers: {} };
       redactor.add(effectiveConfig);
       configPathForEntry = keptPath;
-      W(`Using existing config at ${keptPath}`);
+      W(t("setup.using", { path: keptPath }));
     }
 
     // Loudly review insecure transports on the config that will actually be
@@ -665,7 +662,8 @@ export async function runSetup(argv) {
     const granted = await reviewInsecureServers(
       effectiveConfig,
       interactive && !opts.dryRun ? rl : null,
-      W
+      W,
+      i18n
     );
     if (granted > 0 && !opts.dryRun) {
       atomicWriteFileSync(configPathForEntry, JSON.stringify(effectiveConfig, null, 2) + "\n");
@@ -673,33 +671,33 @@ export async function runSetup(argv) {
 
     const isDefaultDest = path.resolve(configPathForEntry) === path.resolve(defaultDest);
     const envPath = isDefaultDest ? null : forwardSlash(configPathForEntry);
-    const entry = buildEntry({ absIndexJs, configPath: envPath });
+    const entry = buildEntry({ absIndexJs, configPath: envPath, locale: i18n.locale });
 
     // --- Step 4: connection tests -------------------------------------------
     if (!opts.skipTest && !opts.dryRun) {
-      await runConnectionTests(effectiveConfig.servers, W);
+      await runConnectionTests(effectiveConfig.servers, W, i18n);
     }
 
     // --- Step 5: clients -----------------------------------------------------
     W("");
-    W("MCP clients:");
+    W(t("setup.clients"));
     const clients = getClients(ctx);
     const fileClients = clients.filter((c) => c.kind === "file");
     for (const c of fileClients) {
-      W(`  ${c.detected ? "[detected]" : "[not found]"} ${c.name} — ${c.targets.join(", ")}`);
+      W(`  ${t(c.detected ? "setup.detected" : "setup.notFound")} ${c.name} — ${c.targets.join(", ")}`);
     }
 
     let selected;
     if (interactive) {
       const detected = fileClients.filter((c) => c.detected);
-      const yn = (await ask(rl, "Configure all detected clients?", "Y")).toLowerCase();
-      if (!yn.startsWith("n")) {
+      const yn = await ask(rl, t("prompt.allClients"), t("answer.yesUpper"));
+      if (!negative(yn)) {
         selected = detected;
       } else {
         selected = [];
         for (const c of detected) {
-          const a = (await ask(rl, `Configure ${c.name}?`, "y")).toLowerCase();
-          if (a.startsWith("y")) selected.push(c);
+          const a = await ask(rl, t("prompt.client", { name: c.name }), t("answer.yesLower"));
+          if (affirmative(a)) selected.push(c);
         }
       }
     } else {
@@ -707,7 +705,7 @@ export async function runSetup(argv) {
     }
 
     W("");
-    W(opts.dryRun ? "Planned client changes (dry-run, nothing written):" : "Configuring clients:");
+    W(t(opts.dryRun ? "setup.planned" : "setup.configuring"));
     const forceWrite = opts.force === true;
     const manualNeeded = [];
     let configuredCount = 0;
@@ -717,49 +715,47 @@ export async function runSetup(argv) {
         let res = results[i];
         // Interactive: offer to overwrite a differing entry.
         if (res.status === "skipped-different" && interactive && !opts.dryRun) {
-          const a = (await ask(rl, `Overwrite existing ftp entry for ${c.name}?`, "N")).toLowerCase();
-          if (a.startsWith("y")) {
+          const a = await ask(rl, t("prompt.overwrite", { name: c.name }), t("answer.noUpper"));
+          if (affirmative(a)) {
             res = mergeConfigFile(res.path, entry, { force: true });
           }
         }
-        const wantsSnippet = renderResult(W, c, res);
+        const wantsSnippet = renderResult(W, c, res, i18n);
         if (res.status === "created" || res.status === "updated") configuredCount++;
         if (wantsSnippet) manualNeeded.push(c);
       }
     }
-    if (selected.length === 0) W("  (no clients selected)");
+    if (selected.length === 0) W(t("setup.noClients"));
 
     // Manual snippets for clients we could not safely write.
     for (const c of manualNeeded) {
       W("");
-      W(`Add this to ${c.name} manually:`);
+      W(t("setup.manual", { name: c.name }));
       W(manualSnippet(entry));
     }
 
     // --- Trae: always print the paste-ready block ---------------------------
     W("");
-    W("Trae (UI-managed — no config file to write):");
-    W(
-      "  Trae → AI chat panel → Settings/gear → MCP → Add → Configure Manually → paste the JSON below → Confirm"
-    );
+    W(t("setup.trae"));
+    W(t("setup.traeSteps"));
     W(manualSnippet(entry));
     if (!isolated && !opts.dryRun) {
       if (copyToClipboard(manualSnippet(entry), ctx.platform)) {
-        W("  (copied to your clipboard)");
+        W(t("setup.clipboard"));
       }
     }
 
     // --- Step 6: summary -----------------------------------------------------
     const serverNames = Object.keys(effectiveConfig.servers || {});
     W("");
-    W("Summary");
+    W(t("setup.summary"));
     W("-------");
-    W(`  Config:  ${configPathForEntry}`);
-    W(`  Servers: ${serverNames.length ? serverNames.join(", ") : "(none)"}`);
-    W(`  Clients: ${configuredCount} configured, ${selected.length - configuredCount} unchanged/skipped`);
+    W(t("setup.summaryConfig", { path: configPathForEntry }));
+    W(t("setup.summaryServers", { servers: serverNames.length ? serverNames.join(", ") : t("common.none") }));
+    W(t("setup.summaryClients", { configured: configuredCount, unchanged: selected.length - configuredCount }));
     W("");
-    W("Restart your IDE(s), then ask your agent e.g. « Liste mes serveurs FTP ».");
-    W("Run `npm run doctor` (or `node src/index.js doctor`) any time to diagnose.");
+    W(t("setup.restart"));
+    W(t("setup.doctorHint"));
     return 0;
   } catch (err) {
     throw redactor.error(err);
@@ -778,7 +774,8 @@ function safeParse(raw) {
 
 // ---- doctor ----------------------------------------------------------------
 
-export async function runDoctor(argv) {
+export async function runDoctor(argv, i18n = createI18n()) {
+  const { t } = i18n;
   const opts = parseSetupArgs(argv);
   const redactor = createRedactor();
   const W = (s = "") => process.stdout.write(`${redactor.strictText(s)}\n`);
@@ -788,45 +785,42 @@ export async function runDoctor(argv) {
   const ctx = buildCtx(home, isolated);
   const absIndexJs = getAbsIndexJs();
 
-  W("ftp-deploy-mcp — doctor");
+  W(t("doctor.banner"));
   W(`  Node:      ${process.version}`);
-  W(`  Install:   ${absIndexJs}`);
+  W(t("doctor.install", { path: absIndexJs }));
   W("");
 
   // Config discovery (respect --home isolation).
   const candidates = isolated ? [path.join(home, ".ftp-mcp", "servers.json")] : configCandidates();
   const winner = firstExistingFile(candidates);
   if (winner) {
-    W(`Config: ${winner}`);
+    W(t("doctor.config", { path: winner }));
     const parsed = safeParse(safeRead(winner) || "");
     if (parsed && parsed.servers && typeof parsed.servers === "object") {
       redactor.add(parsed);
       const names = Object.keys(parsed.servers);
-      W(`  ${names.length} server(s):`);
+      W(t("doctor.servers", { count: names.length }));
       for (const name of names) {
         const s = parsed.servers[name];
         const proto = s.protocol || "?";
         const port = s.port ?? (proto === "sftp" ? 22 : s.implicitTLS ? 990 : 21);
         const root = nonEmpty(s.root) ? s.root : "/";
-        const ro = s.readOnly === true ? "read-only" : "read-write";
-        const auth = nonEmpty(s.privateKeyPath) ? "key" : nonEmpty(s.password) ? "password" : "none";
+        const ro = t(s.readOnly === true ? "doctor.readOnly" : "doctor.readWrite");
+        const auth = t(nonEmpty(s.privateKeyPath) ? "doctor.key" : nonEmpty(s.password) ? "doctor.password" : "doctor.none");
         W(`    - ${name}: ${proto}://${s.host}:${port}  root=${root}  ${ro}  auth=${auth}`);
         const normalized = normalizeServer(name, s);
         const insecure = insecureTransport(normalized);
         if (insecure) {
-          W(
-            `        ⚠ INSECURE: ${insecureLabel(insecure)} — ${
-              s.allowInsecure === true
-                ? 'explicitly allowed ("allowInsecure": true); prefer sftp'
-                : 'connections are REFUSED (switch to sftp, or set "allowInsecure": true to accept the risk)'
-            }`
-          );
+          W(t("doctor.insecure", {
+            label: t(insecure === "plain-ftp" ? "security.ftpLabel" : "security.tlsLabel"),
+            policy: t(s.allowInsecure === true ? "doctor.insecureAllowed" : "doctor.insecureRefused"),
+          }));
         }
         if (unsafeRemoteRoot(normalized)) {
           W(
             s.allowUnsafeRemoteRoot === true
-              ? `        ⚠ UNSAFE ROOT explicit override: ${unsafeRemoteRootWarningText(normalized)}`
-              : `        ⚠ UNSAFE ROOT REFUSED: ${unsafeRemoteRootBlockedMessage(name, normalized.root)}`
+              ? t("doctor.rootOverride", { message: unsafeRemoteRootWarningText(normalized) })
+              : t("doctor.rootRefused", { message: unsafeRemoteRootBlockedMessage(name, normalized.root) })
           );
         }
         const invalidHostKey =
@@ -834,59 +828,59 @@ export async function runDoctor(argv) {
           normalized.hostKeySha256.length > 0 &&
           normalized.hostKeySha256.some((pin) => !isValidHostKeySha256(pin));
         if (invalidHostKey) {
-          W(`        ⚠ HOST KEY INVALID: server "${name}" has an invalid "hostKeySha256" pin; connections are REFUSED`);
+          W(t("doctor.keyInvalid", { name }));
         } else if (normalized.protocol === "sftp" && normalized.hostKeySha256.length === 0) {
           W(
             s.allowUnknownHostKey === true
-              ? `        ⚠ HOST KEY explicit override: ${unknownHostKeyWarningText(normalized)}`
-              : `        ⚠ HOST KEY REFUSED: ${unknownHostKeyBlockedMessage(name)}`
+              ? t("doctor.keyOverride", { message: unknownHostKeyWarningText(normalized) })
+              : t("doctor.keyRefused", { message: unknownHostKeyBlockedMessage(name) })
           );
         }
         for (const varName of unresolvedEnvVars(s)) {
-          W(`        ! env var ${varName} not set!`);
+          W(t("doctor.envMissing", { name: varName }));
         }
       }
     } else {
-      W("  (no servers object)");
+      W(t("doctor.noServers"));
     }
   } else {
-    W("Config: none found. Searched:");
+    W(t("doctor.noConfig"));
     for (const c of candidates) W(`  - ${c}`);
   }
   W("");
 
   // Per-client status.
-  W(`Clients (home: ${home}):`);
+  W(t("doctor.clients", { home }));
   for (const c of getClients(ctx)) {
     if (c.kind === "manual") {
-      W(`  ${c.name}: manual (UI) — run setup to reprint the snippet`);
+      W(t("doctor.manual", { name: c.name }));
       continue;
     }
-    W(`  ${c.name}: ${c.detected ? "detected" : "not detected"}`);
-    for (const t of c.targets) {
-      if (!fs.existsSync(t)) {
-        W(`      ${t}: no config file`);
+    W(`  ${c.name}: ${t(c.detected ? "doctor.detected" : "doctor.notDetected")}`);
+    for (const target of c.targets) {
+      if (!fs.existsSync(target)) {
+        W(t("doctor.noFile", { path: target }));
         continue;
       }
-      const obj = safeParse(safeRead(t) || "");
+      const obj = safeParse(safeRead(target) || "");
       if (!obj) {
-        W(`      ${t}: exists but is not valid JSON`);
+        W(t("doctor.invalidFile", { path: target }));
         continue;
       }
       const e = obj.mcpServers && obj.mcpServers.ftp;
       if (!e) {
-        W(`      ${t}: no ftp entry`);
+        W(t("doctor.noEntry", { path: target }));
         continue;
       }
       const a1 = e.args && e.args[1];
       if (a1 && forwardSlash(a1) === forwardSlash(absIndexJs)) {
-        W(`      ${t}: configured → this install`);
+        W(t("doctor.thisInstall", { path: target }));
       } else {
-        W(`      ${t}: configured but points to a different install: ${a1}`);
+        W(t("doctor.otherInstall", { path: target, target: a1 }));
       }
     }
   }
   W("");
-  W("Run `node src/index.js setup` to (re)configure.");
+  W(t("doctor.setupHint"));
   return 0;
 }

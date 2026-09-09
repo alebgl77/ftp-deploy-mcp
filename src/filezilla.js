@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { atomicWriteFileSync } from "./atomic-write.js";
 import { createRedactor } from "./redact.js";
+import { createI18n } from "./i18n.js";
 
 // Default sitemanager.xml locations per platform.
 export function defaultSiteManagerPaths() {
@@ -113,7 +114,7 @@ export function sanitizeKey(name) {
 }
 
 // Parse a sitemanager.xml string. Returns { defaultServer, servers, warnings }.
-export function parseSiteManager(xml) {
+export function parseSiteManager(xml, { t } = createI18n()) {
   const warnings = [];
   const servers = {};
   const usedKeys = new Set();
@@ -127,13 +128,13 @@ export function parseSiteManager(xml) {
     const protocolRaw = tagValue(block, "Protocol");
     const protocol = mapProtocol(protocolRaw ?? "0");
     if (!protocol) {
-      warnings.push(`skipping "${rawName}": unsupported FileZilla protocol "${protocolRaw}"`);
+      warnings.push(t("filezilla.unsupported", { name: rawName, protocol: protocolRaw }));
       continue;
     }
     const implicitTLS = protocolRaw === "3"; // FTPS (implicit); Protocol 4 (FTPES) stays plain "ftps"
     const host = tagValue(block, "Host");
     if (!host) {
-      warnings.push(`skipping "${rawName}": no <Host>`);
+      warnings.push(t("filezilla.noHost", { name: rawName }));
       continue;
     }
     const user = tagValue(block, "User") || "anonymous";
@@ -165,18 +166,13 @@ export function parseSiteManager(xml) {
     } else {
       const placeholder = `\${ENV:${key.toUpperCase().replace(/-/g, "_")}_PASSWORD}`;
       entry.password = placeholder;
-      warnings.push(
-        `"${rawName}": no stored password — set "${entry.password}" via an environment variable`
-      );
+      warnings.push(t("filezilla.noPassword", { name: rawName, placeholder: entry.password }));
     }
 
     if (remoteDir) entry.root = remoteDir;
 
     if (protocol === "ftp") {
-      warnings.push(
-        `"${rawName}": plain FTP is NOT encrypted — connections will be refused until you ` +
-          `switch this server to sftp/ftps or explicitly set "allowInsecure": true on it`
-      );
+      warnings.push(t("filezilla.insecure", { name: rawName }));
     }
 
     servers[key] = entry;
@@ -196,7 +192,8 @@ export function buildConfig(parsed) {
 
 // CLI entry for `import-filezilla`. `opts` = { file, out, force }.
 // `log` is where diagnostics go (default console.error); returns an exit code.
-export function runImport(opts, log = console.error) {
+export function runImport(opts, log = console.error, i18n = createI18n()) {
+  const { t } = i18n;
   const redactor = createRedactor();
   const L = (message) => log(redactor.strictText(message));
   let file = opts.file;
@@ -210,9 +207,9 @@ export function runImport(opts, log = console.error) {
       }
     });
     if (!file) {
-      L("Error: no sitemanager.xml found. Searched:");
+      L(t("filezilla.notFound"));
       for (const p of candidates) L(`  - ${p}`);
-      L("Pass --file <path> to point at your FileZilla sitemanager.xml.");
+      L(t("filezilla.fileHint"));
       return 1;
     }
   }
@@ -221,46 +218,42 @@ export function runImport(opts, log = console.error) {
   try {
     xml = fs.readFileSync(file, "utf8");
   } catch (err) {
-    L(`Error: cannot read ${file}: ${err.message}`);
+    L(t("filezilla.readError", { file, error: err.message }));
     return 1;
   }
 
-  const parsed = parseSiteManager(xml);
+  const parsed = parseSiteManager(xml, i18n);
   const config = buildConfig(parsed);
   redactor.add(config);
-  for (const w of parsed.warnings) L(`Warning: ${w}`);
+  for (const w of parsed.warnings) L(t("common.warning", { warning: w }));
   const serverCount = Object.keys(parsed.servers).length;
   if (serverCount === 0) {
-    L(`Error: no importable servers found in ${file}.`);
+    L(t("filezilla.none", { file }));
     return 1;
   }
-  L(`Imported ${serverCount} server(s) from ${file}.`);
+  L(t("filezilla.imported", { count: serverCount, file }));
 
   const json = JSON.stringify(config, null, 2) + "\n";
 
   if (opts.out) {
     const outPath = path.resolve(opts.out);
     if (fs.existsSync(outPath) && !opts.force) {
-      L(`Error: ${outPath} already exists. Pass --force to overwrite.`);
+      L(t("filezilla.exists", { path: outPath }));
       return 1;
     }
     try {
       atomicWriteFileSync(outPath, json, { encoding: "utf8" });
     } catch (err) {
-      L(`Error: cannot write ${outPath}: ${err.message}`);
+      L(t("filezilla.writeError", { path: outPath, error: err.message }));
       return 1;
     }
-    L(`Wrote ${outPath}. Review it, then point your MCP client at this server.`);
-    L(
-      "Warning: the generated config contains plaintext passwords - keep it out of version control (.gitignore it) and restrict file permissions (e.g. chmod 600)."
-    );
+    L(t("filezilla.wrote", { path: outPath }));
+    L(t("filezilla.plaintextWarning"));
     return 0;
   }
 
   // No --out: print JSON to stdout (this CLI mode never speaks JSON-RPC).
   process.stdout.write(json);
-  L(
-    "Warning: the generated config contains plaintext passwords - keep it out of version control (.gitignore it) and restrict file permissions (e.g. chmod 600)."
-  );
+  L(t("filezilla.plaintextWarning"));
   return 0;
 }

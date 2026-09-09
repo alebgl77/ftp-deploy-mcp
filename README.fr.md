@@ -12,6 +12,9 @@ déployer des fichiers sur vos propres serveurs FTP, FTPS et SFTP.
 
 *English version → [README.md](./README.md)*
 
+Langue de la CLI : anglais par défaut ; utilisez `--lang fr` ou `FTP_MCP_LANG=fr`.
+[Périmètre et priorité des langues](./docs/LANGUAGES.fr.md).
+
 [![CI](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml)
 [![Licence : MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Node >=22](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](./package.json)
