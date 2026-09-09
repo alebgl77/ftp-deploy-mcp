@@ -2,6 +2,7 @@ export default {
   "error.CONFIG_REQUIRED": "No usable server configuration is loaded. Configure a server and retry.",
   "error.CONFIG_INVALID": "The server configuration is invalid: {detail}",
   "error.INVALID_ARGUMENT": "Invalid arguments for this tool. Check its input schema.",
+  "error.CAPACITY_LIMIT": "The server already has 64 admitted tool calls. Retry after an active call finishes.",
   "error.TRANSPORT_ERROR": "The transport operation failed: {detail}",
   "error.INTERNAL_ERROR": "The operation failed unexpectedly. Inspect the target before continuing.",
   "error.OUTPUT_LIMIT": "The safely redacted result exceeded the 25000-byte output limit. Inspect the target and use a smaller request.",

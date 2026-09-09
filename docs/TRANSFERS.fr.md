@@ -123,18 +123,13 @@ Les verrous protègent un seul processus Node.js. Ils ne coordonnent pas les
 processus distincts, les écritures distantes ou les autres programmes partageant
 un hôte. La validation ne prétend pas protéger contre les courses malveillantes
 sur les chemins ou les sources par le même utilisateur du système d'exploitation.
-Les quotas ne bornent pas encore l'énumération complète des dossiers locaux et
-le motif réservé n'empêche pas un autre outil système de lire un temporaire.
-La sélection parcourt les dossiers de façon récursive et synchrone, sans point
-de contrôle d'annulation par dossier ni limite d'entrées visitées. Les
-sous-arbres exclus sont élagués lorsque les motifs existants le permettent,
-mais de nombreux dossiers vides ou entrées non sélectionnées peuvent encore
-exiger un travail de scan non borné par le quota de fichiers sélectionnés.
-Une demande déjà annulée est refusée avant le scan. Pendant celui-ci, le
-blocage de la boucle événementielle peut retarder le minuteur et les
-notifications d'annulation ; le délai écoulé est vérifié au prochain point
-de contrôle, avant connexion ou retour d'un résultat de simulation. Le délai
-configuré ne constitue donc pas une borne temporelle stricte de la découverte.
+Les fichiers sélectionnés et les entrées visitées ont des quotas distincts. Le
+parcours local asynchrone borne les entrées et la profondeur ; les fermetures
+restent attendues après annulation. Le processus admet au plus 64 appels et
+conserve leur place jusqu’à leur terminaison réelle, nettoyage compris. Voir les
+[limites de ressources](./RESOURCE-BOUNDS.fr.md). Ces bornes ne limitent pas le
+tampon distant sous-jacent de `list()`, et le nom réservé n’empêche pas un autre
+outil système de lire un temporaire.
 
 En interne, SFTP conserve un handle exclusif pendant le FSTAT initial, le
 FCHMOD restrictif, son FSTAT de confirmation et les WRITE séquentiels bornés ;

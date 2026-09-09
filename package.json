@@ -22,13 +22,14 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js && node --test test/error-contract.js test/zero-cancellation.js",
+    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js && node --test test/error-contract.js test/zero-cancellation.js && node --test test/resource-bounds.js",
     "test:transports": "node --test test/transport-qualification.js",
     "setup": "node src/index.js setup",
     "doctor": "node src/index.js doctor",
     "test:contract": "node --test test/error-contract.js test/zero-cancellation.js",
     "eval:scripted": "node scripts/evaluation/run.mjs --repo . --locale both --verify-runtime-locale true --ci true",
-    "test:eval-runner": "node --test test/evaluation-runner.mjs"
+    "test:eval-runner": "node --test test/evaluation-runner.mjs",
+    "test:bounds": "node --test test/resource-bounds.js"
   },
   "files": [
     "src",

@@ -107,17 +107,12 @@ unrelated file under the new root.
 Locks protect only one Node.js process. They do not coordinate separate
 processes, remote writers or other programs sharing a host. Validation does not
 claim protection against malicious same-OS-user path or source-file races.
-Transfer quotas do not yet bound the complete local directory enumeration, and
-the reserved-name rule does not prevent another OS tool from reading a temporary.
-Selection uses synchronous recursive directory reads and has no per-directory
-cancellation checkpoint or visited-entry limit. Excluded subtrees are pruned
-where the existing patterns permit it, but many empty directories or unmatched
-entries can still consume unbounded scan work relative to the selected-file
-quota. A pre-aborted request is refused before scanning. During a scan, timer
-and cancellation notifications can be delayed by the blocked event loop;
-the elapsed deadline is checked at the next operation checkpoint, before
-connection or returning a dry-run result. The configured timeout is therefore
-not a hard wall-clock bound on directory discovery.
+Selected files and visited entries have separate quotas. Asynchronous local
+scanning bounds entries and depth, and awaits directory close after cancellation.
+The process admits at most 64 calls and retains their slots until actual worker
+and cleanup settlement. See [resource limits](./RESOURCE-BOUNDS.md). These bounds
+do not limit the underlying remote `list()` buffer, and the reserved basename
+does not prevent another OS tool from reading a temporary.
 
 Internally, SFTP keeps an exclusive handle through initial FSTAT, restrictive
 FCHMOD, confirming FSTAT and sequential bounded WRITE calls; CLOSE remains

@@ -151,8 +151,11 @@ spéciaux ni les relations de liens physiques.
 Les limites par serveur valent par défaut 256 Mio par fichier, 10000 fichiers
 sélectionnés et 1 Gio cumulé d'octets sources par déploiement. Les octets réels
 des flux sont contrôlés ; les tentatives échouées conservent leur réservation.
-Ces quotas ne bornent ni le parcours synchrone complet des dossiers ni son
-temps réel strict. Le nom réservé `.ftp-mcp-*.tmp` est exclu du déploiement,
+Des quotas distincts de parcours asynchrone valent par défaut 100000 entrées
+visitées et une profondeur de dossiers de 64. Au plus 64 appels admis conservent
+leur place pendant le nettoyage. Ces politiques ne bornent ni le temps réel
+strict d’un appel au système de fichiers ni le tampon distant sous-jacent de
+`list()` ; voir les [limites de ressources](./RESOURCE-BOUNDS.fr.md). Le nom réservé `.ftp-mcp-*.tmp` est exclu du déploiement,
 y compris lorsqu'un motif `include` explicite le sélectionne. Voir
 [TRANSFERS.fr.md](./TRANSFERS.fr.md) pour les bornes de configuration, le
 nettoyage et les garanties par transport. Les relectures augmentent le trafic.

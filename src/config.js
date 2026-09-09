@@ -12,6 +12,7 @@ import path from "node:path";
 import { normalizeRoot } from "./remote-path.js";
 import { DEFAULT_OPERATION_TIMEOUT_MS } from "./operations.js";
 import { TRANSFER_LIMITS } from "./transfers.js";
+import { SCAN_LIMITS } from "./scanner.js";
 import { appError, isAppError, messageList, messageSpec, renderError, renderMessage, protectError } from "./errors.js";
 import { createI18n } from "./i18n.js";
 import { createRedactor } from "./redact.js";
@@ -123,7 +124,7 @@ function validateServer(name, s) {
     return appError("CONFIG_INVALID", "runtime.config.server.timeout", { name });
   }
   const hasPassword = nonEmptyString(s.password);
-  for (const [field, limit] of Object.entries(TRANSFER_LIMITS)) {
+  for (const [field, limit] of Object.entries({ ...TRANSFER_LIMITS, ...SCAN_LIMITS })) {
     if (s[field] !== undefined && (!Number.isSafeInteger(s[field]) || s[field] <= 0 || s[field] > limit.maximum)) {
       return appError("CONFIG_INVALID", "runtime.config.server.transferLimit", { name, field, maximum: limit.maximum });
     }
@@ -215,6 +216,8 @@ export function normalizeServer(name, s) {
     maxTransferBytes: s.maxTransferBytes ?? TRANSFER_LIMITS.maxTransferBytes.default,
     maxDeployFiles: s.maxDeployFiles ?? TRANSFER_LIMITS.maxDeployFiles.default,
     maxDeployBytes: s.maxDeployBytes ?? TRANSFER_LIMITS.maxDeployBytes.default,
+    maxScanEntries: s.maxScanEntries ?? SCAN_LIMITS.maxScanEntries.default,
+    maxScanDepth: s.maxScanDepth ?? SCAN_LIMITS.maxScanDepth.default,
     user: s.user,
     password: nonEmptyString(s.password) ? s.password : undefined,
     privateKeyPath: nonEmptyString(s.privateKeyPath) ? expandHome(s.privateKeyPath) : undefined,

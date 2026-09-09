@@ -4,7 +4,8 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { CallToolRequestSchema, ListToolsRequestSchema, McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { createI18n } from "./i18n.js";
 import { createOperation } from "./operations.js";
-import { ERROR_CODES, NEXT_ACTIONS, appError, normalizeError, renderError } from "./errors.js";
+import { acquireAdmission } from "./admission.js";
+import { ERROR_CODES, NEXT_ACTIONS, appError, messageSpec, normalizeError, renderError } from "./errors.js";
 
 export const MAX_RESULT_BYTES = 25000;
 const counter = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
@@ -89,7 +90,8 @@ function nextAction(code, effects) {
   if (effects !== "none") return "inspect_target";
   if (["CONFIG_REQUIRED", "CONFIG_INVALID", "TRANSPORT_POLICY", "HOST_KEY_REJECTED", "REMOTE_ROOT_REJECTED", "READ_ONLY"].includes(code)) return "fix_config";
   if (["SERVER_REQUIRED", "SERVER_UNKNOWN"].includes(code)) return "select_server";
-  if (["INVALID_ARGUMENT", "PATH_REJECTED", "NOT_FOUND", "ALREADY_EXISTS", "TRANSFER_LIMIT"].includes(code)) return "fix_input";
+  if (["INVALID_ARGUMENT", "PATH_REJECTED", "NOT_FOUND", "ALREADY_EXISTS", "TRANSFER_LIMIT", "SCAN_LIMIT"].includes(code)) return "fix_input";
+  if (code === "CAPACITY_LIMIT") return "retry";
   if (code === "CANCELLED") return "none";
   return "contact_operator";
 }
@@ -179,14 +181,32 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
       if (!entry) throw new McpError(ErrorCode.InvalidParams, clean(i18n.t("error.unknownTool")));
       const id = randomUUID();
       let operation;
+      let release;
+      let workerStarted = false;
       try {
         const parsed = entry.input.safeParse(args === undefined ? {} : args);
         if (!parsed.success) return failure(appError("INVALID_ARGUMENT", "error.INVALID_ARGUMENT"), id);
-        operation = createOperation(extra, timeoutFor(parsed.data), { requestId: id, i18n });
-        const raw = await operation.run(() => entry.handler(parsed.data, operation));
+        const checkParent = () => {
+          if (extra.signal?.aborted) throw appError("CANCELLED", "error.CANCELLED", { id, detail: messageSpec("error.uncertain") });
+        };
+        checkParent();
+        release = acquireAdmission();
+        if (!release) return failure(appError("CAPACITY_LIMIT", "error.CAPACITY_LIMIT"), id);
+        const timeout = await timeoutFor(parsed.data);
+        checkParent();
+        operation = createOperation(extra, timeout, { requestId: id, i18n });
+        const worker = operation.run(() => entry.handler(parsed.data, operation));
+        workerStarted = true;
+        // Keep the transport's private worker observer intact. Settlement is
+        // independent of both response rendering and the outward abort race.
+        void operation.settlement.then(release);
+        const raw = await worker;
         return finish(raw, entry, id, operation);
       } catch (error) {
         return failure(error, id, operation?.snapshot(), errorNotices(args).slice(0, 3));
+      } finally {
+        // Preparation (including a rejected async preparation) has settled.
+        if (!workerStarted) release?.();
       }
     },
     install(server) {

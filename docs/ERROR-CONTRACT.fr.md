@@ -40,7 +40,13 @@ Les valeurs acceptées pour `code` sont :
 `INVALID_ARGUMENT`, `READ_ONLY`, `TRANSPORT_POLICY`, `HOST_KEY_REJECTED`,
 `REMOTE_ROOT_REJECTED`, `PATH_REJECTED`, `NOT_FOUND`, `ALREADY_EXISTS`,
 `TRANSFER_LIMIT`, `TRANSFER_VERIFY`, `TARGET_CHANGED`, `CANCELLED`, `TIMEOUT`,
-`DEPLOY_PARTIAL`, `TRANSPORT_ERROR`, `OUTPUT_LIMIT`, `INTERNAL_ERROR`.
+`DEPLOY_PARTIAL`, `TRANSPORT_ERROR`, `OUTPUT_LIMIT`, `INTERNAL_ERROR`,
+`SCAN_LIMIT`, `CAPACITY_LIMIT`.
+
+`SCAN_LIMIT` refuse toute la sélection locale avant connexion, avec `effects:none`
+et `next_action:fix_input`. `CAPACITY_LIMIT` refuse l’admission avant préparation,
+avec `effects:none` et `next_action:retry`. Les deux conservent `retryable:false` ;
+voir les [limites de ressources](./RESOURCE-BOUNDS.fr.md).
 
 Les valeurs acceptées pour `next_action` sont `fix_input`, `fix_config`,
 `select_server`, `inspect_target`, `retry`, `contact_operator` et `none`.

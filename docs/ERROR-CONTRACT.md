@@ -39,7 +39,13 @@ The accepted `code` values are:
 `INVALID_ARGUMENT`, `READ_ONLY`, `TRANSPORT_POLICY`, `HOST_KEY_REJECTED`,
 `REMOTE_ROOT_REJECTED`, `PATH_REJECTED`, `NOT_FOUND`, `ALREADY_EXISTS`,
 `TRANSFER_LIMIT`, `TRANSFER_VERIFY`, `TARGET_CHANGED`, `CANCELLED`, `TIMEOUT`,
-`DEPLOY_PARTIAL`, `TRANSPORT_ERROR`, `OUTPUT_LIMIT`, `INTERNAL_ERROR`.
+`DEPLOY_PARTIAL`, `TRANSPORT_ERROR`, `OUTPUT_LIMIT`, `INTERNAL_ERROR`,
+`SCAN_LIMIT`, `CAPACITY_LIMIT`.
+
+`SCAN_LIMIT` refuses the complete local selection before connecting, with
+`effects:none` and `next_action:fix_input`. `CAPACITY_LIMIT` refuses admission
+before preparation, with `effects:none` and `next_action:retry`. Both keep
+`retryable:false`; see [resource limits](./RESOURCE-BOUNDS.md).
 
 The accepted `next_action` values are `fix_input`, `fix_config`,
 `select_server`, `inspect_target`, `retry`, `contact_operator`, and `none`.

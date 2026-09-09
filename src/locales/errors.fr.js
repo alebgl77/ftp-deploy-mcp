@@ -2,6 +2,7 @@ export default {
   "error.CONFIG_REQUIRED": "Aucune configuration serveur utilisable n’est chargée. Configurez un serveur puis réessayez.",
   "error.CONFIG_INVALID": "La configuration serveur est invalide : {detail}",
   "error.INVALID_ARGUMENT": "Arguments invalides pour cet outil. Vérifiez son schéma d’entrée.",
+  "error.CAPACITY_LIMIT": "Le serveur compte déjà 64 appels d’outil admis. Réessayez après la fin d’un appel actif.",
   "error.TRANSPORT_ERROR": "L’opération de transport a échoué : {detail}",
   "error.INTERNAL_ERROR": "L’opération a échoué de façon inattendue. Examinez la cible avant de poursuivre.",
   "error.OUTPUT_LIMIT": "Le résultat masqué dépasse la limite de sortie de 25000 octets. Examinez la cible et réduisez la requête.",

@@ -139,9 +139,11 @@ hard-link relationships are not preserved by these content checks.
 
 Per-server limits default to 256 MiB per file, 10000 selected deployment files,
 and 1 GiB cumulative deployment source bytes. Actual stream bytes are checked;
-failed attempts retain their budget reservation. These quotas do not bound
-the full synchronous directory scan or make its deadline a hard wall-clock
-limit. The reserved `.ftp-mcp-*.tmp` basename is excluded from deployment,
+failed attempts retain their budget reservation. Separate asynchronous scan
+quotas default to 100000 visited entries and directory depth 64. A maximum of
+64 admitted calls retains slots through worker cleanup. Neither policy makes
+a filesystem deadline a hard wall-clock limit or bounds the underlying remote
+`list()` buffer; see [resource limits](./RESOURCE-BOUNDS.md). The reserved `.ftp-mcp-*.tmp` basename is excluded from deployment,
 including explicit `include` matches. See [TRANSFERS.md](./TRANSFERS.md) for
 configuration bounds, cleanup behavior and transport-specific guarantees.
 Readback adds traffic. Server-dependent rename does not provide universal

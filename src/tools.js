@@ -8,9 +8,8 @@
 // Human-facing output uses the immutable locale selected at server startup.
 
 import { z } from "zod";
-import fs from "node:fs";
 import path from "node:path";
-import picomatch from "picomatch";
+import { selectDeployFiles } from "./scanner.js";
 
 import {
   resolveServer,
@@ -37,19 +36,6 @@ import * as ftpAdapter from "./adapters/ftp.js";
 import * as sftpAdapter from "./adapters/sftp.js";
 
 const posix = path.posix;
-
-const DEFAULT_EXCLUDES = [
-  "**/node_modules/**",
-  "**/.git/**",
-  ".env",
-  ".env.*",
-  "*.log",
-  ".DS_Store",
-  "Thumbs.db",
-  "ftp-servers.json",
-  ".ftp-mcp-*.tmp",
-  "**/.ftp-mcp/**",
-];
 
 const READ_DEFAULT_BYTES = 262144;
 const READ_MAX_BYTES = 1048576;
@@ -293,68 +279,6 @@ async function withServer(loaded, requestedServer, opts, run, connectAdapter) {
 }
 
 // ---- deploy helpers -------------------------------------------------------
-
-// picomatch's `basename` option is global to the whole compiled matcher: it
-// tests EVERY pattern's regex against only the basename of the input, even
-// patterns that contain a "/". So a single matcher can't mix slash-less
-// globs (".env", meant to match at any depth) with slash-anchored globs
-// ("**/node_modules/**", which already matches any depth via its leading
-// "**/") under one `{ basename: true }` call — that would make the
-// slash-anchored patterns test against a bare basename and never match.
-// Compile the two kinds separately and OR them: gitignore-like semantics
-// (slash-less patterns match at any depth; slash patterns match the full
-// relative path) without breaking directory pruning.
-function compileMatcher(globs) {
-  const list = Array.isArray(globs) ? globs : [];
-  const withSlash = list.filter((g) => g.includes("/"));
-  const withoutSlash = list.filter((g) => !g.includes("/"));
-  const matchSlash = withSlash.length ? picomatch(withSlash, { dot: true }) : null;
-  const matchBasename = withoutSlash.length ? picomatch(withoutSlash, { dot: true, basename: true }) : null;
-  return (rel) => Boolean((matchSlash && matchSlash(rel)) || (matchBasename && matchBasename(rel)));
-}
-
-function selectDeployFiles(localDirAbs, include, exclude) {
-  const excludeGlobs = [...DEFAULT_EXCLUDES, ...(Array.isArray(exclude) ? exclude : [])];
-  const isExcluded = compileMatcher(excludeGlobs);
-  const hasInclude = Array.isArray(include) && include.length > 0;
-  const isIncluded = hasInclude ? compileMatcher(include) : null;
-
-  // Prune whole directories whose subtree is excluded (e.g. node_modules/**),
-  // so we don't stat thousands of files we'll throw away.
-  const pruneDir = (relDir) => isExcluded(`${relDir}/__ftp_deploy_probe__`);
-
-  const files = [];
-  const walk = (absDir, relBase) => {
-    let dirents;
-    try {
-      dirents = fs.readdirSync(absDir, { withFileTypes: true });
-    } catch (err) {
-      throw appError("PATH_REJECTED", "runtime.tools.directoryReadFailed", { path: absDir, error: err.message }, { origin: "local" });
-    }
-    for (const d of dirents) {
-      if (d.isSymbolicLink()) continue; // never follow symlinks
-      const abs = path.join(absDir, d.name);
-      const rel = relBase ? `${relBase}/${d.name}` : d.name;
-      if (d.isDirectory()) {
-        if (pruneDir(rel)) continue;
-        walk(abs, rel);
-      } else if (d.isFile()) {
-        if (isExcluded(rel)) continue;
-        if (isIncluded && !isIncluded(rel)) continue;
-        let size = 0;
-        try {
-          size = fs.statSync(abs).size;
-        } catch {
-          /* leave size 0 */
-        }
-        files.push({ abs, rel, size });
-      }
-    }
-  };
-  walk(localDirAbs, "");
-  files.sort((a, b) => a.rel.localeCompare(b.rel));
-  return files;
-}
 
 function dryRunPolicyMessages(name, server, i18n) {
   const { t } = i18n;
@@ -831,7 +755,7 @@ export function registerTools(sdkServer, loaded, options = {}) {
       try {
         const source = resolveLocalSource(s, args.local_dir, "directory");
         const lexicalDir = path.resolve(s.localRoot, args.local_dir);
-        const files = selectDeployFiles(source.path, args.include, args.exclude);
+        const files = await selectDeployFiles(source.path, args.include, args.exclude, s, operation);
         const remoteBase = resolveRemote(s.root, args.remote_dir ?? "");
         let totalBytes = checkDeploySelection(files, s);
         if (!args.dry_run) operation.trackFiles(files.length);

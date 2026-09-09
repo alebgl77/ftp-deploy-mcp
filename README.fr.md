@@ -180,6 +180,8 @@ base64 sans remplissage.
 | `operationTimeoutMs` | tous | Délai d'un appel, attente et connexion comprises : 120000 ms par défaut. Entier de 100 à 3600000. Les délais natifs du transport restent actifs. |
 | `maxTransferBytes` | tous | Maximum d'octets réels par fichier : 268435456 (256 Mio) par défaut, maximum 1099511627776 (1 Tio). Entier positif représentable exactement. |
 | `maxDeployFiles` | tous | Maximum de fichiers sélectionnés par déploiement : 10000 par défaut, maximum 100000. Entier positif ; ne borne pas le parcours complet des dossiers. |
+| `maxScanEntries` | tous | Entrées locales visitées par déploiement, racine, exclusions et liens compris. Défaut 100000, maximum 1000000 ; entier positif sans perte. |
+| `maxScanDepth` | tous | Profondeur inclusive des dossiers sous la racine (niveau 0). Défaut 64, maximum 256 ; entier positif sans perte. |
 | `maxDeployBytes` | tous | Maximum cumulé d'octets sources par déploiement : 1073741824 (1 Gio) par défaut, maximum 1099511627776 (1 Tio). Les tentatives échouées conservent leur réservation. |
 | `implicitTLS` | FTPS | Active TLS implicite, normalement sur le port 990. |
 | `insecureTLS` | FTPS | Désactive la vérification du certificat. Exige `allowInsecure: true`. |
@@ -302,6 +304,11 @@ Les erreurs d’exécution renvoient `isError: true`, un texte traduit, un code,
 un UUID de requête, les effets observés et une indication de reprise sûre.
 Un outil inconnu reste une erreur de protocole. Voir le
 [contrat d’erreur](./docs/ERROR-CONTRACT.fr.md).
+
+Le processus admet au plus 64 appels d’outil, y compris ceux encore en nettoyage
+après annulation. Les appels supplémentaires renvoient `CAPACITY_LIMIT`. Le parcours
+local d’un déploiement est asynchrone et borné séparément ; les [limites de ressources](./docs/RESOURCE-BOUNDS.fr.md)
+décrivent le comptage exact, `SCAN_LIMIT` et les exclusions personnalisées corrigées.
 
 Tous les outils publient des annotations MCP sur leur caractère lecture seule,
 destructif, idempotent et ouvert sur l'extérieur. Ces annotations guident les

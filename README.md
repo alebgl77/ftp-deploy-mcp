@@ -176,6 +176,8 @@ entry is exactly `SHA256:` plus 43 characters of unpadded base64.
 | `operationTimeoutMs` | all | Tool deadline including queue and connection time, default 120000 ms. Integer from 100 to 3600000. Native transport timeouts also apply. |
 | `maxTransferBytes` | all | Maximum actual bytes per file, default 268435456 (256 MiB), maximum 1099511627776 (1 TiB). Positive safe integer. |
 | `maxDeployFiles` | all | Maximum selected files per deploy, default 10000, maximum 100000. Positive safe integer; does not bound the full directory scan. |
+| `maxScanEntries` | all | Visited local entries per deploy, including the root, excluded entries and links. Default 100000, maximum 1000000; positive safe integer. |
+| `maxScanDepth` | all | Inclusive directory depth below the root (depth 0). Default 64, maximum 256; positive safe integer. |
 | `maxDeployBytes` | all | Maximum cumulative source bytes per deploy, default 1073741824 (1 GiB), maximum 1099511627776 (1 TiB). Failed attempts retain their reservation. |
 | `implicitTLS` | FTPS | Uses implicit TLS, normally on port 990. |
 | `insecureTLS` | FTPS | Disables certificate verification. Requires `allowInsecure: true`. |
@@ -294,6 +296,11 @@ either its strict success shape or a strict `{error}` envelope. Tool execution
 errors return `isError: true` with localized text and structured code, request UUID,
 effect observations and safe-retry guidance. Unknown tools remain protocol errors.
 See the [error contract](./docs/ERROR-CONTRACT.md).
+
+The process admits at most 64 tool calls, including workers still cleaning up
+after cancellation. Excess calls return `CAPACITY_LIMIT`. Local deployment scans
+are asynchronous and separately bounded; see [resource limits](./docs/RESOURCE-BOUNDS.md)
+for exact counting, `SCAN_LIMIT` and corrected custom exclusion behavior.
 
 All tools publish MCP annotations describing read-only, destructive,
 idempotent, and open-world behavior. These annotations are client hints, not a
