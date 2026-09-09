@@ -78,7 +78,7 @@ for (const runtime of ["0.1.0", "", "0.2.0\nextra"]) {
 
 test("archive allowlist accepts exactly the reviewed files", () => validateFiles(PACKAGE_FILES));
 test("scripted evaluation documentation ships without execution tooling or results", () => {
-  assert.equal(PACKAGE_FILES.length, 68);
+  assert.equal(PACKAGE_FILES.length, 76);
   for (const file of ["docs/SCRIPTED-EVALUATIONS.md", "docs/SCRIPTED-EVALUATIONS.fr.md"]) assert.ok(PACKAGE_FILES.includes(file));
   for (const file of ["scripts/evaluation/run.mjs", "test/fixtures/evaluation/corpus.spec.json", ".tmp/evaluations/reports/latest.json"]) {
     assert.throws(() => validateFiles([...PACKAGE_FILES, file]));
