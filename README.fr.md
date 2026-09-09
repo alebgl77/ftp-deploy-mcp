@@ -49,6 +49,12 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 | Publication | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
 | Évaluation d'agents | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
 | Conformité MCP scriptée | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
+| Langues de la CLI et des outils MCP | [Guide](./docs/LANGUAGES.md) | [Guide](./docs/LANGUAGES.fr.md) |
+| Contrat d'erreur MCP | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |
+| Transferts vérifiés par promotion | [Guide](./docs/TRANSFERS.md) | [Guide](./docs/TRANSFERS.fr.md) |
+| Limites de parcours et d'admission | [Limits](./docs/RESOURCE-BOUNDS.md) | [Limites](./docs/RESOURCE-BOUNDS.fr.md) |
+| Primitives de stockage d'état (bibliothèque interne, aucun outil MCP) | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
+| Modèle de workflow durable (bibliothèque interne, aucun outil MCP) | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
 | Licence MIT | [Texte canonique](./LICENSE) | [Traduction informative](./LICENSE.fr.md) |
 
 ## Architecture et scénarios
