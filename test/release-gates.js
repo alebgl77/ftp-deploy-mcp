@@ -77,10 +77,12 @@ for (const runtime of ["0.1.0", "", "0.2.0\nextra"]) {
 }
 
 test("archive allowlist accepts exactly the reviewed files", () => validateFiles(PACKAGE_FILES));
-test("scripted evaluation documentation ships without execution tooling or results", () => {
-  assert.equal(PACKAGE_FILES.length, 76);
-  for (const file of ["docs/SCRIPTED-EVALUATIONS.md", "docs/SCRIPTED-EVALUATIONS.fr.md"]) assert.ok(PACKAGE_FILES.includes(file));
-  for (const file of ["scripts/evaluation/run.mjs", "test/fixtures/evaluation/corpus.spec.json", ".tmp/evaluations/reports/latest.json"]) {
+test("scripted evaluation and pure workflow files ship without tests, tooling or results", () => {
+  assert.equal(PACKAGE_FILES.length, 81);
+  for (const file of ["docs/SCRIPTED-EVALUATIONS.md", "docs/SCRIPTED-EVALUATIONS.fr.md", "docs/WORKFLOW-MODEL.md", "docs/WORKFLOW-MODEL.fr.md",
+    "src/workflow/model.mjs", "src/workflow/events.mjs", "src/workflow/budget.mjs"]) assert.ok(PACKAGE_FILES.includes(file));
+  for (const file of ["scripts/evaluation/run.mjs", "test/fixtures/evaluation/corpus.spec.json", ".tmp/evaluations/reports/latest.json",
+    "test/workflow/model.test.mjs", "test/workflow/events.test.mjs", "test/workflow/budget.test.mjs", "test/workflow/helpers.mjs", "review-inventory.json"]) {
     assert.throws(() => validateFiles([...PACKAGE_FILES, file]));
   }
 });
