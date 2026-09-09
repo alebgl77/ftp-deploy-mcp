@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.alebgl77/ftp-deploy-mcp",
-  "description": "Deploy via FTP/FTPS/SFTP with read-only mode, local path restrictions and SFTP host-key checks.",
+  "description": "FTP/FTPS/SFTP deployment · Déploiement FTP/FTPS/SFTP. Local confinement / Confinement local.",
   "repository": {
     "url": "https://github.com/alebgl77/ftp-deploy-mcp",
     "source": "github"
@@ -19,7 +19,13 @@
       "environmentVariables": [
         {
           "name": "FTP_MCP_CONFIG",
-          "description": "Optional path to the ftp-servers.json config file (defaults to ./ftp-servers.json or ~/.ftp-mcp/servers.json)",
+          "description": "Explicit config path; missing or invalid paths fail closed. / Chemin explicite de configuration ; tout chemin absent ou invalide est refusé.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "FTP_MCP_LANG",
+          "description": "Human text language: en (default) or fr. / Langue du texte : en (défaut) ou fr.",
           "isRequired": false,
           "isSecret": false
         }

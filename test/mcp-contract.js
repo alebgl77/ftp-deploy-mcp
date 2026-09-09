@@ -325,13 +325,13 @@ export async function runMcpContractTests({ root, ok, contains, notContains }) {
 
     mixedFailures = true;
     const mixed = await client.callTool({ name: "ftp_deploy", arguments: { local_dir: "deploy-mixed" } });
-    ok(mixed.isError === true && !mixed.structuredContent, "MCP contract: mixed deploy failure has no structuredContent", resultText(mixed));
+    ok(mixed.isError === true && mixed.structuredContent?.error.code === "DEPLOY_PARTIAL", "MCP contract: mixed deploy failure has a typed error envelope", resultText(mixed));
     contains(resultText(mixed), "Deployed 105/210", "MCP contract: mixed deploy text preserves aggregate counters");
     contains(resultText(mixed), "Failures (105)", "MCP contract: mixed deploy text preserves failure count");
     ok(resultBytes(mixed) <= 25000, "MCP contract: mixed UTF-8 deploy error respects 25,000-byte cap", String(resultBytes(mixed)));
 
     const failed = await client.callTool({ name: "ftp_list", arguments: { path: "fail" } });
-    ok(failed.isError === true && !failed.structuredContent, "MCP contract: tool error never has structuredContent", resultText(failed));
+    ok(failed.isError === true && failed.structuredContent?.error.code === "TRANSPORT_ERROR", "MCP contract: tool error has a typed error envelope", resultText(failed));
     notContains(resultText(failed), SECRET, "MCP contract: error remains redacted");
 
     const read = await client.callTool({ name: "ftp_read", arguments: { path: "large.txt" } });
@@ -387,7 +387,7 @@ export async function runMcpContractTests({ root, ok, contains, notContains }) {
   });
   await withClient(insecureConfig, failingInsecureAdapter, async (client) => {
     const result = await client.callTool({ name: "ftp_list", arguments: {} });
-    ok(result.isError === true && !result.structuredContent, "MCP contract: huge insecure adapter failure remains an unstructured MCP error");
+    ok(result.isError === true && result.structuredContent?.error.code === "TRANSPORT_ERROR", "MCP contract: huge insecure adapter failure remains a structured MCP error");
     contains(resultText(result), "SECURITY WARNING", "MCP contract: huge insecure adapter failure preserves its warning prefix");
     ok(resultBytes(result) <= 25000, "MCP contract: huge insecure adapter failure respects the full-result cap", String(resultBytes(result)));
   });

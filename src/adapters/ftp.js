@@ -11,13 +11,13 @@ import { Writable } from "node:stream";
 import path from "node:path";
 import fs from "node:fs";
 import { checkedMethods } from "../operations.js";
+import { appError, isAppError, nativeError, messageSpec } from "../errors.js";
+import { normalizeRoot } from "../remote-path.js";
 import { TRANSFER_LIMITS, hashRemoteStream, sendLocalStream, receiveLocalStream } from "../transfers.js";
 
 import {
   insecureTransport,
-  insecureBlockedMessage,
   unsafeRemoteRoot,
-  unsafeRemoteRootBlockedMessage,
 } from "../config.js";
 
 const posix = path.posix;
@@ -41,26 +41,14 @@ function entryType(fileInfo) {
 
 // Turn a low-level failure into a readable Error. Never includes secrets.
 function friendlyError(err, ctx) {
-  const orig = err && err.message ? err.message : String(err);
-  const code = err && err.code;
+  if (isAppError(err)) return err;
+  const error = err instanceof Error ? err.message : String(err);
   const at = `${ctx.host}:${ctx.port}`;
-  if (code === "ECONNREFUSED" || /ECONNREFUSED/.test(orig)) {
-    return new Error(`connection refused by ${at} — is the FTP server reachable? [${orig}]`);
-  }
-  if (code === "ENOTFOUND" || /ENOTFOUND|getaddrinfo/.test(orig)) {
-    return new Error(`host not found: ${ctx.host} [${orig}]`);
-  }
-  if (code === "ETIMEDOUT" || /timed?\s?out|timeout/i.test(orig)) {
-    return new Error(`connection to ${at} timed out — check firewall or passive-mode settings [${orig}]`);
-  }
-  if (code === 530 || /^530|login|not logged in|authentication/i.test(orig)) {
-    return new Error(`authentication failed for user "${ctx.user}" on ${at} [${orig}]`);
-  }
-  if (code === 550 || /^550|no such file|not found|cannot find|does not exist/i.test(orig)) {
-    const where = ctx.path ? `: ${ctx.path}` : "";
-    return new Error(`no such file or directory${where} [${orig}]`);
-  }
-  return new Error(orig);
+  const key = err?.code === "ECONNREFUSED" ? "connectionRefused" : err?.code === "ENOTFOUND" ? "hostMissing" :
+    err?.code === "ETIMEDOUT" ? "timeout" : err?.code === 530 ? "authFailed" : null;
+  if (key) return appError("TRANSPORT_ERROR", `runtime.ftp.${key}`, { at, host: ctx.host, user: ctx.user, error }, { origin: "ftp" });
+  // FTP 550 is ambiguous (missing, inaccessible, policy); no text inference.
+  return nativeError(err, "ftp");
 }
 
 export async function connect(serverCfg, operation) {
@@ -70,9 +58,7 @@ export async function connect(serverCfg, operation) {
   // sub-root before network I/O unless the operator explicitly accepts that it
   // is not an anti-symlink jail.
   if (unsafeRemoteRoot(serverCfg) && serverCfg.allowUnsafeRemoteRoot !== true) {
-    throw new Error(
-      unsafeRemoteRootBlockedMessage(serverCfg.name ?? serverCfg.host, serverCfg.root)
-    );
+    throw appError("REMOTE_ROOT_REJECTED", "runtime.config.remoteRootBlocked", { name: serverCfg.name ?? serverCfg.host, root: normalizeRoot(serverCfg.root) });
   }
 
   // Insecure transports (plain FTP, or FTPS with certificate verification
@@ -80,7 +66,8 @@ export async function connect(serverCfg, operation) {
   // explicitly opts in with "allowInsecure": true.
   const insecureReason = insecureTransport(serverCfg);
   if (insecureReason && serverCfg.allowInsecure !== true) {
-    throw new Error(insecureBlockedMessage(serverCfg.name ?? serverCfg.host, insecureReason));
+    throw appError("TRANSPORT_POLICY", "runtime.config.insecureBlocked", { name: serverCfg.name ?? serverCfg.host,
+      risk: messageSpec(insecureReason === "plain-ftp" ? "runtime.config.ftpRisk" : "runtime.config.tlsRisk", { name: serverCfg.name ?? serverCfg.host }) });
   }
 
   const ctx = { host: serverCfg.host, port: serverCfg.port, user: serverCfg.user };
@@ -152,7 +139,7 @@ export async function connect(serverCfg, operation) {
         const entries = await client.list(parent);
         const found = entries.find((f) => f.name === base);
         if (!found) {
-          throw friendlyError(new Error("550 not found"), { ...ctx, path: p });
+          throw appError("NOT_FOUND", "runtime.ftp.notFound", { where: `: ${p}`, error: "550 not found" }, { origin: "ftp" });
         }
         return {
           name: found.name,

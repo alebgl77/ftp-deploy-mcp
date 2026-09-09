@@ -1,4 +1,4 @@
-# Langues de la CLI
+# Langues de la CLI et des outils MCP
 
 [English](./LANGUAGES.md)
 
@@ -24,11 +24,12 @@ ou d’import. Les paramètres régionaux du système, comme `LANG`, sont ignor�
 Les éléments traduits comprennent les aides générale et par sous-commande,
 les questions et choix de l’installation, les libellés et conseils des tests
 de connexion, les diagnostics doctor, les avertissements d’import FileZilla
-et les messages de démarrage ou d’erreur fatale du serveur. Certains détails
-renvoyés par les modules de configuration, de chemins, de sécurité et les
-adaptateurs restent en anglais. Les descriptions des outils MCP et leurs
-réponses métier restent également en anglais dans cette version. Il s’agit
-d’une traduction de la CLI, pas de l’ensemble du runtime.
+et les messages de démarrage ou d’erreur fatale, les titres et descriptions
+MCP et les descriptions des paramètres. Les messages propres au projet pour
+la configuration, les chemins, la sécurité, les transports et transferts,
+les succès métier et les enveloppes d’erreur utilisent la langue choisie.
+Les codes publics et clés des résultats restent stables ; voir le
+[contrat d’erreur](./ERROR-CONTRACT.fr.md).
 
 Les détails natifs d’erreurs système ou réseau restent des données provenant
 de leur source. Le contenu distant, les noms de serveurs, identifiants,
@@ -52,8 +53,11 @@ habituelle ou par l’option `--force`. Le bloc Trae inclut le même réglage.
 `createI18n(locale)` crée un contexte immuable contenant `locale` et
 `t(key, params)`. Les appelants transmettent ce contexte explicitement :
 aucune langue globale mutable ni argument d’outil contrôlé par le modèle.
-Les clés sont organisées par espace de noms dans `src/locales/en.js` et
-`src/locales/fr.js`. Les tests exigent les mêmes clés et paramètres nommés.
+Les clés sont organisées par espace de noms dans les fichiers appariés
+`en.js`, `runtime.en.js` et `errors.en.js` sous `src/locales`, avec leurs
+équivalents français. Les tests exigent les mêmes clés et paramètres nommés.
+Les erreurs typées portent un descripteur privé, rendu dans la langue choisie
+uniquement à la frontière de sortie.
 Les valeurs des paramètres sont insérées une seule fois, sans interprétation
 de leur contenu.
 

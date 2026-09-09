@@ -12,8 +12,23 @@ import path from "node:path";
 import { normalizeRoot } from "./remote-path.js";
 import { DEFAULT_OPERATION_TIMEOUT_MS } from "./operations.js";
 import { TRANSFER_LIMITS } from "./transfers.js";
+import { appError, isAppError, messageList, messageSpec, renderError, renderMessage, protectError } from "./errors.js";
+import { createI18n } from "./i18n.js";
+import { createRedactor } from "./redact.js";
 
 const PROTOCOLS = new Set(["ftp", "ftps", "sftp"]);
+const loadedRedactors = new WeakMap();
+
+// Credentials from rejected entries must still protect their diagnostics.
+// This channel retains only the redactor, never a rejected config object.
+export function configRedactor(loaded) {
+  let redactor = loadedRedactors.get(loaded);
+  if (!redactor) {
+    redactor = createRedactor(loaded?.config);
+    if (loaded && typeof loaded === "object") loadedRedactors.set(loaded, redactor);
+  }
+  return redactor;
+}
 
 // Expand a leading "~" to the user's home directory.
 export function expandHome(p) {
@@ -31,7 +46,7 @@ export function configCandidates(configFlag) {
   const explicit = configFlag ?? process.env.FTP_MCP_CONFIG;
   if (explicit !== undefined) {
     if (typeof explicit !== "string" || explicit.length === 0) {
-      throw new Error("explicit config path must be a non-empty string");
+      throw appError("CONFIG_INVALID", "runtime.config.explicitEmpty");
     }
     return [path.resolve(explicit)];
   }
@@ -49,7 +64,7 @@ function substituteEnv(value, errors, ctx) {
     const name = rawName.trim();
     const v = process.env[name];
     if (v === undefined) {
-      errors.push(`environment variable "${name}" is not set (referenced by ${ctx})`);
+      errors.push(appError("CONFIG_INVALID", "runtime.config.envMissing", { name, context: ctx }));
       return "";
     }
     return v;
@@ -88,35 +103,34 @@ export function isValidHostKeySha256(value) {
 }
 
 function validateServer(name, s) {
-  const prefix = `server "${name}":`;
   if (!s || typeof s !== "object" || Array.isArray(s)) {
-    return `${prefix} must be a JSON object`;
+    return appError("CONFIG_INVALID", "runtime.config.server.object", { name });
   }
   if (!nonEmptyString(s.protocol)) {
-    return `${prefix} missing required field "protocol" (one of ftp, ftps, sftp)`;
+    return appError("CONFIG_INVALID", "runtime.config.server.protocolRequired", { name });
   }
   const protocol = s.protocol;
   if (!PROTOCOLS.has(protocol)) {
-    return `${prefix} unknown protocol "${s.protocol}" (use ftp, ftps or sftp)`;
+    return appError("CONFIG_INVALID", "runtime.config.server.protocolUnknown", { name, protocol: s.protocol });
   }
-  if (!nonEmptyString(s.host)) return `${prefix} missing required field "host"`;
-  if (!nonEmptyString(s.user)) return `${prefix} missing required field "user"`;
+  if (!nonEmptyString(s.host)) return appError("CONFIG_INVALID", "runtime.config.server.hostRequired", { name });
+  if (!nonEmptyString(s.user)) return appError("CONFIG_INVALID", "runtime.config.server.userRequired", { name });
   if (s.port !== undefined && (typeof s.port !== "number" || !Number.isInteger(s.port) || s.port <= 0)) {
-    return `${prefix} field "port" must be a positive integer`;
+    return appError("CONFIG_INVALID", "runtime.config.server.port", { name });
   }
   if (s.operationTimeoutMs !== undefined && (!Number.isInteger(s.operationTimeoutMs) ||
       s.operationTimeoutMs < 100 || s.operationTimeoutMs > 3600000)) {
-    return `${prefix} field "operationTimeoutMs" must be an integer between 100 and 3600000`;
+    return appError("CONFIG_INVALID", "runtime.config.server.timeout", { name });
   }
   const hasPassword = nonEmptyString(s.password);
   for (const [field, limit] of Object.entries(TRANSFER_LIMITS)) {
     if (s[field] !== undefined && (!Number.isSafeInteger(s[field]) || s[field] <= 0 || s[field] > limit.maximum)) {
-      return `${prefix} field "${field}" must be a positive safe integer no greater than ${limit.maximum}`;
+      return appError("CONFIG_INVALID", "runtime.config.server.transferLimit", { name, field, maximum: limit.maximum });
     }
   }
   const hasKey = nonEmptyString(s.privateKeyPath);
   if (!hasPassword && !hasKey) {
-    return `${prefix} no authentication method — provide "password" or "privateKeyPath"`;
+    return appError("CONFIG_INVALID", "runtime.config.server.authRequired", { name });
   }
   for (const flag of [
     "readOnly",
@@ -127,32 +141,31 @@ function validateServer(name, s) {
     "allowUnsafeRemoteRoot",
   ]) {
     if (s[flag] !== undefined && typeof s[flag] !== "boolean") {
-      return `${prefix} field "${flag}" must be true or false (got ${JSON.stringify(s[flag])})`;
+      // Rejected objects may carry credentials in keys as well as values.
+      // Report the expected type without serializing any rejected input.
+      return appError("CONFIG_INVALID", "runtime.config.server.boolean", { name, field: flag });
     }
   }
 
   if (s.hostKeySha256 !== undefined) {
-    if (protocol !== "sftp") return `${prefix} field "hostKeySha256" is only valid for sftp`;
+    if (protocol !== "sftp") return appError("CONFIG_INVALID", "runtime.config.server.pinProtocol", { name });
     const pins = typeof s.hostKeySha256 === "string" ? [s.hostKeySha256] : s.hostKeySha256;
     if (!Array.isArray(pins) || pins.length === 0) {
-      return `${prefix} field "hostKeySha256" must be a fingerprint string or a non-empty array`;
+      return appError("CONFIG_INVALID", "runtime.config.server.pinType", { name });
     }
     const badIndex = pins.findIndex((pin) => !isValidHostKeySha256(pin));
     if (badIndex !== -1) {
-      return (
-        `${prefix} field "hostKeySha256" entry ${badIndex + 1} must use ` +
-        `SHA256:<43-character unpadded base64> format`
-      );
+      return appError("CONFIG_INVALID", "runtime.config.server.pinFormat", { name, index: badIndex + 1 });
     }
   }
   if (s.allowUnknownHostKey !== undefined && protocol !== "sftp") {
-    return `${prefix} field "allowUnknownHostKey" is only valid for sftp`;
+    return appError("CONFIG_INVALID", "runtime.config.server.unknownKeyProtocol", { name });
   }
   if (s.allowUnknownHostKey !== undefined && s.hostKeySha256 !== undefined) {
-    return `${prefix} fields "allowUnknownHostKey" and "hostKeySha256" cannot be used together`;
+    return appError("CONFIG_INVALID", "runtime.config.server.pinConflict", { name });
   }
   if (s.allowUnsafeRemoteRoot !== undefined && protocol === "sftp") {
-    return `${prefix} field "allowUnsafeRemoteRoot" is only valid for ftp or ftps`;
+    return appError("CONFIG_INVALID", "runtime.config.server.unsafeRootProtocol", { name });
   }
   return null;
 }
@@ -161,22 +174,22 @@ function validateServer(name, s) {
 // separately so one bad entry never disables unrelated valid servers.
 function validateEnvelope(parsed) {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return "config root must be a JSON object with a `servers` field";
+    return appError("CONFIG_INVALID", "runtime.config.envelope.object");
   }
   const servers = parsed.servers;
   if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
-    return "config is missing a `servers` object";
+    return appError("CONFIG_INVALID", "runtime.config.envelope.servers");
   }
   const names = Object.keys(servers);
   if (names.length === 0) {
-    return "no servers configured (the `servers` object is empty)";
+    return appError("CONFIG_INVALID", "runtime.config.envelope.empty");
   }
   if (parsed.defaultServer !== undefined) {
     if (!nonEmptyString(parsed.defaultServer)) {
-      return `"defaultServer" must be a non-empty string`;
+      return appError("CONFIG_INVALID", "runtime.config.envelope.defaultEmpty");
     }
     if (!names.includes(parsed.defaultServer)) {
-      return `"defaultServer" is "${parsed.defaultServer}" but that server is not configured (available: ${names.join(", ")})`;
+      return appError("CONFIG_INVALID", "runtime.config.envelope.defaultUnknown", { name: parsed.defaultServer, available: names.join(", ") });
     }
   }
   return null;
@@ -230,38 +243,22 @@ export function unsafeRemoteRoot(server) {
   return (server.protocol === "ftp" || server.protocol === "ftps") && normalizeRoot(server.root) !== "/";
 }
 
-export function unsafeRemoteRootBlockedMessage(name, root) {
-  return (
-    `UNSAFE REMOTE ROOT REFUSED: server "${name}" uses FTP/FTPS root "${normalizeRoot(root)}", ` +
-    `but FTP cannot reliably detect symlink escapes from a client-side sub-root. ` +
-    `Use a dedicated server-side chroot/account whose visible root is "/", or explicitly set ` +
-    `"allowUnsafeRemoteRoot": true to accept this risk.`
-  );
+export function unsafeRemoteRootBlockedMessage(name, root, i18n = createI18n()) {
+  return i18n.t("runtime.config.remoteRootBlocked", { name, root: normalizeRoot(root) });
 }
 
-export function unsafeRemoteRootWarningText(server) {
+export function unsafeRemoteRootWarningText(server, i18n = createI18n()) {
   if (!unsafeRemoteRoot(server) || server.allowUnsafeRemoteRoot !== true) return null;
-  return (
-    `⚠ SECURITY WARNING: FTP/FTPS root "${normalizeRoot(server.root)}" on server "${server.name}" ` +
-    `is not a reliable anti-symlink jail. Allowed because "allowUnsafeRemoteRoot": true is set; ` +
-    `use a dedicated server-side chroot/account for a real boundary.`
-  );
+  return i18n.t("runtime.config.remoteRootWarning", { name: server.name, root: normalizeRoot(server.root) });
 }
 
-export function unknownHostKeyBlockedMessage(name) {
-  return (
-    `SFTP HOST KEY VERIFICATION REQUIRED: server "${name}" has no "hostKeySha256" pin. ` +
-    `Add a SHA256 fingerprint verified through a trusted channel, or explicitly set ` +
-    `"allowUnknownHostKey": true to accept impersonation risk.`
-  );
+export function unknownHostKeyBlockedMessage(name, i18n = createI18n()) {
+  return i18n.t("runtime.config.hostKeyRequired", { name });
 }
 
-export function unknownHostKeyWarningText(server) {
+export function unknownHostKeyWarningText(server, i18n = createI18n()) {
   if (server.protocol !== "sftp" || server.allowUnknownHostKey !== true) return null;
-  return (
-    `⚠ SECURITY WARNING: the identity of SFTP server "${server.name}" is NOT verified. ` +
-    `Allowed because "allowUnknownHostKey": true is set; configure "hostKeySha256" as soon as possible.`
-  );
+  return i18n.t("runtime.config.hostKeyWarning", { name: server.name });
 }
 
 // ---- insecure-transport policy --------------------------------------------
@@ -279,55 +276,56 @@ export function insecureTransport(server) {
 }
 
 // Short label for listings (ftp_list_servers, doctor, setup).
-export function insecureLabel(reason) {
-  return reason === "plain-ftp"
-    ? "plain FTP (unencrypted)"
-    : 'FTPS certificate verification disabled ("insecureTLS")';
+export function insecureLabel(reason, i18n = createI18n()) {
+  return i18n.t(reason === "plain-ftp" ? "runtime.config.ftpLabel" : "runtime.config.tlsLabel");
 }
 
 // One sentence describing the concrete risk, shared by refusals and warnings.
-export function insecureRiskText(name, reason) {
+export function insecureRiskText(name, reason, i18n = createI18n()) {
   if (reason === "plain-ftp") {
-    return (
-      `server "${name}" uses plain FTP — the connection is NOT encrypted, so credentials ` +
-      `and files can be read or altered by anyone on the network path`
-    );
+    return i18n.t("runtime.config.ftpRisk", { name });
   }
-  return (
-    `server "${name}" disables FTPS certificate verification ("insecureTLS": true) — the ` +
-    `server's identity is NOT checked, so a network attacker can impersonate it and ` +
-    `capture credentials and files`
-  );
+  return i18n.t("runtime.config.tlsRisk", { name });
 }
 
 // The error message used when an insecure transport has no explicit opt-in.
-export function insecureBlockedMessage(name, reason) {
-  return (
-    `INSECURE CONNECTION REFUSED: ${insecureRiskText(name, reason)}. ` +
-    `Use "sftp" (recommended) or "ftps" with a valid certificate instead. ` +
-    `If you fully accept this risk, explicitly set "allowInsecure": true on server "${name}" in your config.`
-  );
+export function insecureBlockedMessage(name, reason, i18n = createI18n()) {
+  return renderMessage(messageSpec("runtime.config.insecureBlocked", {
+    name: String(name),
+    risk: messageSpec(reason === "plain-ftp" ? "runtime.config.ftpRisk" : "runtime.config.tlsRisk", { name: String(name) }),
+  }), i18n);
 }
 
 // Warning shown when the user HAS opted in; null for secure servers.
 // Takes a normalized server (needs .name / .protocol / .insecureTLS / .allowInsecure).
-export function insecureWarningText(server) {
+export function insecureWarningText(server, i18n = createI18n()) {
   const reason = insecureTransport(server);
   if (!reason || server.allowInsecure !== true) return null;
-  return (
-    `⚠ SECURITY WARNING: ${insecureRiskText(server.name, reason)}. ` +
-    `Allowed because "allowInsecure": true is set — switch to SFTP (or FTPS with a valid certificate) as soon as possible.`
-  );
+  return renderMessage(messageSpec("runtime.config.insecureWarning", {
+    risk: messageSpec(reason === "plain-ftp" ? "runtime.config.ftpRisk" : "runtime.config.tlsRisk", { name: String(server.name) }),
+  }), i18n);
 }
 
 // Load configuration. Always returns an object; never throws.
 //   { found, path, searched, error, config, serverNames, defaultServer }
 export function loadConfig(configFlag) {
+  const redactor = createRedactor();
+  const loaded = loadConfigWithRedactor(configFlag, redactor);
+  loadedRedactors.set(loaded, redactor);
+  for (const failure of Object.values(loaded.serverFailures)) protectError(failure, redactor);
+  protectError(loaded.failure, redactor);
+  if (loaded.error) loaded.error = redactor.strictText(loaded.error);
+  loaded.serverErrors = Object.fromEntries(Object.entries(loaded.serverErrors)
+    .map(([name, error]) => [name, redactor.strictText(error)]));
+  return loaded;
+}
+
+function loadConfigWithRedactor(configFlag, redactor) {
   let searched;
   try {
     searched = configCandidates(configFlag);
   } catch (err) {
-    return errorResult(null, [], err.message);
+    return errorResult(null, [], isAppError(err) ? err : appError("CONFIG_INVALID", "runtime.config.detail", { error: err.message }, { origin: "local" }));
   }
   const explicit = configFlag != null || process.env.FTP_MCP_CONFIG !== undefined;
   let filePath = null;
@@ -337,9 +335,9 @@ export function loadConfig(configFlag) {
         filePath = c;
         break;
       }
-      if (explicit) return errorResult(c, searched, "explicit config path is not a file");
+      if (explicit) return errorResult(c, searched, appError("CONFIG_INVALID", "runtime.config.explicitNotFile"));
     } catch (err) {
-      if (explicit) return errorResult(c, searched, `cannot access explicit config file: ${err.message}`);
+      if (explicit) return errorResult(c, searched, appError("CONFIG_INVALID", "runtime.config.explicitAccess", { error: err.message }, { origin: "local" }));
       // ignore inaccessible candidates
     }
   }
@@ -350,10 +348,12 @@ export function loadConfig(configFlag) {
       path: null,
       searched,
       error: null,
+      failure: null,
       config: null,
       serverNames: [],
       invalidServerNames: [],
       serverErrors: {},
+      serverFailures: {},
       defaultServer: null,
     };
   }
@@ -362,20 +362,25 @@ export function loadConfig(configFlag) {
   try {
     raw = fs.readFileSync(filePath, "utf8");
   } catch (err) {
-    return errorResult(filePath, searched, `cannot read config file: ${err.message}`);
+    return errorResult(filePath, searched, appError("CONFIG_INVALID", "runtime.config.readFailed", { error: err.message }, { origin: "local" }));
   }
 
   let parsed;
   try {
     parsed = JSON.parse(raw);
-  } catch (err) {
-    return errorResult(filePath, searched, `invalid JSON in config file ${filePath}: ${err.message}`);
+  } catch {
+    // Native JSON.parse messages can quote raw credentials. Do not retain
+    // that message, exception, cause or any excerpt from malformed input.
+    const shownPath = filePath.length > 512 ? `${filePath.slice(0, 512)}…` : filePath;
+    return errorResult(filePath, searched, appError("CONFIG_INVALID", "runtime.config.invalidJson", { path: shownPath }, { origin: "local" }));
   }
 
+  redactor.add(parsed);
   const envErrors = [];
   const substituted = walkSubstitute(parsed, envErrors, "");
+  redactor.add(substituted);
   if (envErrors.length > 0) {
-    return errorResult(filePath, searched, envErrors.join("; "));
+    return errorResult(filePath, searched, joinConfigFailures(envErrors));
   }
 
   const validationError = validateEnvelope(substituted);
@@ -384,16 +389,19 @@ export function loadConfig(configFlag) {
   }
 
   const serverErrors = {};
+  const serverFailures = {};
   const validServers = {};
   for (const [name, server] of Object.entries(substituted.servers)) {
     const error = validateServer(name, server);
-    if (error) serverErrors[name] = error;
-    else validServers[name] = server;
+    if (error) {
+      serverErrors[name] = error.message;
+      serverFailures[name] = error;
+    } else validServers[name] = server;
   }
   const serverNames = Object.keys(validServers);
   const invalidServerNames = Object.keys(serverErrors);
   if (serverNames.length === 0) {
-    return errorResult(filePath, searched, invalidServerNames.map((name) => serverErrors[name]).join("; "), serverErrors);
+    return errorResult(filePath, searched, joinConfigFailures(invalidServerNames.map((name) => serverFailures[name])), serverFailures);
   }
   const config = {
     defaultServer: substituted.defaultServer ?? null,
@@ -405,24 +413,32 @@ export function loadConfig(configFlag) {
     path: filePath,
     searched,
     error: null,
+    failure: null,
     config,
     serverNames,
     invalidServerNames,
     serverErrors,
+    serverFailures,
     defaultServer: config.defaultServer,
   };
 }
 
-function errorResult(filePath, searched, message, serverErrors = {}) {
+function joinConfigFailures(failures) {
+  return appError("CONFIG_INVALID", "runtime.config.detail", { error: messageList(failures) });
+}
+
+function errorResult(filePath, searched, failure, serverFailures = {}) {
   return {
     found: true,
     path: filePath,
     searched,
-    error: message,
+    error: failure.message,
+    failure,
     config: null,
     serverNames: [],
-    invalidServerNames: Object.keys(serverErrors),
-    serverErrors,
+    invalidServerNames: Object.keys(serverFailures),
+    serverErrors: Object.fromEntries(Object.entries(serverFailures).map(([name, error]) => [name, error.message])),
+    serverFailures,
     defaultServer: null,
   };
 }
@@ -433,57 +449,53 @@ function errorResult(filePath, searched, message, serverErrors = {}) {
 export function resolveServer(loaded, requested) {
   if (!loaded.config) {
     // Caller should have handled the no-config case already; be defensive.
-    throw new Error("no usable configuration is loaded");
+    throw appError("CONFIG_REQUIRED", "runtime.config.noUsable");
   }
   const names = loaded.serverNames;
   let name;
   if (nonEmptyString(requested)) {
     if (loaded.serverErrors && loaded.serverErrors[requested]) {
-      throw new Error(loaded.serverErrors[requested]);
+      throw loaded.serverFailures?.[requested] ?? appError("CONFIG_INVALID", "runtime.config.detail", { error: loaded.serverErrors[requested] });
     }
     if (!names.includes(requested)) {
-      throw new Error(
-        `unknown server "${requested}". Available servers: ${names.join(", ")}`
-      );
+      throw appError("SERVER_UNKNOWN", "runtime.config.unknownServer", { name: requested, available: names.join(", ") });
     }
     name = requested;
   } else if (loaded.defaultServer) {
     if (loaded.serverErrors && loaded.serverErrors[loaded.defaultServer]) {
-      throw new Error(loaded.serverErrors[loaded.defaultServer]);
+      throw loaded.serverFailures?.[loaded.defaultServer] ?? appError("CONFIG_INVALID", "runtime.config.detail", { error: loaded.serverErrors[loaded.defaultServer] });
     }
     name = loaded.defaultServer;
   } else if (names.length === 1) {
     name = names[0];
   } else {
-    throw new Error(
-      `no server specified and no default set. Pass "server" as one of: ${names.join(", ")}`
-    );
+    throw appError("SERVER_REQUIRED", "runtime.config.serverRequired", { available: names.join(", ") });
   }
   return { name, server: normalizeServer(name, loaded.config.servers[name]) };
 }
 
 // The text shown when no config is found (or it failed to load). Explains the
 // lookup locations and provides a minimal example.
-export function configHelpText(loaded) {
+export function configHelpText(loaded, i18n = createI18n()) {
   const lines = [];
   if (loaded.error) {
-    lines.push(`The configuration at ${loaded.path} could not be loaded:`);
-    lines.push(`  ${loaded.error}`);
+    lines.push(i18n.t("runtime.config.help.loadFailed", { path: loaded.path }));
+    lines.push(`  ${loaded.failure ? renderError(loaded.failure, i18n) : loaded.error}`);
     lines.push("");
-    lines.push("Fix the file, then retry.");
+    lines.push(i18n.t("runtime.config.help.fix"));
   } else {
-    lines.push("No FTP/SFTP server configuration was found.");
+    lines.push(i18n.t("runtime.config.help.none"));
     lines.push("");
-    lines.push("Create a JSON config at one of these locations (first found wins):");
+    lines.push(i18n.t("runtime.config.help.create"));
   }
   lines.push("");
-  lines.push("Searched locations:");
+  lines.push(i18n.t("runtime.config.help.locations"));
   for (const p of loaded.searched) lines.push(`  - ${p}`);
-  lines.push("  (or pass --config <path> / set FTP_MCP_CONFIG=<path>)");
+  lines.push(i18n.t("runtime.config.help.selector"));
   lines.push("");
-  lines.push("Minimal example (ftp-servers.json):");
+  lines.push(i18n.t("runtime.config.help.example"));
   lines.push(EXAMPLE_CONFIG);
-  return lines.join("\n");
+  return configRedactor(loaded).strictText(lines.join("\n"));
 }
 
 export const EXAMPLE_CONFIG = `{

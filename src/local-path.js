@@ -7,6 +7,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { appError, messageSpec } from "./errors.js";
+import { createI18n } from "./i18n.js";
 
 function isContained(root, candidate) {
   const rel = path.relative(root, candidate);
@@ -15,16 +17,10 @@ function isContained(root, candidate) {
 
 function localRootFor(server) {
   if (typeof server.localRoot !== "string" || server.localRoot.trim() === "") {
-    throw new Error(
-      `LOCAL ROOT REQUIRED: server "${server.name}" must set "localRoot" to an absolute local directory ` +
-        `before ftp_upload, ftp_deploy or ftp_download can access local files`
-    );
+    throw appError("CONFIG_INVALID", "runtime.local.rootRequired", { name: String(server.name) });
   }
   if (!path.isAbsolute(server.localRoot)) {
-    throw new Error(
-      `LOCAL ROOT INVALID: server "${server.name}" has a relative "localRoot"; set it to an absolute ` +
-        `local directory (a leading "~" is supported)`
-    );
+    throw appError("CONFIG_INVALID", "runtime.local.rootRelative", { name: String(server.name) });
   }
 
   const root = path.resolve(server.localRoot);
@@ -34,10 +30,10 @@ function localRootFor(server) {
     stat = fs.statSync(root);
     realRoot = fs.realpathSync(root);
   } catch (err) {
-    throw new Error(`LOCAL ROOT INVALID: server "${server.name}" cannot access "localRoot": ${err.message}`);
+    throw appError("CONFIG_INVALID", "runtime.local.rootInaccessible", { name: String(server.name), error: err.message }, { origin: "local" });
   }
   if (!stat.isDirectory()) {
-    throw new Error(`LOCAL ROOT INVALID: server "${server.name}" field "localRoot" is not a directory`);
+    throw appError("CONFIG_INVALID", "runtime.local.rootNotDirectory", { name: String(server.name) });
   }
   return { root, realRoot };
 }
@@ -45,13 +41,13 @@ function localRootFor(server) {
 function lexicalCandidate(root, input, label) {
   const candidate = path.isAbsolute(input) ? path.resolve(input) : path.resolve(root, input);
   if (!isContained(root, candidate)) {
-    throw new Error(`${label} escapes the configured "localRoot"`);
+    throw appError("PATH_REJECTED", "runtime.local.escape", { label });
   }
   return candidate;
 }
 
 export function resolveLocalSource(server, input, kind) {
-  const label = kind === "directory" ? "local directory" : "local file";
+  const label = messageSpec(kind === "directory" ? "runtime.local.directoryLabel" : "runtime.local.fileLabel");
   const { root, realRoot } = localRootFor(server);
   const candidate = lexicalCandidate(root, input, label);
 
@@ -61,20 +57,24 @@ export function resolveLocalSource(server, input, kind) {
     realCandidate = fs.realpathSync(candidate);
     stat = fs.statSync(realCandidate);
   } catch (err) {
-    throw new Error(`${label} not found or inaccessible inside "localRoot": ${err.message}`);
+    throw appError(err?.code === "ENOENT" ? "NOT_FOUND" : "PATH_REJECTED", "runtime.local.sourceInaccessible", { label, error: err.message }, { origin: "local" });
   }
   if (!isContained(realRoot, realCandidate)) {
-    throw new Error(`${label} resolves outside the configured "localRoot" through a symbolic link or junction`);
+    throw appError("PATH_REJECTED", "runtime.local.sourceSymlinkEscape", { label });
   }
   if (kind === "directory" ? !stat.isDirectory() : !stat.isFile()) {
-    throw new Error(`${label} is not a regular ${kind}`);
+    throw appError("PATH_REJECTED", "runtime.local.sourceKind", {
+      label,
+      kindLabel: kind === "directory" ? messageSpec("runtime.local.directoryKind") :
+        kind === "file" ? messageSpec("runtime.local.fileKind") : String(kind),
+    });
   }
   return { path: realCandidate, stat };
 }
 
 export function resolveLocalDestination(server, input) {
   const { root, realRoot } = localRootFor(server);
-  const candidate = lexicalCandidate(root, input, "local destination");
+  const candidate = lexicalCandidate(root, input, messageSpec("runtime.local.destinationLabel"));
   const rel = path.relative(root, candidate);
   const parts = rel === "" ? [] : rel.split(path.sep).filter(Boolean);
   let current = root;
@@ -92,39 +92,39 @@ export function resolveLocalDestination(server, input) {
         try {
           realParent = fs.realpathSync(existingParent);
         } catch (parentErr) {
-          throw new Error(`local destination has an inaccessible parent inside "localRoot": ${parentErr.message}`);
+          throw appError("PATH_REJECTED", "runtime.local.parentInaccessible", { error: parentErr.message }, { origin: "local" });
         }
         if (!isContained(realRoot, realParent)) {
-          throw new Error(`local destination parent resolves outside the configured "localRoot"`);
+          throw appError("PATH_REJECTED", "runtime.local.parentEscape", {});
         }
         return { path: candidate, canonicalPath: path.resolve(realRoot, rel), exists: false, stat: null };
       }
-      throw new Error(`local destination is inaccessible inside "localRoot": ${err.message}`);
+      throw appError("PATH_REJECTED", "runtime.local.destinationInaccessible", { error: err.message }, { origin: "local" });
     }
 
     if (stat.isSymbolicLink()) {
-      throw new Error(`local destination contains a symbolic link or junction, which is refused`);
+      throw appError("PATH_REJECTED", "runtime.local.destinationSymlink", {});
     }
     const isFinal = i === parts.length;
     if (!isFinal && !stat.isDirectory()) {
-      throw new Error(`local destination parent is not a directory`);
+      throw appError("PATH_REJECTED", "runtime.local.parentNotDirectory", {});
     }
     if (isFinal) finalStat = stat;
   }
 
   const realExisting = fs.realpathSync(candidate);
   if (!isContained(realRoot, realExisting)) {
-    throw new Error(`local destination resolves outside the configured "localRoot"`);
+    throw appError("PATH_REJECTED", "runtime.local.destinationEscape", {});
   }
   if (!finalStat.isFile()) {
-    throw new Error(`local destination is not a regular file`);
+    throw appError("PATH_REJECTED", "runtime.local.destinationNotFile", {});
   }
   return { path: candidate, canonicalPath: path.resolve(realRoot, rel), exists: true, stat: finalStat };
 }
 
-export function localRootStatus(server) {
+export function localRootStatus(server, i18n = createI18n()) {
   if (typeof server.localRoot !== "string" || server.localRoot.trim() === "") {
-    return "missing (local tools REFUSED)";
+    return i18n.t("runtime.local.statusMissing");
   }
-  return path.isAbsolute(server.localRoot) ? "configured" : "relative (REFUSED)";
+  return i18n.t(path.isAbsolute(server.localRoot) ? "runtime.local.statusConfigured" : "runtime.local.statusRelative");
 }

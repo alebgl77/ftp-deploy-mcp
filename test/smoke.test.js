@@ -314,9 +314,8 @@ async function partRedaction(root) {
       serverErrors: {},
       defaultServer: "test",
     };
-    const handlers = new Map();
-    registerTools(
-      { registerTool(name, _definition, handler) { handlers.set(name, handler); } },
+    const handlers = registerTools(
+      null,
       loaded,
       {
         openAdapter: async () => ({
@@ -325,7 +324,7 @@ async function partRedaction(root) {
         }),
       }
     );
-    const result = await handlers.get("ftp_list")({ path: "" }, {});
+    const result = await handlers.call("ftp_list", { path: "" }, {});
     const text = result.content.map((item) => item.text || "").join("\n");
     ok(result.isError === true, "redaction: simulated adapter failure remains an MCP error");
     notContains(text, password, "redaction: MCP adapter errors remove passwords");
@@ -349,9 +348,8 @@ async function partRedaction(root) {
         servers: { test: { ...loaded.config.servers.test, ...shortSecrets } },
       },
     };
-    const failingHandlers = new Map();
-    registerTools(
-      { registerTool(name, _definition, handler) { failingHandlers.set(name, handler); } },
+    const failingHandlers = registerTools(
+      null,
       shortLoaded,
       {
         openAdapter: async () => ({
@@ -364,16 +362,15 @@ async function partRedaction(root) {
         }),
       }
     );
-    const failed = await failingHandlers.get("ftp_list")({ path: "" }, {});
+    const failed = await failingHandlers.call("ftp_list", { path: "" }, {});
     const failedText = failed.content.map((item) => item.text || "").join("\n");
     contains(failedText, "primary operation failed", "redaction: operation error remains primary when close also fails");
     contains(failedText, "Connection close also failed", "redaction: close failure is retained as secondary context");
     notContains(failedText, "a | ab | abc", "redaction: strict MCP errors remove isolated a/ab/abc values");
     contains(failedText, "[REDACTED] | [REDACTED] | [REDACTED]", "redaction: strict MCP errors retain readable redaction markers");
 
-    const successHandlers = new Map();
-    registerTools(
-      { registerTool(name, _definition, handler) { successHandlers.set(name, handler); } },
+    const successHandlers = registerTools(
+      null,
       shortLoaded,
       {
         openAdapter: async () => ({
@@ -384,17 +381,16 @@ async function partRedaction(root) {
         }),
       }
     );
-    const succeeded = await successHandlers.get("ftp_list")({ path: "" }, {});
+    const succeeded = await successHandlers.call("ftp_list", { path: "" }, {});
     const succeededText = succeeded.content.map((item) => item.text || "").join("\n");
     ok(succeeded.isError !== true, "redaction: short-secret success fixture remains a successful tool result");
     for (const [key, secret] of Object.entries(shortSecrets)) {
-      contains(succeededText, secret, `redaction: prudent success output does not corrupt short ${key} text`);
+      notContains(succeededText, `-${secret}`, `redaction: strict success output masks isolated short ${key} values`);
     }
 
     for (const thrown of [null, false, 0]) {
-      const falsyHandlers = new Map();
-      registerTools(
-        { registerTool(name, _definition, handler) { falsyHandlers.set(name, handler); } },
+      const falsyHandlers = registerTools(
+        null,
         loaded,
         {
           openAdapter: async () => ({
@@ -403,7 +399,7 @@ async function partRedaction(root) {
           }),
         }
       );
-      const falsyResult = await falsyHandlers.get("ftp_list")({ path: "" }, {});
+      const falsyResult = await falsyHandlers.call("ftp_list", { path: "" }, {});
       const falsyText = falsyResult.content.map((item) => item.text || "").join("\n");
       contains(falsyText, String(thrown), `tools: thrown ${String(thrown)} remains the primary operation failure`);
       contains(falsyText, "Connection close also failed", `tools: thrown ${String(thrown)} retains secondary close failure`);

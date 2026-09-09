@@ -1,4 +1,4 @@
-# CLI languages
+# CLI and MCP languages
 
 [Français](./LANGUAGES.fr.md)
 
@@ -23,10 +23,11 @@ such as `LANG` are not used.
 
 Translated surfaces include general and subcommand help, setup prompts and
 choices, connection-test labels and hints, doctor diagnostics, FileZilla import
-warnings, and server startup/fatal messages. Some diagnostic details returned
-by the configuration, path, security and adapter modules still use English.
-MCP tool descriptions and business responses are also still English in this
-release. This is CLI localization, not complete runtime translation.
+warnings, server startup/fatal messages, MCP tool titles/descriptions and input
+field descriptions. First-party configuration, path, security, transport and
+transfer messages, business success text and error envelopes use the selected
+language. Public error codes and result field names remain stable; see the
+[error contract](./ERROR-CONTRACT.md).
 
 Native filesystem or network error details remain data from their original
 source. Remote content, server names, identifiers, paths, protocol values,
@@ -49,8 +50,10 @@ or `--force` policy. The Trae snippet includes the same language setting.
 `createI18n(locale)` creates an immutable context with `locale` and
 `t(key, params)`. Callers pass this context explicitly; there is no mutable
 global locale and no model-controlled tool argument for choosing a language.
-Catalog keys are grouped by namespace in `src/locales/en.js` and
-`src/locales/fr.js`. Tests require matching keys and named placeholders.
+Catalog keys are grouped by namespace in the paired `en.js`, `runtime.en.js`
+and `errors.en.js` files under `src/locales`, with matching French files.
+Tests require matching keys and named placeholders. Typed errors carry a
+private message descriptor and are rendered only at the selected language boundary.
 Parameter values are inserted once, without interpreting their contents.
 
 An absent French message falls back to its English catalog entry. An unknown

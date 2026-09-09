@@ -1,3 +1,4 @@
+import { isAppError, renderError } from "./errors.js";
 // One-command installer / wizard (`setup`) and a read-only diagnostic
 // (`doctor`). Lazy-imported by index.js so the pure MCP server startup stays
 // lean (this file pulls in readline, the adapters and clients.js).
@@ -292,6 +293,7 @@ async function testOneServer(name, srv, { t }) {
 }
 
 export function connectionHint(err, { t } = createI18n()) {
+  if (isAppError(err) && err.code === "TRANSPORT_POLICY") return t("connection.insecureHint");
   const msg = err && err.message ? err.message : String(err);
   if (/INSECURE CONNECTION REFUSED/.test(msg)) {
     return t("connection.insecureHint");
@@ -319,7 +321,7 @@ async function runConnectionTests(servers, W, i18n) {
       const insecure = insecureTransport(normalizeServer(name, srv));
       W(`  ✓ ${name} (${proto}://${srv.host})${insecure ? t("connection.insecure") : ""}`);
     } else {
-      const short = (res.error && res.error.message ? res.error.message : String(res.error)).split("[")[0].trim();
+      const short = (isAppError(res.error) ? renderError(res.error, i18n) : res.error?.message ?? String(res.error)).split("[")[0].trim();
       W(`  ✗ ${name} — ${short} — ${connectionHint(res.error, i18n)}`);
     }
   }
@@ -758,7 +760,7 @@ export async function runSetup(argv, i18n = createI18n()) {
     W(t("setup.doctorHint"));
     return 0;
   } catch (err) {
-    throw redactor.error(err);
+    throw redactor.error(isAppError(err) ? renderError(err, i18n) : err);
   } finally {
     if (rl) rl.close();
   }
@@ -819,8 +821,8 @@ export async function runDoctor(argv, i18n = createI18n()) {
         if (unsafeRemoteRoot(normalized)) {
           W(
             s.allowUnsafeRemoteRoot === true
-              ? t("doctor.rootOverride", { message: unsafeRemoteRootWarningText(normalized) })
-              : t("doctor.rootRefused", { message: unsafeRemoteRootBlockedMessage(name, normalized.root) })
+              ? t("doctor.rootOverride", { message: unsafeRemoteRootWarningText(normalized, i18n) })
+              : t("doctor.rootRefused", { message: unsafeRemoteRootBlockedMessage(name, normalized.root, i18n) })
           );
         }
         const invalidHostKey =
@@ -832,8 +834,8 @@ export async function runDoctor(argv, i18n = createI18n()) {
         } else if (normalized.protocol === "sftp" && normalized.hostKeySha256.length === 0) {
           W(
             s.allowUnknownHostKey === true
-              ? t("doctor.keyOverride", { message: unknownHostKeyWarningText(normalized) })
-              : t("doctor.keyRefused", { message: unknownHostKeyBlockedMessage(name) })
+              ? t("doctor.keyOverride", { message: unknownHostKeyWarningText(normalized, i18n) })
+              : t("doctor.keyRefused", { message: unknownHostKeyBlockedMessage(name, i18n) })
           );
         }
         for (const varName of unresolvedEnvVars(s)) {

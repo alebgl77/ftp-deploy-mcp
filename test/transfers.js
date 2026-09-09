@@ -78,9 +78,8 @@ function loaded(root, extra = {}) {
   };
 }
 function capture(config, openAdapter) {
-  const handlers = new Map();
-  registerTools({ registerTool(name, _spec, handler) { handlers.set(name, handler); } }, config, { openAdapter });
-  return (name, args, extra = {}) => handlers.get(name)(args, extra);
+  const registry = registerTools(null, config, { openAdapter });
+  return (name, args, extra = {}) => registry.call(name, args, extra);
 }
 function resultText(result) { return result.content.map((item) => item.text || "").join("\n"); }
 

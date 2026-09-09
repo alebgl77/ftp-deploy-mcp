@@ -5,7 +5,7 @@
 //   - never throws to the transport (errors become isError results),
 //   - never leaks credentials.
 //
-// All user-facing tool output is English (the consuming agent may be any client).
+// Human-facing output uses the immutable locale selected at server startup.
 
 import { z } from "zod";
 import fs from "node:fs";
@@ -14,6 +14,7 @@ import picomatch from "picomatch";
 
 import {
   resolveServer,
+  configRedactor,
   configHelpText,
   normalizeServer,
   insecureTransport,
@@ -27,8 +28,10 @@ import {
 } from "./config.js";
 import { resolveRemote, isRootPath, normalizeRoot } from "./remote-path.js";
 import { resolveLocalSource, resolveLocalDestination, localRootStatus } from "./local-path.js";
-import { createRedactor } from "./redact.js";
-import { createOperation, connectOperation, remoteLockKey, localLockKey } from "./operations.js";
+import { connectOperation, remoteLockKey, localLockKey } from "./operations.js";
+import { createI18n } from "./i18n.js";
+import { appError, normalizeError, nativeError, renderError, withSecondary } from "./errors.js";
+import { createToolRegistry, addNotices, withRenderMetadata, utf8Size, truncateUtf8 } from "./tool-registry.js";
 import { checkTransferSize, checkDeploySelection, hashLocalFile, uploadVerified, downloadVerified } from "./transfers.js";
 import * as ftpAdapter from "./adapters/ftp.js";
 import * as sftpAdapter from "./adapters/sftp.js";
@@ -50,7 +53,6 @@ const DEFAULT_EXCLUDES = [
 
 const READ_DEFAULT_BYTES = 262144;
 const READ_MAX_BYTES = 1048576;
-const MAX_RESULT_BYTES = 25000;
 const DEPLOY_SAMPLE_LIMIT = 100;
 const STRUCTURED_SAMPLE_BUDGET = 22000;
 
@@ -199,168 +201,8 @@ function successResult(text, structuredContent) {
   return { content: [{ type: "text", text }], structuredContent };
 }
 
-function errorResult(text) {
-  return { content: [{ type: "text", text: `Error: ${text}` }], isError: true };
-}
-
-function explicitErrorResult(text) {
-  return { content: [{ type: "text", text }], isError: true };
-}
-
-function utf8Size(value) {
-  return Buffer.byteLength(JSON.stringify(value), "utf8");
-}
-
-function truncateUtf8(text, maxBytes) {
-  const value = String(text);
-  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
-  if (maxBytes <= 0) return "";
-  const marker = "\n… [output truncated]";
-  const markerBytes = Buffer.byteLength(marker, "utf8");
-  if (markerBytes >= maxBytes) {
-    let end = Math.min(marker.length, maxBytes);
-    while (end > 0 && Buffer.byteLength(marker.slice(0, end), "utf8") > maxBytes) end -= 1;
-    return marker.slice(0, end);
-  }
-  let low = 0;
-  let high = value.length;
-  const budget = maxBytes - markerBytes;
-  while (low < high) {
-    const mid = Math.ceil((low + high) / 2);
-    if (Buffer.byteLength(value.slice(0, mid), "utf8") <= budget) low = mid;
-    else high = mid - 1;
-  }
-  let end = low;
-  if (end > 0 && /[\uD800-\uDBFF]/.test(value[end - 1])) end -= 1;
-  return `${value.slice(0, end)}${marker}`;
-}
-
-function boundedString(value, maxBytes = 2048) {
-  return truncateUtf8(value == null ? "" : value, maxBytes);
-}
-
-// Only these exact public enum fields may coincide with a credential. Free
-// text at every other path still goes through literal secret redaction.
-const PUBLIC_STRUCTURED_ENUMS = new Map([
-  ["status", new Set(["configured", "missing", "invalid"])],
-  ["protocol", new Set(["ftp", "ftps", "sftp"])],
-  ["servers.*.protocol", new Set(["ftp", "ftps", "sftp"])],
-  ["servers.*.auth", new Set(["key", "password"])],
-  ["entries.*.type", new Set(["dir", "file", "link"])],
-  ["mode", new Set(["dry_run", "deploy"])],
-  ["entry_type", new Set(["file", "directory"])],
-]);
-
-function redactStructured(value, redactor, fieldPath = "") {
-  if (typeof value === "string") {
-    if (PUBLIC_STRUCTURED_ENUMS.get(fieldPath)?.has(value)) return value;
-    return boundedString(redactor.strictText(value));
-  }
-  if (Array.isArray(value)) return value.map((item) => redactStructured(item, redactor, `${fieldPath}.*`));
-  if (!value || typeof value !== "object") return value;
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
-      redactStructured(item, redactor, fieldPath ? `${fieldPath}.${key}` : key),
-    ])
-  );
-}
-
-const STRUCTURED_SAMPLE_FIELDS = [
-  ["entries", null],
-  ["servers", "servers_omitted"],
-  ["errors", "errors_omitted"],
-  ["uploaded", "uploaded_omitted"],
-  ["planned", "planned_omitted"],
-  ["failures", "failures_omitted"],
-];
-
-function syncListPageCounters(result) {
-  const structured = result.structuredContent;
-  if (!structured || !Array.isArray(structured.entries)) return;
-  structured.count = structured.entries.length;
-  structured.has_more = structured.offset + structured.count < structured.total;
-  structured.next_offset = structured.has_more ? structured.offset + structured.count : null;
-  const pageLine = `Page: offset ${structured.offset}, count ${structured.count}, limit ${structured.limit}; ${
-    structured.next_offset === null ? "no next offset" : `next offset ${structured.next_offset}`
-  }.`;
-  for (const item of result.content || []) {
-    if (typeof item.text === "string" && /^Page: /m.test(item.text)) {
-      item.text = item.text.replace(/^Page: .*$/m, pageLine);
-      break;
-    }
-  }
-}
-
-function reduceStructuredSamples(result) {
-  const structured = result.structuredContent;
-  if (!structured) return;
-  while (utf8Size(structured) > STRUCTURED_SAMPLE_BUDGET) {
-    let selected = null;
-    let selectedBytes = -1;
-    for (const [field, omittedField] of STRUCTURED_SAMPLE_FIELDS) {
-      const values = structured[field];
-      if (!Array.isArray(values) || values.length === 0) continue;
-      const candidateBytes = utf8Size(values[values.length - 1]);
-      if (candidateBytes > selectedBytes) {
-        selected = [field, omittedField];
-        selectedBytes = candidateBytes;
-      }
-    }
-    if (!selected) break;
-    const [field, omittedField] = selected;
-    structured[field].pop();
-    if (omittedField) structured[omittedField] = (structured[omittedField] || 0) + 1;
-  }
-  syncListPageCounters(result);
-}
-
-function capToolResult(result) {
-  if (!result) return result;
-  const bounded = {
-    ...result,
-    content: Array.isArray(result.content) ? result.content.map((item) => ({ ...item })) : [],
-  };
-  if (result.structuredContent) {
-    bounded.structuredContent = { ...result.structuredContent };
-    for (const [field] of STRUCTURED_SAMPLE_FIELDS) {
-      if (Array.isArray(result.structuredContent[field])) {
-        bounded.structuredContent[field] = result.structuredContent[field].slice();
-      }
-    }
-    reduceStructuredSamples(bounded);
-  }
-  while (utf8Size(bounded) > MAX_RESULT_BYTES) {
-    let largest = -1;
-    let largestBytes = 0;
-    const unprotected = bounded.content.some(
-      (item) => typeof item.text === "string" && !item.text.includes("SECURITY WARNING") && item.text.length > 0
-    );
-    for (let i = 0; i < bounded.content.length; i += 1) {
-      const text = bounded.content[i] && bounded.content[i].text;
-      if (typeof text !== "string") continue;
-      if (unprotected && text.includes("SECURITY WARNING")) continue;
-      const bytes = Buffer.byteLength(text, "utf8");
-      if (bytes > largestBytes) {
-        largest = i;
-        largestBytes = bytes;
-      }
-    }
-    if (largest === -1 || largestBytes === 0) break;
-    const excess = utf8Size(bounded) - MAX_RESULT_BYTES;
-    bounded.content[largest].text = truncateUtf8(
-      bounded.content[largest].text,
-      Math.max(0, largestBytes - excess - 128)
-    );
-  }
-  if (utf8Size(bounded) <= MAX_RESULT_BYTES) return bounded;
-  const firstText = bounded.content.find((item) => typeof item.text === "string")?.text || "Output";
-  const header = firstText.split(/\r?\n/, 1)[0];
-  const fallback = explicitErrorResult(
-    `${header}\nOUTPUT LIMIT — ERROR: the safely redacted result exceeded ${MAX_RESULT_BYTES} UTF-8 bytes.`
-  );
-  fallback.content[0].text = truncateUtf8(fallback.content[0].text, MAX_RESULT_BYTES - 128);
-  return fallback;
+function boundedString(value, maxBytes = 2048, i18n = createI18n()) {
+  return truncateUtf8(value == null ? "" : value, maxBytes, i18n.t("error.truncated"));
 }
 
 function formatSize(n) {
@@ -377,40 +219,23 @@ function openAdapter(serverCfg, operation) {
 
 // Append a loud, visible security warning to a tool result when the server
 // uses an explicitly-allowed insecure transport. Secure servers pass through.
-function transportWarningTexts(server) {
-  return [
-    insecureWarningText(server),
-    unsafeRemoteRootWarningText(server),
-    unknownHostKeyWarningText(server),
-  ].filter(Boolean);
+function transportWarningTexts(server, i18n = createI18n()) {
+  // Bound only displayed parameters; policy decisions use the original config.
+  const shown = { ...server, name: boundedString(server.name, 256, i18n), root: boundedString(server.root, 256, i18n) };
+  return [insecureWarningText(shown, i18n), unsafeRemoteRootWarningText(shown, i18n),
+    unknownHostKeyWarningText(shown, i18n)].filter(Boolean);
 }
 
-function withTransportNotices(result, server) {
-  const warnings = transportWarningTexts(server);
-  if (warnings.length === 0 || !result || !Array.isArray(result.content)) return result;
-  const existing = result.content.map((item) => item.text || "").join("\n");
-  const additions = warnings
-    .filter((warning) => !existing.includes(warning))
-    .map((warning) => ({ type: "text", text: warning }));
-  return additions.length ? { ...result, content: [...result.content, ...additions] } : result;
+function withTransportNotices(result, server, i18n = createI18n()) {
+  return addNotices(result, transportWarningTexts(server, i18n));
 }
 
-// Same for the error path: guard() renders thrown errors as isError results,
-// so the warning must ride inside the message — an op that failed may still
-// have sent credentials over the insecure transport.
-function withTransportError(err, server) {
-  const warnings = transportWarningTexts(server);
-  if (warnings.length === 0) return err;
-  const msg = err && err.message ? err.message : String(err);
-  return new Error(`${warnings.join("\n\n")}\n\n${msg}`);
-}
-
-// Thrown when config is missing/broken; carries the help text.
-class ConfigError extends Error {}
+function withTransportError(error) { return normalizeError(error); }
 
 function requireConfig(loaded) {
   if (!loaded.found || loaded.error || !loaded.config) {
-    throw new ConfigError(configHelpText(loaded));
+    throw loaded.failure || appError(loaded.found ? "CONFIG_INVALID" : "CONFIG_REQUIRED",
+      loaded.found ? "error.CONFIG_INVALID" : "error.CONFIG_REQUIRED", { detail: loaded.error ?? "" });
   }
 }
 
@@ -421,9 +246,7 @@ async function withResolvedServer(name, server, opts, run, connectAdapter) {
   const operation = opts.operation;
   try {
     if (write && server.readOnly) {
-      throw new Error(
-        `server "${name}" is read-only — upload, deploy, mkdir, rename and delete are blocked`
-      );
+      throw appError("READ_ONLY", "runtime.tools.readOnly", { name });
     }
     return await operation.lock(write ? [remoteLockKey(server)] : (opts.lockKeys || []), async () => {
       operation.check();
@@ -450,16 +273,13 @@ async function withResolvedServer(name, server, opts, run, connectAdapter) {
       }
       if (operationFailed) {
         if (closeFailed) {
-          const primary = operationError && operationError.message ? operationError.message : String(operationError);
-          const secondary = closeError && closeError.message ? closeError.message : String(closeError);
-          throw new Error(`${primary}\n\nConnection close also failed: ${secondary}`, {
-            cause: operationError,
-          });
+          const secondary = nativeError(closeError, "transport");
+          throw withSecondary(operationError, "error.close", { detail: secondary });
         }
         throw operationError;
       }
-      if (closeFailed) throw closeError;
-      return withTransportNotices(result, server);
+      if (closeFailed) throw nativeError(closeError, "transport");
+      return withTransportNotices(result, server, operation.i18n);
     });
   } catch (err) {
     throw withTransportError(err, server);
@@ -470,33 +290,6 @@ async function withServer(loaded, requestedServer, opts, run, connectAdapter) {
   requireConfig(loaded);
   const { name, server } = resolveServer(loaded, requestedServer);
   return withResolvedServer(name, server, opts, run, connectAdapter);
-}
-
-// Wrap a handler so any throw becomes a clean isError result.
-function guard(fn, redactor, loaded) {
-  return async (args, extra = {}) => {
-    let selected;
-    let operation;
-    try {
-      if (loaded?.config) {
-        try { selected = resolveServer(loaded, args?.server).server; } catch { /* handler reports selection errors */ }
-      }
-      operation = createOperation(extra, selected?.operationTimeoutMs);
-      const redacted = redactor.result(await operation.run(() => fn(args || {}, operation)));
-      if (redacted && redacted.isError === true) {
-        const { structuredContent: _discarded, ...errorOnly } = redacted;
-        return capToolResult(errorOnly);
-      }
-      if (redacted && redacted.structuredContent) {
-        redacted.structuredContent = redactStructured(redacted.structuredContent, redactor);
-      }
-      return capToolResult(redacted);
-    } catch (err) {
-      if (operation?.signal.aborted && selected) err = withTransportError(operation.signal.reason, selected);
-      const msg = err && err.message ? err.message : String(err);
-      return capToolResult(errorResult(redactor.strictText(msg)));
-    }
-  };
 }
 
 // ---- deploy helpers -------------------------------------------------------
@@ -536,7 +329,7 @@ function selectDeployFiles(localDirAbs, include, exclude) {
     try {
       dirents = fs.readdirSync(absDir, { withFileTypes: true });
     } catch (err) {
-      throw new Error(`cannot read local directory "${absDir}": ${err.message}`);
+      throw appError("PATH_REJECTED", "runtime.tools.directoryReadFailed", { path: absDir, error: err.message }, { origin: "local" });
     }
     for (const d of dirents) {
       if (d.isSymbolicLink()) continue; // never follow symlinks
@@ -563,30 +356,26 @@ function selectDeployFiles(localDirAbs, include, exclude) {
   return files;
 }
 
-function dryRunPolicyMessages(name, server) {
+function dryRunPolicyMessages(name, server, i18n) {
+  const { t } = i18n;
   const messages = [];
   const insecure = insecureTransport(server);
   if (insecure && !server.allowInsecure) {
     messages.push(
-      `server "${name}" uses ${insecureLabel(insecure)} without "allowInsecure": true — a real deploy will be REFUSED`
+      t("runtime.tools.dryRunInsecure", { name, label: insecureLabel(insecure, i18n) })
     );
   }
   if (unsafeRemoteRoot(server) && !server.allowUnsafeRemoteRoot) {
-    messages.push(`${unsafeRemoteRootBlockedMessage(name, server.root)} A real deploy will be REFUSED.`);
+    messages.push(t("runtime.tools.realDeployRefused", { message: unsafeRemoteRootBlockedMessage(name, server.root, i18n) }));
   }
   if (
     server.protocol === "sftp" &&
     server.hostKeySha256.length === 0 &&
     !server.allowUnknownHostKey
   ) {
-    messages.push(`${unknownHostKeyBlockedMessage(name)} A real deploy will be REFUSED.`);
+    messages.push(t("runtime.tools.realDeployRefused", { message: unknownHostKeyBlockedMessage(name, i18n) }));
   }
   return messages;
-}
-
-function securityWarning(server) {
-  const warnings = transportWarningTexts(server);
-  return warnings.length ? boundedString(warnings.join("\n\n")) : null;
 }
 
 function connectionRefused(server) {
@@ -626,19 +415,19 @@ function fitListServerSamples(
   };
 }
 
-function projectedListEntry(entry) {
+function projectedListEntry(entry, i18n) {
   return {
-    name: boundedString(entry.name),
+    name: boundedString(entry.name, 2048, i18n),
     type: entry.type === "dir" || entry.type === "link" ? entry.type : "file",
     size_bytes: typeof entry.size === "number" && entry.size >= 0 ? entry.size : 0,
-    modified_at: entry.modifiedAt ? boundedString(entry.modifiedAt, 512) : null,
+    modified_at: entry.modifiedAt ? boundedString(entry.modifiedAt, 512, i18n) : null,
   };
 }
 
-function fitListPage(meta, entries) {
+function fitListPage(meta, entries, i18n) {
   const page = [];
   for (const entry of entries) {
-    page.push(projectedListEntry(entry));
+    page.push(projectedListEntry(entry, i18n));
     if (page.length > 1 && utf8Size({ ...meta, entries: page }) > STRUCTURED_SAMPLE_BUDGET) {
       page.pop();
       break;
@@ -647,12 +436,12 @@ function fitListPage(meta, entries) {
   return page;
 }
 
-function boundedDeploySamples(items, project = (item) => item) {
+function boundedDeploySamples(items, project = (item) => item, i18n = createI18n()) {
   const selected = items.slice(0, DEPLOY_SAMPLE_LIMIT);
   const sample = selected.map((item) => {
     const projected = project(item);
     return {
-      path: boundedString(projected.path),
+      path: boundedString(projected.path, 2048, i18n),
       size_bytes:
         typeof projected.size_bytes === "number" && projected.size_bytes >= 0 ? projected.size_bytes : 0,
     };
@@ -663,10 +452,23 @@ function boundedDeploySamples(items, project = (item) => item) {
 
 // ---- registration ---------------------------------------------------------
 
-export function registerTools(server, loaded, options = {}) {
+export function registerTools(sdkServer, loaded, options = {}) {
+  const i18n = options.i18n ?? createI18n();
+  const { t } = i18n;
   const connectAdapter = options.openAdapter || openAdapter;
-  const redactor = createRedactor(loaded && loaded.config);
-  const guardTool = (handler) => guard(handler, redactor, loaded);
+  const redactor = configRedactor(loaded);
+  const selected = (args) => { try { return resolveServer(loaded, args?.server).server; } catch { return null; } };
+  const server = createToolRegistry({ redactor, i18n, transportContext: options.transportContext,
+    timeoutFor: (args) => selected(args)?.operationTimeoutMs,
+    errorNotices: (args) => { const resolved = selected(args); return resolved ? transportWarningTexts(resolved, i18n) : []; },
+  });
+  const guardTool = (handler) => handler;
+  const boundedString = (value, max = 2048) => truncateUtf8(value, max, t("error.truncated"));
+  const securityWarning = (resolved) => {
+    const warnings = transportWarningTexts(resolved, i18n);
+    return warnings.length ? boundedString(warnings.join("\n\n")) : null;
+  };
+  const withTransportNotices = (result, resolved) => addNotices(result, transportWarningTexts(resolved, i18n));
   const useServer = (requested, opts, run) =>
     withServer(loaded, requested, opts, run, connectAdapter);
   const serverField = z
@@ -690,16 +492,16 @@ export function registerTools(server, loaded, options = {}) {
         const invalidNames = loaded.invalidServerNames || [];
         const errorTotal = (loaded.error ? 1 : 0) + invalidNames.length;
         const errorItems = loaded.error
-          ? [{ server: null, message: boundedString(loaded.error) }]
+          ? [{ server: null, message: boundedString(loaded.failure ? renderError(loaded.failure, i18n) : loaded.error) }]
           : [];
         for (const name of invalidNames.slice(0, Math.max(0, 20 - errorItems.length))) {
           errorItems.push({
             server: boundedString(name),
-            message: boundedString(loaded.serverErrors && loaded.serverErrors[name]),
+            message: boundedString(loaded.serverFailures?.[name] ? renderError(loaded.serverFailures[name], i18n) : loaded.serverErrors?.[name]),
           });
         }
         const samples = fitListServerSamples([], errorItems, 0, errorTotal);
-        return successResult(configHelpText(loaded), {
+        return successResult(configHelpText(loaded, i18n), {
           status: loaded.found ? "invalid" : "missing",
           configured_count: invalidNames.length,
           valid_count: 0,
@@ -713,7 +515,7 @@ export function registerTools(server, loaded, options = {}) {
       }
       const names = loaded.serverNames;
       const invalidNames = loaded.invalidServerNames || [];
-      const lines = [`Configured servers (${names.length + invalidNames.length}):`, ""];
+      const lines = [t("runtime.tools.servers.heading", { count: names.length + invalidNames.length }), ""];
       const structuredServers = [];
       for (const name of names) {
         const s = normalizeServer(name, loaded.config.servers[name]);
@@ -722,37 +524,37 @@ export function registerTools(server, loaded, options = {}) {
         const auth = s.privateKeyPath ? "key" : "password";
         const insecure = insecureTransport(s);
         const flags = [];
-        if (isDefault) flags.push("default");
-        if (s.readOnly) flags.push("read-only");
-        if (insecure) flags.push("⚠ INSECURE");
-        if (unsafeRemoteRoot(s)) flags.push("⚠ UNSAFE ROOT");
-        if (s.protocol === "sftp" && s.hostKeySha256.length === 0) flags.push("⚠ HOST KEY");
+        if (isDefault) flags.push(t("runtime.tools.servers.default"));
+        if (s.readOnly) flags.push(t("runtime.tools.servers.readOnly"));
+        if (insecure) flags.push(t("runtime.tools.servers.insecure"));
+        if (unsafeRemoteRoot(s)) flags.push(t("runtime.tools.servers.unsafeRoot"));
+        if (s.protocol === "sftp" && s.hostKeySha256.length === 0) flags.push(t("runtime.tools.servers.hostKey"));
         const suffix = flags.length ? `  [${flags.join(", ")}]` : "";
         lines.push(`- ${name}${suffix}`);
-        const protoLabel = s.implicitTLS ? `${s.protocol} (implicit)` : s.protocol;
+        const protoLabel = s.implicitTLS ? t("runtime.tools.servers.implicit", { protocol: s.protocol }) : s.protocol;
         lines.push(
-          `    ${protoLabel}://${s.host}:${s.port}   root=${normalizeRoot(s.root)}   auth=${auth}`
+          `    ${protoLabel}://${s.host}:${s.port}   root=${normalizeRoot(s.root)}   auth=${t(auth === "key" ? "doctor.key" : "doctor.password")}`
         );
-        lines.push(`    localRoot=${localRootStatus(s)}`);
+        lines.push(`    localRoot=${localRootStatus(s, i18n)}`);
         if (insecure) {
           lines.push(
             s.allowInsecure
-              ? `    ⚠ ${insecureLabel(insecure)} — explicitly allowed by "allowInsecure": true; prefer sftp`
-              : `    ⚠ ${insecureLabel(insecure)} — connections are REFUSED until "allowInsecure": true is set; prefer sftp`
+              ? t("runtime.tools.servers.insecureAllowed", { label: insecureLabel(insecure, i18n) })
+              : t("runtime.tools.servers.insecureRefused", { label: insecureLabel(insecure, i18n) })
           );
         }
         if (unsafeRemoteRoot(s)) {
           lines.push(
             s.allowUnsafeRemoteRoot
-              ? `    ⚠ FTP/FTPS sub-root is explicitly allowed by "allowUnsafeRemoteRoot": true; it is not a reliable symlink jail`
-              : `    ⚠ FTP/FTPS sub-root is REFUSED until "allowUnsafeRemoteRoot": true is set or a server-side chroot is used`
+              ? t("runtime.tools.servers.rootAllowed")
+              : t("runtime.tools.servers.rootRefused")
           );
         }
         if (s.protocol === "sftp" && s.hostKeySha256.length === 0) {
           lines.push(
             s.allowUnknownHostKey
-              ? `    ⚠ SFTP host identity is not verified; explicitly allowed by "allowUnknownHostKey": true`
-              : `    ⚠ SFTP connections are REFUSED until "hostKeySha256" is configured or "allowUnknownHostKey": true is set`
+              ? t("runtime.tools.servers.keyAllowed")
+              : t("runtime.tools.servers.keyRefused")
           );
         }
         if (structuredServers.length < 20) {
@@ -765,7 +567,7 @@ export function registerTools(server, loaded, options = {}) {
             read_only: s.readOnly,
             auth,
             is_default: isDefault,
-            local_root_status: localRootStatus(s),
+            local_root_status: localRootStatus(s, i18n),
             connection_refused: connectionRefused(s),
             security_warning: securityWarning(s),
           });
@@ -773,12 +575,12 @@ export function registerTools(server, loaded, options = {}) {
       }
       const structuredErrors = [];
       for (const name of invalidNames) {
-        lines.push(`- ${name}  [INVALID — REFUSED]`);
-        lines.push(`    ${loaded.serverErrors[name]}`);
+        lines.push(t("runtime.tools.servers.invalid", { name }));
+        lines.push(`    ${loaded.serverFailures?.[name] ? renderError(loaded.serverFailures[name], i18n) : loaded.serverErrors[name]}`);
         if (structuredErrors.length < 20) {
           structuredErrors.push({
             server: boundedString(name),
-            message: boundedString(loaded.serverErrors[name]),
+            message: boundedString(loaded.serverFailures?.[name] ? renderError(loaded.serverFailures[name], i18n) : loaded.serverErrors[name]),
           });
         }
       }
@@ -817,7 +619,7 @@ export function registerTools(server, loaded, options = {}) {
         const root = resolveRemote(s.root, "");
         const entries = await adapter.list(root);
         return successResult(
-          `OK — connected to ${s.protocol}://${s.host}:${s.port}, root ${root}, ${entries.length} entries visible`,
+          t("runtime.tools.test.connected", { protocol: s.protocol, host: s.host, port: s.port, root, count: entries.length }),
           {
             server: boundedString(s.name),
             protocol: s.protocol,
@@ -872,47 +674,29 @@ export function registerTools(server, loaded, options = {}) {
             limit,
             security_warning: warning,
           },
-          candidates
+          candidates, i18n
         );
-        const page = candidates.slice(0, projectedPage.length);
         const count = projectedPage.length;
         const hasMore = offset + count < total;
-        const nextOffset = hasMore ? offset + count : null;
-        const pageLine = `Page: offset ${offset}, count ${count}, limit ${limit}; ${
-          nextOffset === null ? "no next offset" : `next offset ${nextOffset}`
-        }.`;
+        const structured = { server: boundedString(s.name), path: boundedString(target), total, count, offset, limit,
+          has_more: hasMore, next_offset: hasMore ? offset + count : null, entries: projectedPage, security_warning: warning };
         const showPagination = args.limit !== undefined || args.offset !== undefined || total > 50;
-        const lines = [`Contents of ${target} (${entries.length} entries):`];
-        if (showPagination) lines.push(pageLine);
-        lines.push("");
-        if (entries.length === 0) {
-          lines.push("(empty directory)");
-        } else if (page.length === 0) {
-          lines.push(`(no entries at offset ${offset})`);
-        } else {
-          for (const e of page) {
-            if (e.type === "dir") {
-              lines.push(`[DIR] ${e.name}`);
-            } else if (e.type === "link") {
-              lines.push(`[LINK] ${e.name}`);
-            } else {
-              const when = e.modifiedAt ? `, ${e.modifiedAt}` : "";
-              lines.push(`[FILE] ${e.name} (${formatSize(e.size)}${when})`);
-            }
+        const renderPage = (data) => {
+          const lines = [t("runtime.tools.list.heading", { path: data.path, count: data.total })];
+          if (showPagination) lines.push(t("runtime.tools.page", { offset: data.offset, count: data.count, limit: data.limit,
+            next: data.next_offset === null ? t("runtime.tools.pageNone") : t("runtime.tools.pageNext", { offset: data.next_offset }) }));
+          lines.push("");
+          if (!data.total) lines.push(t("runtime.tools.list.empty"));
+          else if (!data.entries.length) lines.push(t("runtime.tools.list.noPage", { offset: data.offset }));
+          for (const entry of data.entries) {
+            if (entry.type === "dir" || entry.type === "link") {
+              lines.push(t(entry.type === "dir" ? "runtime.tools.list.dir" : "runtime.tools.list.link", { name: entry.name }));
+            } else lines.push(t("runtime.tools.list.file", { name: entry.name, size: formatSize(entry.size_bytes),
+              modified: entry.modified_at ? `, ${entry.modified_at}` : "" }));
           }
-        }
-        return successResult(lines.join("\n"), {
-          server: boundedString(s.name),
-          path: boundedString(target),
-          total,
-          count,
-          offset,
-          limit,
-          has_more: hasMore,
-          next_offset: nextOffset,
-          entries: projectedPage,
-          security_warning: warning,
-        });
+          return lines.join("\n");
+        };
+        return withRenderMetadata(successResult(renderPage(structured), structured), { page: renderPage });
       })
     )
   );
@@ -947,12 +731,12 @@ export function registerTools(server, loaded, options = {}) {
         for (let i = 0; i < scan; i++) {
           if (buffer[i] === 0) {
             return textResult(
-              `Refused: ${target} looks like a binary file (NUL byte found in the first ${scan} bytes). Use ftp_download to fetch it.`
+              t("runtime.tools.read.binary", { path: target, scan })
             );
           }
         }
-        const note = truncated ? ` — TRUNCATED at ${maxBytes} bytes` : "";
-        const header = `File ${target} (${formatSize(buffer.length)}${note}):`;
+        const note = truncated ? t("runtime.tools.read.truncated", { maxBytes }) : "";
+        const header = t("runtime.tools.read.heading", { path: target, size: formatSize(buffer.length), note });
         return textResult(`${header}\n\n${buffer.toString("utf8")}`);
       })
     )
@@ -979,6 +763,7 @@ export function registerTools(server, loaded, options = {}) {
     guardTool(async (args, operation) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
+      operation.trackFiles(1);
       try {
         let source = resolveLocalSource(s, args.local_path, "file");
         checkTransferSize(source.stat.size, s.maxTransferBytes);
@@ -994,11 +779,11 @@ export function registerTools(server, loaded, options = {}) {
             expected = await hashLocalFile(source.path, s.maxTransferBytes, operation);
           } },
           async ({ adapter }) => {
-            const transferred = await uploadVerified({
+            const transferred = await operation.fileAttempt(() => uploadVerified({
               adapter, source: source.path, target, maxBytes: s.maxTransferBytes, operation, expected,
-            });
+            }));
             return successResult(
-              `Uploaded ${source.path} -> ${target} (${formatSize(transferred.bytes)}) on ${s.protocol}://${s.host}`,
+              t("runtime.tools.upload.done", { localPath: source.path, remotePath: target, size: formatSize(transferred.bytes), protocol: s.protocol, host: s.host }),
               {
                 server: boundedString(name),
                 local_path: boundedString(source.path),
@@ -1049,30 +834,31 @@ export function registerTools(server, loaded, options = {}) {
         const files = selectDeployFiles(source.path, args.include, args.exclude);
         const remoteBase = resolveRemote(s.root, args.remote_dir ?? "");
         let totalBytes = checkDeploySelection(files, s);
+        if (!args.dry_run) operation.trackFiles(files.length);
 
         if (args.dry_run) {
           // dry_run performs zero network I/O, so it's allowed even on a
           // read-only server — only a real deploy is blocked below.
           const lines = [
-            `Dry run — would upload ${files.length} files (${formatSize(totalBytes)}) to ${remoteBase} on "${name}". No connection was made.`,
+            t("runtime.tools.deploy.dryRun", { count: files.length, size: formatSize(totalBytes), path: remoteBase, name }),
             "",
           ];
           const shown = files.slice(0, DEPLOY_SAMPLE_LIMIT);
           for (const f of shown) lines.push(`  ${f.rel} (${formatSize(f.size)})`);
-          if (files.length > shown.length) lines.push(`  ... and ${files.length - shown.length} more`);
-          if (files.length === 0) lines.push("  (nothing matches — check include/exclude globs)");
+          if (files.length > shown.length) lines.push(t("runtime.tools.deploy.more", { count: files.length - shown.length }));
+          if (files.length === 0) lines.push(t("runtime.tools.deploy.noMatch"));
           if (s.readOnly) {
             lines.push("");
-            lines.push(`Note: server "${name}" is read-only — a real deploy will be refused.`);
+            lines.push(t("runtime.tools.deploy.readOnlyNote", { name }));
           }
-          for (const message of dryRunPolicyMessages(name, s)) {
+          for (const message of dryRunPolicyMessages(name, s, i18n)) {
             lines.push("");
-            lines.push(`Note: ${message}`);
+            lines.push(t("runtime.tools.deploy.note", { message }));
           }
           const planned = boundedDeploySamples(files, (file) => ({
             path: file.rel,
             size_bytes: file.size,
-          }));
+          }), i18n);
           return withTransportNotices(
             successResult(lines.join("\n"), {
               mode: "dry_run",
@@ -1099,15 +885,13 @@ export function registerTools(server, loaded, options = {}) {
         }
 
         if (s.readOnly) {
-          throw new Error(
-            `server "${name}" is read-only — upload, deploy, mkdir, rename and delete are blocked`
-          );
+          throw appError("READ_ONLY", "runtime.tools.readOnly", { name });
         }
 
         if (files.length === 0) {
           return withTransportNotices(
             successResult(
-              `Nothing to deploy to ${remoteBase} on "${name}" — no files matched (check include/exclude globs).`,
+              t("runtime.tools.deploy.nothing", { path: remoteBase, name }),
               {
                 mode: "deploy",
                 server: boundedString(name),
@@ -1160,7 +944,7 @@ export function registerTools(server, loaded, options = {}) {
                   const current = resolveLocalSource(s, path.resolve(lexicalDir, f.rel), "file");
                   const expected = await hashLocalFile(current.path, s.maxTransferBytes, operation);
                   if (expected.bytes > s.maxDeployBytes - attemptedBytes) {
-                    throw new Error("TRANSFER_LIMIT: deployment exceeds configured maxDeployBytes");
+                    throw appError("TRANSFER_LIMIT", "runtime.transfer.deployBytesLimit");
                   }
                   attemptedBytes += expected.bytes;
                   totalBytes += expected.bytes - f.size;
@@ -1178,8 +962,9 @@ export function registerTools(server, loaded, options = {}) {
                   bytes += f.size;
                   consecutive = 0;
                 } catch (err) {
+                  operation.failFile();
                   operation.check();
-                  failures.push(`${f.rel}: ${err.message}`);
+                  failures.push(`${f.rel}: ${renderError(normalizeError(err), i18n)}`);
                   consecutive += 1;
                   if (consecutive > 5) {
                     abortedEarly = true;
@@ -1205,39 +990,40 @@ export function registerTools(server, loaded, options = {}) {
           operation.check();
           const durationMs = Date.now() - t0;
           const secs = (durationMs / 1000).toFixed(1);
-          if (deployFailure) failures.push(`deploy: ${deployFailure.message}`);
-          if (closeFailure) failures.push(`connection close: ${closeFailure.message}`);
+          if (deployFailure) failures.push(t("runtime.tools.deploy.failureContext", { error: renderError(normalizeError(deployFailure), i18n) }));
+          if (closeFailure) failures.push(t("runtime.tools.deploy.closeContext", { error: renderError(nativeError(closeFailure, "transport"), i18n) }));
           const partial =
             failures.length > 0 ||
             abortedEarly ||
             uploadedList.length !== files.length ||
             deployFailure !== null ||
             closeFailure !== null;
-          const lines = partial ? ["PARTIAL DEPLOY — ERROR"] : [];
+          const lines = [];
           lines.push(
-            `Deployed ${uploadedList.length}/${files.length} files (${formatSize(bytes)}) to ${remoteBase} on "${name}" in ${secs}s.`
+            t("runtime.tools.deploy.summary", { uploaded: uploadedList.length, total: files.length, size: formatSize(bytes), path: remoteBase, name, seconds: secs })
           );
           if (abortedEarly) {
-            lines.push("ABORTED after more than 5 consecutive failures — this is a partial deploy.");
+            lines.push(t("runtime.tools.deploy.aborted"));
           }
           lines.push("");
-          lines.push("Uploaded:");
+          if (failures.length) lines.push(t("runtime.tools.deploy.failures", { count: failures.length }));
+          lines.push(t("runtime.tools.deploy.uploadedHeading"));
           const shown = uploadedList.slice(0, DEPLOY_SAMPLE_LIMIT);
           for (const item of shown) lines.push(`  ${item.path}`);
-          if (uploadedList.length > shown.length) lines.push(`  ... and ${uploadedList.length - shown.length} more`);
-          if (uploadedList.length === 0) lines.push("  (none)");
+          if (uploadedList.length > shown.length) lines.push(t("runtime.tools.deploy.more", { count: uploadedList.length - shown.length }));
+          if (uploadedList.length === 0) lines.push(t("runtime.tools.deploy.none"));
           if (failures.length) {
             lines.push("");
-            lines.push(`Failures (${failures.length}):`);
+            lines.push(t("runtime.tools.deploy.failures", { count: failures.length }));
             const shownFailures = failures.slice(0, DEPLOY_SAMPLE_LIMIT);
             for (const fmsg of shownFailures) lines.push(`  ${fmsg}`);
             if (failures.length > shownFailures.length) {
-              lines.push(`  ... and ${failures.length - shownFailures.length} more`);
+              lines.push(t("runtime.tools.deploy.more", { count: failures.length - shownFailures.length }));
             }
           }
           const text = lines.join("\n");
-          if (partial) return withTransportNotices(explicitErrorResult(text), s);
-          const uploaded = boundedDeploySamples(uploadedList);
+          if (partial) throw appError("DEPLOY_PARTIAL", "error.DEPLOY_PARTIAL", { detail: text });
+          const uploaded = boundedDeploySamples(uploadedList, undefined, i18n);
           return withTransportNotices(
             successResult(text, {
               mode: "deploy",
@@ -1286,22 +1072,21 @@ export function registerTools(server, loaded, options = {}) {
     guardTool(async (args, operation) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
+      operation.trackFiles(1);
       try {
         const target = resolveRemote(s.root, args.remote_path);
         let destination = resolveLocalDestination(s, args.local_path);
         if (destination.exists && !args.overwrite) {
-          throw new Error(
-            `local file already exists inside "localRoot" — pass overwrite:true to replace it`
-          );
+          throw appError("ALREADY_EXISTS", "runtime.tools.download.exists");
         }
         const destinationKey = localLockKey(destination.canonicalPath);
         const revalidate = () => {
           const current = resolveLocalDestination(s, args.local_path);
           if (localLockKey(current.canonicalPath) !== destinationKey) {
-            throw new Error("TARGET_CHANGED: local destination changed while waiting for the operation lock");
+            throw appError("TARGET_CHANGED", "runtime.tools.download.targetChanged");
           }
           if (current.exists && !args.overwrite) {
-            throw new Error('local file already exists inside "localRoot" — pass overwrite:true to replace it');
+            throw appError("ALREADY_EXISTS", "runtime.tools.download.exists");
           }
           destination = current;
           return current;
@@ -1311,13 +1096,13 @@ export function registerTools(server, loaded, options = {}) {
           s,
           { write: false, operation, lockKeys: [destinationKey], beforeConnect: revalidate },
           async ({ adapter }) => {
-            const transferred = await downloadVerified({
+            const transferred = await operation.fileAttempt(() => downloadVerified({
               adapter, remote: target, destination, maxBytes: s.maxTransferBytes,
               overwrite: args.overwrite === true, operation, revalidate,
-            });
+            }));
             const written = resolveLocalDestination(s, args.local_path);
             return successResult(
-              `Downloaded ${target} -> ${written.path} (${formatSize(transferred.bytes)})` +
+              t("runtime.tools.download.done", { remotePath: target, localPath: written.path, size: formatSize(transferred.bytes) }) +
                 (transferred.cleanupWarning ? `\n\n${transferred.cleanupWarning}` : ""),
               {
                 server: boundedString(name),
@@ -1354,7 +1139,7 @@ export function registerTools(server, loaded, options = {}) {
       useServer(args.server, { write: true, operation }, async ({ server: s, adapter }) => {
         const target = resolveRemote(s.root, args.path);
         await adapter.mkdirp(target);
-        return successResult(`Created directory ${target}`, {
+        return successResult(t("runtime.tools.mkdir.done", { path: target }), {
           server: boundedString(s.name),
           path: boundedString(target),
           created: true,
@@ -1380,12 +1165,12 @@ export function registerTools(server, loaded, options = {}) {
     },
     guardTool((args, operation) =>
       useServer(args.server, { write: true, operation }, async ({ server: s, adapter }) => {
-        if (isRootPath(s.root, args.from_path)) throw new Error("refusing to rename the server root");
-        if (isRootPath(s.root, args.to_path)) throw new Error("refusing to overwrite the server root");
+        if (isRootPath(s.root, args.from_path)) throw appError("PATH_REJECTED", "runtime.tools.rename.root");
+        if (isRootPath(s.root, args.to_path)) throw appError("PATH_REJECTED", "runtime.tools.rename.overwriteRoot");
         const from = resolveRemote(s.root, args.from_path);
         const to = resolveRemote(s.root, args.to_path);
         await adapter.rename(from, to);
-        return successResult(`Renamed ${from} -> ${to}`, {
+        return successResult(t("runtime.tools.rename.done", { fromPath: from, toPath: to }), {
           server: boundedString(s.name),
           from_path: boundedString(from),
           to_path: boundedString(to),
@@ -1413,15 +1198,15 @@ export function registerTools(server, loaded, options = {}) {
     },
     guardTool((args, operation) =>
       useServer(args.server, { write: true, operation }, async ({ server: s, adapter }) => {
-        if (isRootPath(s.root, args.path)) throw new Error("refusing to delete the server root directory");
+        if (isRootPath(s.root, args.path)) throw appError("PATH_REJECTED", "runtime.tools.delete.root");
         const target = resolveRemote(s.root, args.path);
         const st = await adapter.stat(target);
         if (st.type === "dir") {
           if (!args.recursive) {
-            throw new Error(`"${target}" is a directory — pass recursive:true to delete it`);
+            throw appError("INVALID_ARGUMENT", "runtime.tools.delete.recursiveRequired", { path: target });
           }
           await adapter.deleteDir(target);
-          return successResult(`Deleted directory (recursive) ${target}`, {
+          return successResult(t("runtime.tools.delete.directoryDone", { path: target }), {
             server: boundedString(s.name),
             path: boundedString(target),
             entry_type: "directory",
@@ -1431,7 +1216,7 @@ export function registerTools(server, loaded, options = {}) {
           });
         }
         await adapter.deleteFile(target);
-        return successResult(`Deleted file ${target}`, {
+        return successResult(t("runtime.tools.delete.fileDone", { path: target }), {
           server: boundedString(s.name),
           path: boundedString(target),
           entry_type: "file",
@@ -1442,6 +1227,8 @@ export function registerTools(server, loaded, options = {}) {
       })
     )
   );
+  if (sdkServer) server.install(sdkServer);
+  return server;
 }
 
 export const TOOL_NAMES = [

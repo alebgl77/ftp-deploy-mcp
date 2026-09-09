@@ -12,7 +12,7 @@ déployer des fichiers sur vos propres serveurs FTP, FTPS et SFTP.
 
 *English version → [README.md](./README.md)*
 
-Langue de la CLI : anglais par défaut ; utilisez `--lang fr` ou `FTP_MCP_LANG=fr`.
+Langue de la CLI et des outils MCP : anglais par défaut ; utilisez `--lang fr` ou `FTP_MCP_LANG=fr`.
 [Périmètre et priorité des langues](./docs/LANGUAGES.fr.md).
 
 [![CI](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml)
@@ -295,8 +295,12 @@ requis `size_bytes` et `modified_at` de chaque entrée :
 Le texte historique, lisible par un humain dans `content`, est conservé pour
 compatibilité. En cas de succès, tous les outils sauf `ftp_read` annoncent
 aussi un `outputSchema` MCP et renvoient un `structuredContent` correspondant ;
-`ftp_read` reste un outil texte borné. Les erreurs d'outil restent des réponses
-`isError` avec contenu texte, sans `structuredContent`.
+`ftp_read` conserve un succès texte borné. Chacun des neuf schémas structurés
+accepte soit sa forme stricte de succès, soit une enveloppe stricte `{error}`.
+Les erreurs d’exécution renvoient `isError: true`, un texte traduit, un code,
+un UUID de requête, les effets observés et une indication de reprise sûre.
+Un outil inconnu reste une erreur de protocole. Voir le
+[contrat d’erreur](./docs/ERROR-CONTRACT.fr.md).
 
 Tous les outils publient des annotations MCP sur leur caractère lecture seule,
 destructif, idempotent et ouvert sur l'extérieur. Ces annotations guident les

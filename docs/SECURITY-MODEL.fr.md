@@ -188,6 +188,25 @@ déduisez pas que chaque chemin d'écriture historique ou non publié est
 atomique. Conservez des sauvegardes indépendantes et validez l'artefact
 empaqueté avant publication.
 
+## Erreurs structurées et annulation
+
+Les erreurs d’outils connus utilisent une enveloppe stricte avec un code stable,
+un nouvel UUID, des effets observés prudemment et aucune autorisation de reprise
+automatique. Les neuf outils structurés publient des possibilités strictes de
+succès ou d’erreur. Le résultat complet est limité à 25 000 octets JSON UTF-8
+après masquage ; les avertissements et la pagination reposent sur des métadonnées
+internes fiables. Le [contrat d’erreur](./ERROR-CONTRACT.fr.md) décrit les champs
+et codes exacts.
+
+Une annulation du client supprime normalement la réponse MCP, tandis qu’une
+échéance interne peut renvoyer `TIMEOUT`. Un décorateur du transport public
+corrige les annulations ignorées par le SDK installé pour le nombre `0` et la
+chaîne vide, avec deux emplacements indépendants. Les emplacements et verrous
+restent détenus jusqu’au règlement réel du traitement. Un doublon actif dans
+l’un de ces emplacements ferme la connexion ; une réponse dont l’envoi a déjà
+commencé ne peut pas être rappelée. Ces mécanismes ne permettent ni retour
+arrière ni preuve d’absence d’effets d’une écriture incertaine.
+
 ## Secrets et consignes d'exploitation
 
 - Gardez `ftp-servers.json` hors du contrôle de version et restreignez ses droits.

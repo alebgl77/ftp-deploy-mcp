@@ -12,9 +12,9 @@ import crypto from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 import { checkedMethods } from "../operations.js";
+import { appError, isAppError, nativeError, messageSpec } from "../errors.js";
 import { TRANSFER_LIMITS, hashRemoteStream, sendLocalStream, receiveLocalStream } from "../transfers.js";
 
-import { unknownHostKeyBlockedMessage } from "../config.js";
 import { normalizeRoot, relativeRemote, rebaseRemote } from "../remote-path.js";
 
 const posix = path.posix;
@@ -36,58 +36,32 @@ function boolFlag(v) {
 }
 
 function friendlyError(err, ctx) {
-  if (err && err.remoteSafety) return err;
-  const orig = err && err.message ? err.message : String(err);
-  const code = err && err.code;
+  if (isAppError(err)) return err;
+  const error = err instanceof Error ? err.message : String(err);
   const at = `${ctx.host}:${ctx.port}`;
-  if (code === "ECONNREFUSED" || /ECONNREFUSED/.test(orig)) {
-    return new Error(`connection refused by ${at} — is the SFTP server reachable? [${orig}]`);
+  const key = err?.code === "ECONNREFUSED" ? "connectionRefused" : err?.code === "ENOTFOUND" ? "hostMissing" :
+    err?.code === "ETIMEDOUT" ? "timeout" : null;
+  if (key) return appError("TRANSPORT_ERROR", `runtime.sftp.${key}`, { at, host: ctx.host, error }, { origin: "sftp" });
+  if (err?.code === 2 || err?.code === "ENOENT") {
+    return appError("NOT_FOUND", "runtime.sftp.notFound", { where: ctx.path ? `: ${ctx.path}` : "", error }, { origin: "sftp" });
   }
-  if (code === "ENOTFOUND" || /ENOTFOUND|getaddrinfo/.test(orig)) {
-    return new Error(`host not found: ${ctx.host} [${orig}]`);
-  }
-  if (/host denied|host key|verification failed/i.test(orig)) {
-    return new Error(
-      `SFTP host key verification failed for ${at} — the server key does not match "hostKeySha256"`
-    );
-  }
-  if (/timed?\s?out|timeout|handshake/i.test(orig)) {
-    return new Error(`connection to ${at} timed out — check host, port and firewall [${orig}]`);
-  }
-  if (/authentication|all configured auth|permission denied|Cannot parse privateKey|bad passphrase|encrypted/i.test(orig)) {
-    return new Error(`authentication failed for user "${ctx.user}" on ${at} — check password/key/passphrase [${orig}]`);
-  }
-  if (code === 2 || code === "ENOENT" || /no such file|not exist|ENOENT/i.test(orig)) {
-    const where = ctx.path ? `: ${ctx.path}` : "";
-    return new Error(`no such file or directory${where} [${orig}]`);
-  }
-  return new Error(orig);
-}
-
-function safetyError(message) {
-  const err = new Error(message);
-  err.remoteSafety = true;
-  return err;
+  return nativeError(err, "sftp");
 }
 
 function decodeHostPins(value) {
   const pins = typeof value === "string" ? [value] : value;
   if (pins === undefined || (Array.isArray(pins) && pins.length === 0)) return [];
   if (!Array.isArray(pins) || pins.length === 0) {
-    throw new Error('field "hostKeySha256" must be a fingerprint string or a non-empty array');
+    throw appError("CONFIG_INVALID", "runtime.sftp.pinType");
   }
   return pins.map((pin, index) => {
     if (typeof pin !== "string" || !/^SHA256:[A-Za-z0-9+/]{43}$/.test(pin)) {
-      throw new Error(
-        `field "hostKeySha256" entry ${index + 1} must use SHA256:<43-character unpadded base64> format`
-      );
+      throw appError("CONFIG_INVALID", "runtime.sftp.pinFormat", { index: index + 1 });
     }
     const encoded = pin.slice("SHA256:".length);
     const decoded = Buffer.from(encoded, "base64");
     if (decoded.length !== 32 || decoded.toString("base64").replace(/=+$/, "") !== encoded) {
-      throw new Error(
-        `field "hostKeySha256" entry ${index + 1} must use SHA256:<43-character unpadded base64> format`
-      );
+      throw appError("CONFIG_INVALID", "runtime.sftp.pinFormat", { index: index + 1 });
     }
     return decoded;
   });
@@ -99,9 +73,10 @@ export async function connect(serverCfg, operation) {
   const ctx = { host: serverCfg.host, port: serverCfg.port, user: serverCfg.user };
   const configuredRoot = normalizeRoot(serverCfg.root);
   let pinnedRoot = null;
+  let hostKeyRejected = false;
   const expectedHostKeys = decodeHostPins(serverCfg.hostKeySha256);
   if (expectedHostKeys.length === 0 && serverCfg.allowUnknownHostKey !== true) {
-    throw new Error(unknownHostKeyBlockedMessage(serverCfg.name ?? serverCfg.host));
+    throw appError("HOST_KEY_REJECTED", "runtime.config.hostKeyRequired", { name: serverCfg.name ?? serverCfg.host });
   }
   const connOpts = {
     host: serverCfg.host,
@@ -121,6 +96,7 @@ export async function connect(serverCfg, operation) {
       for (const expected of expectedHostKeys) {
         matched |= Number(crypto.timingSafeEqual(observed, expected));
       }
+      hostKeyRejected = matched !== 1;
       return matched === 1;
     };
   }
@@ -128,9 +104,7 @@ export async function connect(serverCfg, operation) {
     try {
       connOpts.privateKey = fs.readFileSync(serverCfg.privateKeyPath);
     } catch (err) {
-      throw new Error(
-        `cannot read privateKeyPath "${serverCfg.privateKeyPath}" for server "${serverCfg.name}": ${err.message}`
-      );
+      throw appError("CONFIG_INVALID", "runtime.sftp.keyUnreadable", { path: serverCfg.privateKeyPath, name: serverCfg.name, error: err.message }, { origin: "local" });
     }
     if (serverCfg.passphrase) connOpts.passphrase = serverCfg.passphrase;
   }
@@ -163,13 +137,14 @@ export async function connect(serverCfg, operation) {
     await canonicalRoot();
   } catch (err) {
     await close();
+    if (hostKeyRejected) throw appError("HOST_KEY_REJECTED", "runtime.sftp.hostKeyMismatch", { at: `${ctx.host}:${ctx.port}` });
     throw friendlyError(err, ctx);
   }
 
   function absoluteRemote(remotePath, label) {
     const raw = String(remotePath == null ? "" : remotePath).replace(/\\/g, "/");
     if (!raw.startsWith("/")) {
-      throw safetyError(`${label} must be an absolute remote path`);
+      throw appError("PATH_REJECTED", "runtime.sftp.absoluteRequired", { label });
     }
     const normalized = posix.normalize(raw);
     return normalized.length > 1 && normalized.endsWith("/") ? normalized.slice(0, -1) : normalized;
@@ -187,8 +162,7 @@ export async function connect(serverCfg, operation) {
   }
 
   function isMissing(err) {
-    const message = err && err.message ? err.message : String(err);
-    return err?.code === 2 || err?.code === "ENOENT" || /no such file|not exist|ENOENT/i.test(message);
+    return (isAppError(err) && err.code === "NOT_FOUND") || err?.code === 2 || err?.code === "ENOENT";
   }
 
   async function lstatMaybe(remotePath) {
@@ -202,10 +176,10 @@ export async function connect(serverCfg, operation) {
 
   function assertSafeEntry(remotePath, st, requireDirectory) {
     if (st.isSymbolicLink) {
-      throw safetyError(`refusing remote path containing symbolic link: ${remotePath}`);
+      throw appError("PATH_REJECTED", "runtime.sftp.symlinkRefused", { path: remotePath });
     }
     if (requireDirectory && !st.isDirectory) {
-      throw safetyError(`remote path component is not a directory: ${remotePath}`);
+      throw appError("PATH_REJECTED", "runtime.sftp.componentNotDirectory", { path: remotePath });
     }
   }
 
@@ -215,7 +189,7 @@ export async function connect(serverCfg, operation) {
       const st = await lstatMaybe(paths[i]);
       if (!st) {
         if (allowMissingSuffix) return { exists: false, missingAt: paths[i] };
-        throw safetyError(`no such file or directory: ${paths[i]}`);
+        throw appError("NOT_FOUND", "runtime.sftp.prefixMissing", { path: paths[i] });
       }
       assertSafeEntry(paths[i], st, i < paths.length - 1);
     }
@@ -227,13 +201,13 @@ export async function connect(serverCfg, operation) {
   async function canonicalRoot() {
     await validatePrefix(configuredRoot, false);
     const resolved = await sftp.realPath(configuredRoot);
-    if (!resolved) throw safetyError(`configured SFTP root does not exist: ${configuredRoot}`);
-    const canonical = absoluteRemote(resolved, "SFTP REALPATH result");
+    if (!resolved) throw appError("REMOTE_ROOT_REJECTED", "runtime.sftp.rootMissing", { root: configuredRoot });
+    const canonical = absoluteRemote(resolved, messageSpec("runtime.sftp.realpathLabel"));
     if (pinnedRoot !== null && canonical !== pinnedRoot) {
-      throw safetyError("TARGET_CHANGED: canonical SFTP root changed during this connection");
+      throw appError("TARGET_CHANGED", "runtime.sftp.canonicalRootChanged", {});
     }
     const final = await validatePrefix(canonical, false);
-    if (!final.exists) throw safetyError(`configured SFTP root does not exist: ${configuredRoot}`);
+    if (!final.exists) throw appError("REMOTE_ROOT_REJECTED", "runtime.sftp.rootMissing", { root: configuredRoot });
     const st = await sftp.lstat(canonical);
     assertSafeEntry(canonical, st, true);
     pinnedRoot ??= canonical;
@@ -241,7 +215,7 @@ export async function connect(serverCfg, operation) {
   }
 
   async function safePath(remotePath, { allowMissing = false, requireDirectory = false } = {}) {
-    const lexical = absoluteRemote(remotePath, "remote path");
+    const lexical = absoluteRemote(remotePath, messageSpec("runtime.sftp.remotePathLabel"));
     relativeRemote(configuredRoot, lexical);
     const root = await canonicalRoot();
     const candidate = rebaseRemote(configuredRoot, root, lexical);
@@ -257,25 +231,25 @@ export async function connect(serverCfg, operation) {
   function permissionBits(entry) {
     const regular = typeof entry.stat?.isFile === "function" ? entry.stat.isFile() : entry.stat?.isFile;
     if (!regular || !Number.isInteger(entry.stat.mode) || entry.stat.mode < 0) {
-      throw safetyError("TRANSFER_MODE: a regular file with readable permissions is required");
+      throw appError("TRANSFER_VERIFY", "runtime.sftp.permissionsRequired", {});
     }
     return entry.stat.mode & 0o777;
   }
 
   function assertIdentity(entry, identity) {
     if (identity && (entry.root !== identity.root || entry.path !== identity.path)) {
-      throw safetyError("TARGET_CHANGED: owned SFTP temporary identity changed");
+      throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
     }
   }
 
   async function setTemporaryMode(remotePath, expectedRoot, mode) {
     const before = await safePath(remotePath);
     permissionBits(before);
-    if (before.root !== expectedRoot) throw safetyError("SFTP root changed while setting temporary permissions");
+    if (before.root !== expectedRoot) throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedMode", {});
     await sftp.chmod(before.path, mode);
     const after = await safePath(remotePath);
     if (after.root !== expectedRoot || permissionBits(after) !== mode) {
-      throw safetyError("TRANSFER_MODE: temporary permissions could not be verified");
+      throw appError("TRANSFER_VERIFY", "runtime.sftp.temporaryModeUnverified", {});
     }
   }
 
@@ -301,7 +275,7 @@ export async function connect(serverCfg, operation) {
       operation?.check();
       const restricted = permissionBits({ stat: await handleRequest("fstat", handle) });
       operation?.check();
-      if (restricted !== 0o600) throw safetyError("TRANSFER_MODE: temporary permissions could not be verified");
+      if (restricted !== 0o600) throw appError("TRANSFER_VERIFY", "runtime.sftp.temporaryModeUnverified", {});
       await sendLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation, async (input) => {
         let offset = 0;
         for await (const chunk of input) {
@@ -321,7 +295,7 @@ export async function connect(serverCfg, operation) {
   }
 
   async function ensureDirectory(remotePath) {
-    const lexical = absoluteRemote(remotePath, "remote directory");
+    const lexical = absoluteRemote(remotePath, messageSpec("runtime.sftp.remoteDirectoryLabel"));
     const rel = relativeRemote(configuredRoot, lexical);
     if (!rel) {
       await safePath(lexical, { requireDirectory: true });
@@ -388,10 +362,10 @@ export async function connect(serverCfg, operation) {
         const parent = await safePath(posix.dirname(remotePath), { requireDirectory: true });
         const destination = await safePath(remotePath, { allowMissing: true });
         if (parent.root !== destination.root) {
-          throw safetyError("configured SFTP root changed while validating upload");
+          throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedUpload", {});
         }
         if (options.staged) {
-          if (destination.exists) throw safetyError("TRANSFER_MODE: staging destination already exists");
+          if (destination.exists) throw appError("ALREADY_EXISTS", "runtime.sftp.stagingExists", {});
           return await stagedUpload(localPath, destination, maxBytes, options);
         }
         await sendLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
@@ -477,14 +451,14 @@ export async function connect(serverCfg, operation) {
 
     async deleteFile(p, options = {}) {
       try {
-        if (relativeRemote(configuredRoot, absoluteRemote(p, "remote path")) === "") {
-          throw safetyError("refusing to delete the configured SFTP root");
+        if (relativeRemote(configuredRoot, absoluteRemote(p, messageSpec("runtime.sftp.remotePathLabel"))) === "") {
+          throw appError("PATH_REJECTED", "runtime.sftp.deleteRootRefused", {});
         }
         const parent = await safePath(posix.dirname(p), { requireDirectory: true });
         const target = await safePath(p);
         assertIdentity(target, options.identity);
         if (parent.root !== target.root) {
-          throw safetyError("configured SFTP root changed while validating delete");
+          throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedDelete", {});
         }
         await sftp.delete(target.path);
       } catch (err) {
@@ -494,13 +468,13 @@ export async function connect(serverCfg, operation) {
 
     async deleteDir(p) {
       try {
-        if (relativeRemote(configuredRoot, absoluteRemote(p, "remote path")) === "") {
-          throw safetyError("refusing to delete the configured SFTP root");
+        if (relativeRemote(configuredRoot, absoluteRemote(p, messageSpec("runtime.sftp.remotePathLabel"))) === "") {
+          throw appError("PATH_REJECTED", "runtime.sftp.deleteRootRefused", {});
         }
         const parent = await safePath(posix.dirname(p), { requireDirectory: true });
         const target = await safePath(p, { requireDirectory: true });
         if (parent.root !== target.root) {
-          throw safetyError("configured SFTP root changed while validating delete");
+          throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedDelete", {});
         }
         await sftp.rmdir(target.path, true);
       } catch (err) {
@@ -510,11 +484,11 @@ export async function connect(serverCfg, operation) {
 
     async rename(from, to, options = {}) {
       try {
-        if (relativeRemote(configuredRoot, absoluteRemote(from, "rename source")) === "") {
-          throw safetyError("refusing to rename the configured SFTP root");
+        if (relativeRemote(configuredRoot, absoluteRemote(from, messageSpec("runtime.sftp.renameSourceLabel"))) === "") {
+          throw appError("PATH_REJECTED", "runtime.sftp.renameRootRefused", {});
         }
-        if (relativeRemote(configuredRoot, absoluteRemote(to, "rename destination")) === "") {
-          throw safetyError("refusing to overwrite the configured SFTP root");
+        if (relativeRemote(configuredRoot, absoluteRemote(to, messageSpec("runtime.sftp.renameDestinationLabel"))) === "") {
+          throw appError("PATH_REJECTED", "runtime.sftp.overwriteRootRefused", {});
         }
         await ensureDirectory(posix.dirname(to));
         const sourceParent = await safePath(posix.dirname(from), { requireDirectory: true });
@@ -527,12 +501,12 @@ export async function connect(serverCfg, operation) {
           source.root !== destinationParent.root ||
           source.root !== destination.root
         ) {
-          throw safetyError("configured SFTP root changed while validating rename");
+          throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedRename", {});
         }
         if (options.staged) {
           const mode = destination.exists ? permissionBits(destination) : options.mode;
           if (!Number.isInteger(mode) || mode < 0 || mode > 0o777) {
-            throw safetyError("TRANSFER_MODE: initial server permissions are unavailable");
+            throw appError("TRANSFER_VERIFY", "runtime.sftp.initialModeMissing", {});
           }
           await setTemporaryMode(from, source.root, mode);
         }

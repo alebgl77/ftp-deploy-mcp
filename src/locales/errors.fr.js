@@ -1,0 +1,21 @@
+export default {
+  "error.CONFIG_REQUIRED": "Aucune configuration serveur utilisable n’est chargée. Configurez un serveur puis réessayez.",
+  "error.CONFIG_INVALID": "La configuration serveur est invalide : {detail}",
+  "error.INVALID_ARGUMENT": "Arguments invalides pour cet outil. Vérifiez son schéma d’entrée.",
+  "error.TRANSPORT_ERROR": "L’opération de transport a échoué : {detail}",
+  "error.INTERNAL_ERROR": "L’opération a échoué de façon inattendue. Examinez la cible avant de poursuivre.",
+  "error.OUTPUT_LIMIT": "Le résultat masqué dépasse la limite de sortie de 25000 octets. Examinez la cible et réduisez la requête.",
+  "error.CANCELLED": "CANCELLED : requête {id}. {detail}",
+  "error.TIMEOUT": "TIMEOUT : requête {id}. {detail}",
+  "error.busy": "TARGET_BUSY : attente d’une opération active.",
+  "error.uncertain": "L’opération peut être partiellement terminée ; examinez la cible avant de réessayer.",
+  "error.DEPLOY_PARTIAL": "DÉPLOIEMENT PARTIEL — ERREUR\n{detail}",
+  "error.close": "La fermeture de la connexion a également échoué : {detail}",
+  "error.native": "Diagnostic natif : {detail}",
+  "error.result": "Erreur : {code} : {message}",
+  "error.unknownTool": "Outil inconnu. Utilisez tools/list pour sélectionner un outil disponible.",
+  "error.truncated": "\n… [sortie tronquée]",
+  "error.notFound": "Fichier ou dossier introuvable : {path}",
+  "error.exists": "La destination existe déjà : {path}",
+  "error.localIO": "L’opération sur le système de fichiers local a échoué : {detail}"
+};

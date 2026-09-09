@@ -40,9 +40,8 @@ function config(root, aliases = { test: {} }) {
   };
 }
 function capture(loaded, openAdapter) {
-  const handlers = new Map();
-  registerTools({ registerTool(name, _spec, handler) { handlers.set(name, handler); } }, loaded, { openAdapter });
-  return (name, args = {}, extra = {}) => handlers.get(name)(args, extra);
+  const registry = registerTools(null, loaded, { openAdapter });
+  return (name, args = {}, extra = {}) => registry.call(name, args, extra);
 }
 function text(result) { return result.content.map((item) => item.text || "").join("\n"); }
 function adapter(overrides = {}) {

@@ -171,6 +171,23 @@ a release gate for v0.2; do not infer that every historical or unpublished
 write path is atomic. Keep independent backups and validate the packaged
 artifact before release.
 
+## Structured errors and cancellation
+
+Known-tool errors use a strict envelope with a stable code, fresh request UUID,
+conservative effect observations and no automatic retry permission. The nine
+structured tools publish strict success/error schema alternatives. The complete
+result is limited to 25,000 UTF-8 JSON bytes after masking; security notices and
+pagination are rendered from trusted internal metadata. See the
+[error contract](./ERROR-CONTRACT.md) for exact fields and codes.
+
+Peer cancellation normally suppresses the MCP result, whereas an internal
+deadline may return `TIMEOUT`. A public transport decorator corrects the
+installed SDK's numeric `0` and empty-string cancellation gaps with two
+independent slots. Slots and mutation locks remain held through actual worker
+settlement. Duplicate active IDs in those slots close the connection, and an
+already-started response send cannot be recalled. None of these mechanisms
+provides rollback or proof that an uncertain write had no effects.
+
 ## Secrets and operational guidance
 
 - Keep `ftp-servers.json` out of version control and restrict its permissions.

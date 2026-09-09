@@ -1,0 +1,21 @@
+export default {
+  "error.CONFIG_REQUIRED": "No usable server configuration is loaded. Configure a server and retry.",
+  "error.CONFIG_INVALID": "The server configuration is invalid: {detail}",
+  "error.INVALID_ARGUMENT": "Invalid arguments for this tool. Check its input schema.",
+  "error.TRANSPORT_ERROR": "The transport operation failed: {detail}",
+  "error.INTERNAL_ERROR": "The operation failed unexpectedly. Inspect the target before continuing.",
+  "error.OUTPUT_LIMIT": "The safely redacted result exceeded the 25000-byte output limit. Inspect the target and use a smaller request.",
+  "error.CANCELLED": "CANCELLED: request {id}. {detail}",
+  "error.TIMEOUT": "TIMEOUT: request {id}. {detail}",
+  "error.busy": "TARGET_BUSY: waiting for an active operation.",
+  "error.uncertain": "The operation may have partially completed; inspect the target before retrying.",
+  "error.DEPLOY_PARTIAL": "PARTIAL DEPLOY — ERROR\n{detail}",
+  "error.close": "Connection close also failed: {detail}",
+  "error.native": "Native diagnostic: {detail}",
+  "error.result": "Error: {code}: {message}",
+  "error.unknownTool": "Unknown tool. Use tools/list to select an available tool.",
+  "error.truncated": "\n… [output truncated]",
+  "error.notFound": "File or directory not found: {path}",
+  "error.exists": "The destination already exists: {path}",
+  "error.localIO": "The local filesystem operation failed: {detail}"
+};

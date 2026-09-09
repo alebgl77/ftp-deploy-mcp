@@ -186,7 +186,7 @@ test("setup connection diagnostics retain French without opening insecure transp
   const result = cli(dir, ["setup", "--yes", "--home", dir, "--clients", "none", "--lang", "fr"]);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /Test des connexions/);
-  assert.match(result.stdout, /INSECURE CONNECTION REFUSED/); // Native runtime error is still source-language data.
+  assert.match(result.stdout, /CONNEXION NON SÉCURISÉE REFUSÉE/); // First-party business diagnostic follows the selected locale.
   assert.match(result.stdout, /passez ce serveur en sftp/);
   assert.match(result.stdout, /ignoré \(définissez d’abord ENV CLI_I18N_UNSET_9271\)/);
   assert.ok(!(result.stdout + result.stderr).includes(secret));

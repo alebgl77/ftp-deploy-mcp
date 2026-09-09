@@ -12,7 +12,7 @@ your own FTP, FTPS, and SFTP servers.
 
 *Version française → [README.fr.md](./README.fr.md)*
 
-CLI language: English by default; use `--lang fr` or `FTP_MCP_LANG=fr`.
+CLI and MCP language: English by default; use `--lang fr` or `FTP_MCP_LANG=fr`.
 [Language scope and precedence](./docs/LANGUAGES.md).
 
 [![CI](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml)
@@ -288,8 +288,11 @@ per-entry `size_bytes` and `modified_at` fields:
 The existing human-readable `content` text is retained for compatibility.
 On success, every tool except `ftp_read` also advertises an MCP
 `outputSchema` and returns matching `structuredContent`; `ftp_read` remains a
-bounded text-only tool. Tool errors remain `isError` responses with text
-content and no `structuredContent`.
+bounded text-only tool on success. Each of the nine structured schemas accepts
+either its strict success shape or a strict `{error}` envelope. Tool execution
+errors return `isError: true` with localized text and structured code, request UUID,
+effect observations and safe-retry guidance. Unknown tools remain protocol errors.
+See the [error contract](./docs/ERROR-CONTRACT.md).
 
 All tools publish MCP annotations describing read-only, destructive,
 idempotent, and open-world behavior. These annotations are client hints, not a

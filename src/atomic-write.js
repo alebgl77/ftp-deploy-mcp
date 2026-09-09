@@ -1,3 +1,4 @@
+import { appError } from "./errors.js";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -63,9 +64,7 @@ function openUniqueTemp(fsImpl, dirPath, baseName, randomBytes) {
       if (!err || err.code !== "EEXIST") throw err;
     }
   }
-  const err = new Error(`cannot allocate a unique temporary file beside ${baseName}`);
-  err.code = "EEXIST";
-  throw err;
+  throw appError("ALREADY_EXISTS", "runtime.atomic.uniqueTemp", { baseName });
 }
 
 function writeAll(fsImpl, fd, data, encoding) {
@@ -74,9 +73,7 @@ function writeAll(fsImpl, fd, data, encoding) {
   while (offset < bytes.length) {
     const written = fsImpl.writeSync(fd, bytes, offset, bytes.length - offset, null);
     if (!Number.isInteger(written) || written <= 0) {
-      const err = new Error("atomic write made no progress");
-      err.code = "EIO";
-      throw err;
+      throw appError("INTERNAL_ERROR", "runtime.atomic.noProgress");
     }
     offset += written;
   }

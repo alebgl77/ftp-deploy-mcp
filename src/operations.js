@@ -1,24 +1,36 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { createI18n } from "./i18n.js";
+import { appError, messageSpec, nativeError } from "./errors.js";
 
 export const DEFAULT_OPERATION_TIMEOUT_MS = 120000;
 const locks = new Map();
+const workerObservers = new WeakMap();
 
-export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS) {
+// Private connection integration: only an in-process transport decorator can
+// attach this hook. It receives the actual worker, never the outward race.
+export function observeOperationWorker(extra, observer) { workerObservers.set(extra, observer); }
+
+export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, { requestId, i18n = createI18n() } = {}) {
   const controller = new AbortController();
-  const id = randomUUID();
+  const id = requestId ?? randomUUID();
   const deadline = Date.now() + timeoutMs;
   let timer;
   let waiting = 0;
   let progress = 0;
   let finished = false;
   let notifications = Promise.resolve();
+  let dispatched = false;
+  let confirmed = false;
+  let partial;
+  let pendingPromotion;
+  let settle;
+  const settlement = new Promise((resolve) => { settle = resolve; });
   const abort = (code) => {
     if (controller.signal.aborted) return;
     clearTimeout(timer);
-    const detail = waiting ? " TARGET_BUSY: waiting for an active operation." :
-      " The operation may have partially completed; inspect the target before retrying.";
-    controller.abort(Object.assign(new Error(`${code}: operation ${id}.${detail}`), { code }));
+    const detail = messageSpec(waiting ? "error.busy" : "error.uncertain");
+    controller.abort(appError(code, `error.${code}`, { id, detail }));
   };
   const onParentAbort = () => abort("CANCELLED");
   if (extra.signal?.aborted) onParentAbort();
@@ -26,7 +38,46 @@ export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOU
   if (!controller.signal.aborted) timer = setTimeout(() => abort("TIMEOUT"), timeoutMs);
   const operation = {
     id,
+    i18n,
+    settlement,
     signal: controller.signal,
+    dispatch() { dispatched = true; },
+    confirm() { dispatched = true; confirmed = true; },
+    trackFiles(totalFiles) {
+      partial = { completed_files: 0, completed_bytes: 0, failed_files: 0,
+        ...(totalFiles === undefined ? {} : { total_files: totalFiles }) };
+    },
+    failFile() { if (partial) partial.failed_files += 1; },
+    async fileAttempt(run) {
+      const completed = partial?.completed_files;
+      try { return await run(); }
+      catch (error) {
+        // A file acknowledged as promoted remains completed even if a later
+        // cancellation check fails. Preflight and close are outside this scope.
+        if (partial && partial.completed_files === completed) operation.failFile();
+        throw error;
+      }
+    },
+    confirmFile(bytes) {
+      operation.confirm();
+      if (partial) { partial.completed_files += 1; partial.completed_bytes += bytes; }
+    },
+    async promote(bytes, run) {
+      pendingPromotion = bytes;
+      try { return await run(); } finally { pendingPromotion = undefined; }
+    },
+    observeMutation(method) {
+      if (!["mkdirp", "ensureDir", "mkdir", "chmod"].includes(method)) operation.confirm();
+      if (method === "rename" && pendingPromotion !== undefined) {
+        const bytes = pendingPromotion;
+        pendingPromotion = undefined;
+        operation.confirmFile(bytes);
+      }
+    },
+    snapshot() {
+      return { effects: confirmed ? "confirmed" : dispatched ? "possible" : "none",
+        ...(partial ? { partial: { ...partial, final: finished } } : {}) };
+    },
     check() {
       if (!controller.signal.aborted && Date.now() >= deadline) abort("TIMEOUT");
       if (controller.signal.aborted) throw controller.signal.reason;
@@ -81,7 +132,9 @@ export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOU
         finished = true;
         clearTimeout(timer);
         extra.signal?.removeEventListener("abort", onParentAbort);
+        settle();
       });
+      workerObservers.get(extra)?.(worker);
       try {
         // Race observes late rejections; the worker keeps locks and cleanup
         // until the underlying adapter promises have actually settled.
@@ -141,7 +194,7 @@ export function localLockKey(destination) {
 }
 
 // Check protocol primitives and injected adapters without racing their I/O.
-export function checkedMethods(target, operation, methods) {
+export function checkedMethods(target, operation, methods, origin) {
   if (!operation) return target;
   const checked = new Set(methods);
   return new Proxy(target, {
@@ -149,14 +202,27 @@ export function checkedMethods(target, operation, methods) {
       const value = Reflect.get(object, key);
       if (typeof value !== "function") return value;
       if (!checked.has(key)) return value.bind(object);
-      return (...args) => operation.step(() => value.apply(object, args));
+      return (...args) => operation.step(async () => {
+        const mutation = MUTATION_METHODS.has(key);
+        if (mutation) operation.dispatch();
+        let result;
+        try { result = await value.apply(object, args); }
+        catch (error) { throw origin ? nativeError(error, origin) : error; }
+        if (mutation) operation.observeMutation(key);
+        return result;
+      });
     },
   });
 }
 
+const MUTATION_METHODS = new Set(["uploadFile", "uploadFrom", "put", "downloadFile", "mkdirp", "ensureDir", "mkdir",
+  "deleteFile", "deleteDir", "remove", "removeDir", "delete", "rmdir", "rename", "chmod"]);
+
 export async function connectOperation(connectAdapter, server, operation) {
   operation.check();
-  const adapter = await connectAdapter(server, operation);
+  let adapter;
+  try { adapter = await connectAdapter(server, operation); }
+  catch (error) { throw nativeError(error, "transport"); }
   let closing;
   const close = () => {
     operation.signal.removeEventListener("abort", onAbort);
@@ -171,6 +237,6 @@ export async function connectOperation(connectAdapter, server, operation) {
   }
   const checked = checkedMethods(adapter, operation, [
     "list", "stat", "uploadFile", "downloadFile", "readFile", "hashFile", "mkdirp", "deleteFile", "deleteDir", "rename",
-  ]);
+  ], "transport");
   return new Proxy(checked, { get(target, key) { return key === "close" ? close : Reflect.get(target, key); } });
 }

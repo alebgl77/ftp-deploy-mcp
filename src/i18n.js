@@ -1,10 +1,14 @@
 import english from "./locales/en.js";
 import french from "./locales/fr.js";
+import runtimeEnglish from "./locales/runtime.en.js";
+import runtimeFrench from "./locales/runtime.fr.js";
+import errorEnglish from "./locales/errors.en.js";
+import errorFrench from "./locales/errors.fr.js";
 
 // Fixed catalog data; the locale is carried by each returned translator.
 export const CATALOGS = Object.freeze({
-  en: Object.freeze(english),
-  fr: Object.freeze(french),
+  en: Object.freeze({ ...english, ...runtimeEnglish, ...errorEnglish }),
+  fr: Object.freeze({ ...french, ...runtimeFrench, ...errorFrench }),
 });
 export const LANGUAGES = Object.freeze(["en", "fr"]);
 const placeholders = /\{([A-Za-z][A-Za-z0-9_]*)\}/g;

@@ -14,6 +14,7 @@ import ssh2 from "ssh2";
 import { connect as connectSftp } from "../src/adapters/sftp.js";
 import { startSftpServer } from "./sftp-server.js";
 import { createOperation } from "../src/operations.js";
+import { isAppError } from "../src/errors.js";
 import { uploadVerified, downloadVerified } from "../src/transfers.js";
 
 const certPath = fileURLToPath(new URL("./fixtures/transport/localhost-cert.pem", import.meta.url));
@@ -276,10 +277,16 @@ for (const mode of ["valid key", "wrong key", "wrong host pin"]) {
         assert.equal(server.getStats().sftpSessions, 1);
         assert.deepEqual(fs.readdirSync(path.join(dir, "remote")), []);
       } else {
-        await assert.rejects(connectSftp(config), mode === "wrong key" ? /authentication failed/i : /host key verification failed/i);
+        await assert.rejects(connectSftp(config), (error) => {
+          assert.ok(isAppError(error));
+          assert.equal(error.code, mode === "wrong key" ? "TRANSPORT_ERROR" : "HOST_KEY_REJECTED");
+          assert.match(error.message, mode === "wrong key" ? /all configured authentication methods failed/i : /host key verification failed/i);
+          return true;
+        });
         assert.equal(server.getStats().publicKeyAuthentications, 0);
         assert.equal(server.getStats().sftpSessions, 0);
         if (mode === "wrong host pin") assert.equal(server.getStats().authenticationAttempts, 0);
+        else assert.ok(server.getStats().authenticationAttempts > 0);
         assert.deepEqual(fs.readdirSync(path.join(dir, "remote")), []);
       }
     } finally {

@@ -1,3 +1,4 @@
+import { isAppError, renderError } from "./errors.js";
 // FileZilla Site Manager import.
 //
 // Parses sitemanager.xml WITHOUT any XML dependency: tolerant string/regex
@@ -128,13 +129,13 @@ export function parseSiteManager(xml, { t } = createI18n()) {
     const protocolRaw = tagValue(block, "Protocol");
     const protocol = mapProtocol(protocolRaw ?? "0");
     if (!protocol) {
-      warnings.push(t("filezilla.unsupported", { name: rawName, protocol: protocolRaw }));
+      warnings.push(t("filezilla.unsupported", { index }));
       continue;
     }
     const implicitTLS = protocolRaw === "3"; // FTPS (implicit); Protocol 4 (FTPES) stays plain "ftps"
     const host = tagValue(block, "Host");
     if (!host) {
-      warnings.push(t("filezilla.noHost", { name: rawName }));
+      warnings.push(t("filezilla.noHost", { index }));
       continue;
     }
     const user = tagValue(block, "User") || "anonymous";
@@ -218,7 +219,7 @@ export function runImport(opts, log = console.error, i18n = createI18n()) {
   try {
     xml = fs.readFileSync(file, "utf8");
   } catch (err) {
-    L(t("filezilla.readError", { file, error: err.message }));
+    L(t("filezilla.readError", { file, error: isAppError(err) ? renderError(err, i18n) : err.message }));
     return 1;
   }
 
@@ -244,7 +245,7 @@ export function runImport(opts, log = console.error, i18n = createI18n()) {
     try {
       atomicWriteFileSync(outPath, json, { encoding: "utf8" });
     } catch (err) {
-      L(t("filezilla.writeError", { path: outPath, error: err.message }));
+      L(t("filezilla.writeError", { path: outPath, error: isAppError(err) ? renderError(err, i18n) : err.message }));
       return 1;
     }
     L(t("filezilla.wrote", { path: outPath }));

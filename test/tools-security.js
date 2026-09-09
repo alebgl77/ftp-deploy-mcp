@@ -30,18 +30,9 @@ function loadedFor(localRoot, extra = {}) {
 }
 
 function capturedTools(loaded, openAdapter) {
-  const handlers = new Map();
-  registerTools(
-    {
-      registerTool(name, _definition, handler) {
-        handlers.set(name, handler);
-      },
-    },
-    loaded,
-    { openAdapter }
-  );
+  const registry = registerTools(null, loaded, { openAdapter });
   return async (name, args = {}) => {
-    const result = await handlers.get(name)(args, {});
+    const result = await registry.call(name, args, {});
     return {
       raw: result,
       isError: result.isError === true,
@@ -175,7 +166,8 @@ export async function runToolsSecurityTests({ root, ok, contains, notContains })
       if (path.basename(local) === "b.txt") throw new Error("selected failure detail");
     },
   });
-  ok(result.isError && firstLine(result) === "PARTIAL DEPLOY — ERROR", "partial deploy: one success plus one failure is an MCP error", result.text);
+  ok(result.isError && result.raw.structuredContent.error.code === "DEPLOY_PARTIAL", "partial deploy: one success plus one failure is an MCP error", result.text);
+  ok(result.raw.structuredContent.error.effects === "confirmed" && result.raw.structuredContent.error.partial.completed_files === 1 && result.raw.structuredContent.error.partial.completed_bytes === 5 && result.raw.structuredContent.error.partial.failed_files === 1 && result.raw.structuredContent.error.partial.final === true, "partial deploy: envelope preserves actual promoted bytes, failures and confirmed effects");
   contains(result.text, "a.txt", "partial deploy: successful upload detail is preserved");
   contains(result.text, "selected failure detail", "partial deploy: failure detail is preserved");
 
@@ -184,7 +176,7 @@ export async function runToolsSecurityTests({ root, ok, contains, notContains })
       throw new Error("all uploads failed");
     },
   });
-  ok(result.isError && firstLine(result) === "PARTIAL DEPLOY — ERROR" && result.text.includes("0/2"), "partial deploy: all failures are an MCP error", result.text);
+  ok(result.isError && result.raw.structuredContent.error.code === "DEPLOY_PARTIAL" && result.text.includes("0/2"), "partial deploy: all failures are an MCP error", result.text);
 
   result = await runDeploy(
     "partial-abort",
@@ -195,7 +187,7 @@ export async function runToolsSecurityTests({ root, ok, contains, notContains })
       },
     }
   );
-  ok(result.isError && firstLine(result) === "PARTIAL DEPLOY — ERROR" && result.text.includes("ABORTED"), "partial deploy: early stop is an MCP error", result.text);
+  ok(result.isError && result.raw.structuredContent.error.code === "DEPLOY_PARTIAL" && result.text.includes("ABORTED"), "partial deploy: early stop is an MCP error", result.text);
 
   result = await runDeploy("partial-success", ["a.txt", "b.txt"], {});
   ok(!result.isError && firstLine(result).startsWith("Deployed 2/2"), "partial deploy: complete upload and clean close is success", result.text);
@@ -205,14 +197,14 @@ export async function runToolsSecurityTests({ root, ok, contains, notContains })
       throw new Error("close failure detail");
     },
   });
-  ok(result.isError && firstLine(result) === "PARTIAL DEPLOY — ERROR", "partial deploy: close failure is an MCP error", result.text);
+  ok(result.isError && result.raw.structuredContent.error.code === "DEPLOY_PARTIAL", "partial deploy: close failure is an MCP error", result.text);
   contains(result.text, "close failure detail", "partial deploy: close failure detail is preserved");
 
   const connectFailureCall = capturedTools(loadedFor(localRoot), async () => {
     throw new Error("connect failure detail");
   });
   result = await connectFailureCall("ftp_deploy", { local_dir: "partial-success" });
-  ok(result.isError && firstLine(result) === "PARTIAL DEPLOY — ERROR", "partial deploy: connection failure is an MCP error with the partial header", result.text);
+  ok(result.isError && result.raw.structuredContent.error.code === "DEPLOY_PARTIAL", "partial deploy: connection failure is an MCP error with the partial header", result.text);
   contains(result.text, "connect failure detail", "partial deploy: connection failure detail is preserved");
 
   const transportCall = capturedTools(

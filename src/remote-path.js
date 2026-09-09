@@ -9,6 +9,7 @@
 // root before letting any adapter touch it.
 
 import path from "node:path";
+import { appError } from "./errors.js";
 
 const posix = path.posix;
 
@@ -39,7 +40,7 @@ export function resolveRemote(root, userPath) {
   // A relative result of ".." or starting with "../" means it escaped.
   const relNorm = posix.normalize(up === "" ? "." : up);
   if (relNorm === ".." || relNorm.startsWith("../")) {
-    throw new Error(`path escapes configured root: "${userPath}" (root is "${normRoot}")`);
+    throw appError("PATH_REJECTED", "runtime.remote.escape", { path: String(userPath), root: normRoot });
   }
 
   const rel = relNorm === "." ? "" : relNorm;
@@ -50,7 +51,7 @@ export function resolveRemote(root, userPath) {
   // Belt-and-suspenders: the result must still live inside the root.
   const prefix = normRoot === "/" ? "/" : normRoot + "/";
   if (resolved !== normRoot && !resolved.startsWith(prefix)) {
-    throw new Error(`path escapes configured root: "${userPath}" (root is "${normRoot}")`);
+    throw appError("PATH_REJECTED", "runtime.remote.escape", { path: String(userPath), root: normRoot });
   }
   return resolved;
 }
@@ -63,7 +64,7 @@ export function relativeRemote(root, resolvedPath) {
   const target = normalizeRoot(resolvedPath);
   const rel = posix.relative(normRoot, target);
   if (rel === ".." || rel.startsWith("../") || posix.isAbsolute(rel)) {
-    throw new Error(`path escapes configured root: "${resolvedPath}" (root is "${normRoot}")`);
+    throw appError("PATH_REJECTED", "runtime.remote.escape", { path: String(resolvedPath), root: normRoot });
   }
   return rel === "." ? "" : rel;
 }

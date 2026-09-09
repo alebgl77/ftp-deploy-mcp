@@ -13,16 +13,18 @@ import path from "node:path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-import { loadConfig, normalizeServer, insecureTransport } from "./config.js";
+import { loadConfig, normalizeServer, insecureTransport, configRedactor } from "./config.js";
 import { registerTools } from "./tools.js";
 import { runImport } from "./filezilla.js";
 import { createRedactor } from "./redact.js";
 import { createI18n, extractLanguage } from "./i18n.js";
+import { isAppError, renderError } from "./errors.js";
+import { withZeroCancellation } from "./zero-cancellation.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
 const VERSION = pkg.version;
-const outputRedactor = createRedactor();
+let outputRedactor = createRedactor();
 const E = (message) => console.error(outputRedactor.strictText(message));
 
 // Minimal hand-rolled argv parsing.
@@ -51,7 +53,7 @@ function parseArgs(argv, t) {
 async function startServer(configFlag, i18n) {
   const { t } = i18n;
   const loaded = loadConfig(configFlag);
-  outputRedactor.add(loaded.config);
+  outputRedactor = configRedactor(loaded);
 
   const configDesc = loaded.found
     ? loaded.error
@@ -61,7 +63,7 @@ async function startServer(configFlag, i18n) {
   const serversDesc = loaded.serverNames.length ? loaded.serverNames.join(",") : "-";
   E(t("cli.started", { version: VERSION, config: configDesc, servers: serversDesc }));
   if (loaded.error) {
-    E(t("cli.configProblem", { error: loaded.error }));
+    E(t("cli.configProblem", { error: loaded.failure ? renderError(loaded.failure, i18n) : loaded.error }));
   }
   if (loaded.config) {
     for (const name of loaded.serverNames) {
@@ -78,9 +80,8 @@ async function startServer(configFlag, i18n) {
   }
 
   const server = new McpServer({ name: "ftp-deploy-mcp", version: VERSION });
-  registerTools(server, loaded, { i18n });
-
-  const transport = new StdioServerTransport();
+  const transport = withZeroCancellation(new StdioServerTransport());
+  registerTools(server, loaded, { i18n, transportContext: transport });
 
   let closing = false;
   const shutdown = async (code) => {
@@ -154,7 +155,7 @@ async function main() {
     i18n = createI18n(selected.locale);
     await run(selected.argv, i18n);
   } catch (err) {
-    E(i18n.t("cli.fatal", { error: err && err.stack ? err.stack : err }));
+    E(i18n.t("cli.fatal", { error: isAppError(err) ? renderError(err, i18n) : err && err.stack ? err.stack : err }));
     process.exitCode = 1;
   }
 }
