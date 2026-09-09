@@ -47,6 +47,7 @@ runs against local FTP and SFTP servers. There is no telemetry.
 | Security model | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
 | Release process | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
 | Agent evaluation | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
+| Scripted MCP conformance | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
 | MIT license | [Canonical text](./LICENSE) | [Informative translation](./LICENSE.fr.md) |
 
 ## Architecture and scenarios
@@ -393,6 +394,7 @@ Read the full [security model](./docs/SECURITY-MODEL.md) and
 
 ```bash
 npm test
+npm run eval:scripted
 node src/index.js --version
 node src/index.js --help
 ```
@@ -402,6 +404,11 @@ network. Contributions are welcome; see
 [CONTRIBUTING.md](./CONTRIBUTING.md). Maintainers should use the
 [release guide](./docs/RELEASE.md). A reproducible, externally hosted read-only
 agent evaluation is documented in [evaluations/README.md](./evaluations/README.md).
+
+From a source checkout, `npm run eval:scripted` runs 43 cases in both languages
+with a memory adapter and real MCP handlers. See the
+[scripted conformance guide](./docs/SCRIPTED-EVALUATIONS.md) for reports and limits;
+this command does not evaluate a model.
 
 ## License
 

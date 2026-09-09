@@ -22,6 +22,7 @@ export const PACKAGE_FILES = [
   "src/transfers.js", "src/errors.js", "src/tool-registry.js", "src/zero-cancellation.js",
   "src/locales/runtime.en.js", "src/locales/runtime.fr.js", "src/locales/errors.en.js", "src/locales/errors.fr.js",
   "docs/ERROR-CONTRACT.md", "docs/ERROR-CONTRACT.fr.md",
+  "docs/SCRIPTED-EVALUATIONS.md", "docs/SCRIPTED-EVALUATIONS.fr.md",
   "src/local-path.js", "src/filezilla.js", "src/adapters/ftp.js", "src/adapters/sftp.js",
   "evaluations/README.md", "evaluations/README.fr.md",
   "evaluations/read-only.xml", "evaluations/read-only.fr.xml", "evaluations/fixture/README.txt",

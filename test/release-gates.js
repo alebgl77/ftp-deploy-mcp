@@ -77,6 +77,13 @@ for (const runtime of ["0.1.0", "", "0.2.0\nextra"]) {
 }
 
 test("archive allowlist accepts exactly the reviewed files", () => validateFiles(PACKAGE_FILES));
+test("scripted evaluation documentation ships without execution tooling or results", () => {
+  assert.equal(PACKAGE_FILES.length, 64);
+  for (const file of ["docs/SCRIPTED-EVALUATIONS.md", "docs/SCRIPTED-EVALUATIONS.fr.md"]) assert.ok(PACKAGE_FILES.includes(file));
+  for (const file of ["scripts/evaluation/run.mjs", "test/fixtures/evaluation/corpus.spec.json", ".tmp/evaluations/reports/latest.json"]) {
+    assert.throws(() => validateFiles([...PACKAGE_FILES, file]));
+  }
+});
 for (const file of ["ftp-servers.json", ".env", ".npmrc", ".git/config", ".Codex/routing-ledger.md", "test/credentials.json", "docs/secret.pem", "src/.env", "../outside", "/absolute", "src\\index.js"]) {
   test(`archive allowlist excludes ${file}`, () => assert.throws(() => validateFiles([...PACKAGE_FILES, file])));
 }

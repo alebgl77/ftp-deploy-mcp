@@ -41,6 +41,15 @@ jobs:
 
       - run: npm test
 
+      - name: Test scripted evaluation runner
+        run: npm run test:eval-runner
+
+      - name: Run bilingual scripted MCP evaluations
+        run: npm run eval:scripted
+
+      - name: Validate scripted evaluation evidence
+        run: node scripts/evaluation/validate-report.mjs .tmp/evaluations/reports/latest.json --ci true --locale both
+
       - run: node --test test/release-gates.js
 
   supply-chain:

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "authorization": {
+    "en": "These three overly strict harness expectations were explicitly reviewed and corrected after the first real run; no other assertion was relaxed.",
+    "fr": "Ces trois attentes trop strictes du harnais ont été explicitement revues et corrigées après la première exécution réelle ; aucune autre assertion n’a été assouplie."
+  },
+  "initial_report_sha256": "4f9c9c979927268d0306f493983799d482ebc25a710388edd3dc841460410b2b",
+  "initial_result": { "pass": 74, "fail": 6, "locale_runs": 80 },
+  "scenarioIDs": ["SCRIPT-017", "SCRIPT-018", "SCRIPT-019"],
+  "previous_expectation": {
+    "en": "Zero adapter connections before remote path/root refusal.",
+    "fr": "Aucune connexion adaptateur avant le refus de chemin/racine distante."
+  },
+  "source_observation": {
+    "en": "These schema-valid business refusals occur inside the useServer callback after the adapter is opened. The first run observed refusal and zero remote mutation effects.",
+    "fr": "Ces refus métier sur des arguments valides selon le schéma interviennent dans le callback useServer après ouverture de l’adaptateur. La première exécution a observé le refus et aucun effet de mutation distant."
+  },
+  "corrected_expectation": {
+    "en": "Refusal, zero calls to remote mutator methods, zero remote effects, and unchanged remote snapshot. Record adapter connections separately; pre_connection_refusal is false.",
+    "fr": "Refus, aucun appel aux méthodes mutatrices distantes, aucun effet distant et snapshot distant inchangé. Mesurer séparément les connexions adaptateur ; pre_connection_refusal vaut false."
+  },
+  "unchanged_strict_schema_case": "SCRIPT-024 retains zero adapter connections and zero remote effects for rejected invalid arguments."
+}

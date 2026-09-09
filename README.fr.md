@@ -48,6 +48,7 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 | Modèle de sécurité | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
 | Publication | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
 | Évaluation d'agents | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
+| Conformité MCP scriptée | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
 | Licence MIT | [Texte canonique](./LICENSE) | [Traduction informative](./LICENSE.fr.md) |
 
 ## Architecture et scénarios
@@ -403,6 +404,7 @@ Lisez le [modèle de sécurité complet](./docs/SECURITY-MODEL.fr.md) et la
 
 ```bash
 npm test
+npm run eval:scripted
 node src/index.js --version
 node src/index.js --help
 ```
@@ -413,6 +415,11 @@ Les contributions sont bienvenues ; voir
 [guide de release](./docs/RELEASE.fr.md). Une évaluation agent reproductible, en
 lecture seule et hébergée à l'extérieur, est décrite dans
 [evaluations/README.fr.md](./evaluations/README.fr.md).
+
+Depuis un checkout source, `npm run eval:scripted` exécute 43 cas dans les deux
+langues avec un adaptateur mémoire et les vrais handlers MCP. Le
+[guide de conformité scriptée](./docs/SCRIPTED-EVALUATIONS.fr.md) décrit rapports
+et limites ; cette commande n’évalue pas un modèle.
 
 ## Licence
 

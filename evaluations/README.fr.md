@@ -7,6 +7,12 @@ sur les quatre outils en lecture seule : `ftp_list_servers`, `ftp_test`,
 `ftp_list` et `ftp_read`. Il ne contient pas de moteur d'exécution, n'installe
 aucune dépendance et n'effectue lui-même aucune configuration.
 
+Pour le runner distinct de conformité à 43 scénarios sur adaptateur mémoire,
+utiliser `npm run eval:scripted` depuis un checkout source. Voir le
+[guide d’évaluation scriptée](../docs/SCRIPTED-EVALUATIONS.fr.md). Il appelle les
+vrais handlers MCP sans LLM ni service externe ; l’évaluation manuelle ci-dessous
+conserve sa propre préparation et son propre périmètre.
+
 ## Préparer des serveurs jetables
 
 1. Créez un compte FTP vide et jetable ainsi qu'un compte SFTP vide et

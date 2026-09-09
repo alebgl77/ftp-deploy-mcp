@@ -7,6 +7,12 @@ read-only tools: `ftp_list_servers`, `ftp_test`, `ftp_list`, and `ftp_read`.
 It does not include a runner, install dependencies, or perform any setup by
 itself.
 
+For the repository's separate 43-scenario memory-adapter conformance runner,
+use `npm run eval:scripted` from a source checkout. See the
+[scripted evaluation guide](../docs/SCRIPTED-EVALUATIONS.md). It invokes real MCP
+handlers without an LLM or external service; the manual agent evaluation below
+retains its own setup and scope.
+
 ## Prepare disposable servers
 
 1. Create an empty, disposable FTP account and an empty, disposable SFTP

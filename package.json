@@ -26,7 +26,9 @@
     "test:transports": "node --test test/transport-qualification.js",
     "setup": "node src/index.js setup",
     "doctor": "node src/index.js doctor",
-    "test:contract": "node --test test/error-contract.js test/zero-cancellation.js"
+    "test:contract": "node --test test/error-contract.js test/zero-cancellation.js",
+    "eval:scripted": "node scripts/evaluation/run.mjs --repo . --locale both --verify-runtime-locale true --ci true",
+    "test:eval-runner": "node --test test/evaluation-runner.mjs"
   },
   "files": [
     "src",

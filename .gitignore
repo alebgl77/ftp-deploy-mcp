@@ -7,3 +7,4 @@ ftp-servers.json
 launch-kit/
 assets/_preview/
 .claude/
+.tmp/evaluations/
