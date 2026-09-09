@@ -13,6 +13,8 @@ import test from "node:test";
 import ssh2 from "ssh2";
 import { connect as connectSftp } from "../src/adapters/sftp.js";
 import { startSftpServer } from "./sftp-server.js";
+import { createOperation } from "../src/operations.js";
+import { uploadVerified, downloadVerified } from "../src/transfers.js";
 
 const certPath = fileURLToPath(new URL("./fixtures/transport/localhost-cert.pem", import.meta.url));
 const tlsOptions = {
@@ -161,14 +163,26 @@ async function exercise(adapter, dir) {
   const source = path.join(dir, "source.txt");
   const download = path.join(dir, "download.txt");
   fs.writeFileSync(source, payload);
-  await adapter.uploadFile(source, "/uploaded.txt");
-  const read = await adapter.readFile("/uploaded.txt", payload.length + 1);
-  assert.equal(read.truncated, false);
-  assert.deepEqual(read.buffer, payload);
-  await adapter.rename("/uploaded.txt", "/renamed.txt");
-  await adapter.downloadFile("/renamed.txt", download);
-  assert.deepEqual(fs.readFileSync(download), payload);
-  await adapter.deleteFile("/renamed.txt");
+  const operation = createOperation();
+  await operation.run(async () => {
+    for (const [suffix, bytes] of [["full", payload], ["empty", Buffer.alloc(0)]]) {
+      fs.writeFileSync(source, bytes);
+      const remote = "/" + suffix + ".txt";
+      await uploadVerified({ adapter, source, target: remote, maxBytes: payload.length, operation });
+      const read = await adapter.readFile(remote, payload.length + 1);
+      assert.equal(read.truncated, false);
+      assert.deepEqual(read.buffer, bytes);
+      const target = download + suffix;
+      const revalidate = () => ({ path: target, exists: fs.existsSync(target) });
+      await downloadVerified({
+        adapter, remote, destination: revalidate(), maxBytes: payload.length,
+        overwrite: false, operation, revalidate,
+      });
+      assert.deepEqual(fs.readFileSync(target), bytes);
+      await adapter.deleteFile(remote);
+    }
+  });
+  assert.ok(!fs.readdirSync(dir).some((name) => name.startsWith(".ftp-mcp-")));
   return payload.length;
 }
 
@@ -184,6 +198,8 @@ function ftpChild(server, dir, trusted) {
     import fs from "node:fs";
     import path from "node:path";
     import { connect } from ${JSON.stringify(new URL("../src/adapters/ftp.js", import.meta.url).href)};
+    import { createOperation } from ${JSON.stringify(new URL("../src/operations.js", import.meta.url).href)};
+    import { uploadVerified, downloadVerified } from ${JSON.stringify(new URL("../src/transfers.js", import.meta.url).href)};
     const exercise = ${exercise.toString()};
     let adapter;
     try {
@@ -210,9 +226,11 @@ for (const mode of ["trusted", "untrusted", "disconnect"]) {
       if (mode === "trusted") {
         assert.deepEqual(result, { ok: true, bytes: 61440 });
         assert.equal(server.stats.controlTLS, 1);
-        assert.equal(server.stats.dataTLS, 3);
-        assert.equal(server.stats.writes, 1);
-        assert.equal(server.stats.reads, 2);
+        // Each of two payloads uses STOR, verification RETR, explicit read,
+        // download-expectation RETR and download RETR, all protected by TLS.
+        assert.equal(server.stats.dataTLS, 10);
+        assert.equal(server.stats.writes, 2);
+        assert.equal(server.stats.reads, 8);
         assert.deepEqual(fs.readdirSync(path.join(dir, "remote")), []);
         assert.ok(server.stats.commands.includes("AUTH") && server.stats.commands.includes("PROT"));
       } else {

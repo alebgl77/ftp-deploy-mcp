@@ -11,6 +11,7 @@ import { Writable } from "node:stream";
 import path from "node:path";
 import fs from "node:fs";
 import { checkedMethods } from "../operations.js";
+import { TRANSFER_LIMITS, hashRemoteStream, sendLocalStream, receiveLocalStream } from "../transfers.js";
 
 import {
   insecureTransport,
@@ -64,6 +65,7 @@ function friendlyError(err, ctx) {
 
 export async function connect(serverCfg, operation) {
   operation?.check();
+  const maxTransferBytes = serverCfg.maxTransferBytes ?? TRANSFER_LIMITS.maxTransferBytes.default;
   // FTP has no portable REALPATH/LSTAT equivalent. Refuse a client-side
   // sub-root before network I/O unless the operator explicitly accepts that it
   // is not an anti-symlink jail.
@@ -163,20 +165,34 @@ export async function connect(serverCfg, operation) {
       }
     },
 
-    async uploadFile(localPath, remotePath) {
+    async uploadFile(localPath, remotePath, maxBytes = maxTransferBytes, options = {}) {
       try {
         await ensureDirAbsolute(posix.dirname(remotePath));
-        await client.uploadFrom(localPath, remotePath);
+        // Portable FTP has no exclusive STOR. Ownership uses the unpredictable
+        // name selected by the caller; no existing final target is removed.
+        options.onOwned?.();
+        await sendLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
+          (input) => client.uploadFrom(input, remotePath));
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: remotePath });
       }
     },
 
-    async downloadFile(remotePath, localPath) {
+    async downloadFile(remotePath, localPath, maxBytes = maxTransferBytes) {
       try {
         operation?.check();
         fs.mkdirSync(path.dirname(localPath), { recursive: true });
-        await client.downloadTo(localPath, remotePath);
+        await receiveLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
+          (output) => client.downloadTo(output, remotePath));
+      } catch (err) {
+        throw friendlyError(err, { ...ctx, path: remotePath });
+      }
+    },
+
+    async hashFile(remotePath, maxBytes = maxTransferBytes) {
+      try {
+        return await hashRemoteStream((output) => client.downloadTo(output, remotePath),
+          Math.min(maxBytes, maxTransferBytes), operation);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: remotePath });
       }

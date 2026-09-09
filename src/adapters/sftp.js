@@ -1,7 +1,7 @@
 // SFTP adapter built on ssh2-sftp-client.
 //
 // Same interface as adapters/ftp.js so tools.js stays protocol-agnostic:
-//   list, stat, uploadFile, downloadFile, readFile, mkdirp,
+//   list, stat, uploadFile, downloadFile, readFile, hashFile, mkdirp,
 //   deleteFile, deleteDir, rename, close
 //
 // Connections are per-tool-call: connect -> op -> close(). No pooling.
@@ -12,6 +12,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 import { checkedMethods } from "../operations.js";
+import { TRANSFER_LIMITS, hashRemoteStream, sendLocalStream, receiveLocalStream } from "../transfers.js";
 
 import { unknownHostKeyBlockedMessage } from "../config.js";
 import { normalizeRoot, relativeRemote, rebaseRemote } from "../remote-path.js";
@@ -94,8 +95,10 @@ function decodeHostPins(value) {
 
 export async function connect(serverCfg, operation) {
   operation?.check();
+  const maxTransferBytes = serverCfg.maxTransferBytes ?? TRANSFER_LIMITS.maxTransferBytes.default;
   const ctx = { host: serverCfg.host, port: serverCfg.port, user: serverCfg.user };
   const configuredRoot = normalizeRoot(serverCfg.root);
+  let pinnedRoot = null;
   const expectedHostKeys = decodeHostPins(serverCfg.hostKeySha256);
   if (expectedHostKeys.length === 0 && serverCfg.allowUnknownHostKey !== true) {
     throw new Error(unknownHostKeyBlockedMessage(serverCfg.name ?? serverCfg.host));
@@ -139,7 +142,7 @@ export async function connect(serverCfg, operation) {
   // Retain the library's native transport timeouts and absorb late errors.
   transport.on("error", () => {});
   const sftp = checkedMethods(transport, operation, [
-    "connect", "lstat", "realPath", "list", "mkdir", "put", "get", "delete", "rmdir", "rename",
+    "connect", "lstat", "realPath", "list", "mkdir", "put", "get", "delete", "rmdir", "rename", "chmod",
   ]);
   let closing;
   const close = () => {
@@ -226,10 +229,14 @@ export async function connect(serverCfg, operation) {
     const resolved = await sftp.realPath(configuredRoot);
     if (!resolved) throw safetyError(`configured SFTP root does not exist: ${configuredRoot}`);
     const canonical = absoluteRemote(resolved, "SFTP REALPATH result");
+    if (pinnedRoot !== null && canonical !== pinnedRoot) {
+      throw safetyError("TARGET_CHANGED: canonical SFTP root changed during this connection");
+    }
     const final = await validatePrefix(canonical, false);
     if (!final.exists) throw safetyError(`configured SFTP root does not exist: ${configuredRoot}`);
     const st = await sftp.lstat(canonical);
     assertSafeEntry(canonical, st, true);
+    pinnedRoot ??= canonical;
     return canonical;
   }
 
@@ -245,6 +252,72 @@ export async function connect(serverCfg, operation) {
       assertSafeEntry(candidate, st, requireDirectory);
     }
     return { path: candidate, root, exists: checked.exists, stat: st };
+  }
+
+  function permissionBits(entry) {
+    const regular = typeof entry.stat?.isFile === "function" ? entry.stat.isFile() : entry.stat?.isFile;
+    if (!regular || !Number.isInteger(entry.stat.mode) || entry.stat.mode < 0) {
+      throw safetyError("TRANSFER_MODE: a regular file with readable permissions is required");
+    }
+    return entry.stat.mode & 0o777;
+  }
+
+  function assertIdentity(entry, identity) {
+    if (identity && (entry.root !== identity.root || entry.path !== identity.path)) {
+      throw safetyError("TARGET_CHANGED: owned SFTP temporary identity changed");
+    }
+  }
+
+  async function setTemporaryMode(remotePath, expectedRoot, mode) {
+    const before = await safePath(remotePath);
+    permissionBits(before);
+    if (before.root !== expectedRoot) throw safetyError("SFTP root changed while setting temporary permissions");
+    await sftp.chmod(before.path, mode);
+    const after = await safePath(remotePath);
+    if (after.root !== expectedRoot || permissionBits(after) !== mode) {
+      throw safetyError("TRANSFER_MODE: temporary permissions could not be verified");
+    }
+  }
+
+  function handleRequest(method, ...args) {
+    return new Promise((resolve, reject) => {
+      transport.sftp[method](...args, (error, value) => error ? reject(error) : resolve(value));
+    });
+  }
+
+  async function stagedUpload(localPath, destination, maxBytes, options) {
+    operation?.check();
+    options.onCreating?.();
+    // Do not use ssh2's WriteStream.open(): it silently FCHMODs to its default
+    // 0666 after OPEN, overriding the umask and previously restricted modes.
+    const handle = await handleRequest("open", destination.path, "wx", {});
+    options.onOwned?.(Object.freeze({ root: destination.root, path: destination.path }));
+    let failed = false;
+    try {
+      operation?.check();
+      const mode = permissionBits({ stat: await handleRequest("fstat", handle) });
+      operation?.check();
+      await handleRequest("fchmod", handle, 0o600);
+      operation?.check();
+      const restricted = permissionBits({ stat: await handleRequest("fstat", handle) });
+      operation?.check();
+      if (restricted !== 0o600) throw safetyError("TRANSFER_MODE: temporary permissions could not be verified");
+      await sendLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation, async (input) => {
+        let offset = 0;
+        for await (const chunk of input) {
+          operation?.check();
+          await handleRequest("write", handle, chunk, 0, chunk.length, offset);
+          offset += chunk.length;
+          operation?.check();
+        }
+      });
+      return { mode };
+    } catch (error) { failed = true; throw error; }
+    finally {
+      // Cleanup bypasses checkpoints, but remains awaited even after abort.
+      // A failed close must not replace an earlier transfer diagnostic.
+      try { await handleRequest("close", handle); } catch (error) { if (!failed) throw error; }
+    }
   }
 
   async function ensureDirectory(remotePath) {
@@ -309,7 +382,7 @@ export async function connect(serverCfg, operation) {
       }
     },
 
-    async uploadFile(localPath, remotePath) {
+    async uploadFile(localPath, remotePath, maxBytes = maxTransferBytes, options = {}) {
       try {
         await ensureDirectory(posix.dirname(remotePath));
         const parent = await safePath(posix.dirname(remotePath), { requireDirectory: true });
@@ -317,18 +390,35 @@ export async function connect(serverCfg, operation) {
         if (parent.root !== destination.root) {
           throw safetyError("configured SFTP root changed while validating upload");
         }
-        await sftp.put(localPath, destination.path);
+        if (options.staged) {
+          if (destination.exists) throw safetyError("TRANSFER_MODE: staging destination already exists");
+          return await stagedUpload(localPath, destination, maxBytes, options);
+        }
+        await sendLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
+          (input) => sftp.put(input, destination.path));
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: remotePath });
       }
     },
 
-    async downloadFile(remotePath, localPath) {
+    async downloadFile(remotePath, localPath, maxBytes = maxTransferBytes) {
       try {
         const source = await safePath(remotePath);
         operation?.check();
         fs.mkdirSync(path.dirname(localPath), { recursive: true });
-        await sftp.get(source.path, localPath);
+        await receiveLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
+          (output) => sftp.get(source.path, output));
+      } catch (err) {
+        throw friendlyError(err, { ...ctx, path: remotePath });
+      }
+    },
+
+    async hashFile(remotePath, maxBytes = maxTransferBytes, options = {}) {
+      try {
+        const source = await safePath(remotePath);
+        assertIdentity(source, options.identity);
+        return await hashRemoteStream((output) => sftp.get(source.path, output),
+          Math.min(maxBytes, maxTransferBytes), operation);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: remotePath });
       }
@@ -385,13 +475,14 @@ export async function connect(serverCfg, operation) {
       }
     },
 
-    async deleteFile(p) {
+    async deleteFile(p, options = {}) {
       try {
         if (relativeRemote(configuredRoot, absoluteRemote(p, "remote path")) === "") {
           throw safetyError("refusing to delete the configured SFTP root");
         }
         const parent = await safePath(posix.dirname(p), { requireDirectory: true });
         const target = await safePath(p);
+        assertIdentity(target, options.identity);
         if (parent.root !== target.root) {
           throw safetyError("configured SFTP root changed while validating delete");
         }
@@ -417,7 +508,7 @@ export async function connect(serverCfg, operation) {
       }
     },
 
-    async rename(from, to) {
+    async rename(from, to, options = {}) {
       try {
         if (relativeRemote(configuredRoot, absoluteRemote(from, "rename source")) === "") {
           throw safetyError("refusing to rename the configured SFTP root");
@@ -429,6 +520,7 @@ export async function connect(serverCfg, operation) {
         const sourceParent = await safePath(posix.dirname(from), { requireDirectory: true });
         const destinationParent = await safePath(posix.dirname(to), { requireDirectory: true });
         const source = await safePath(from);
+        assertIdentity(source, options.identity);
         const destination = await safePath(to, { allowMissing: true });
         if (
           source.root !== sourceParent.root ||
@@ -436,6 +528,13 @@ export async function connect(serverCfg, operation) {
           source.root !== destination.root
         ) {
           throw safetyError("configured SFTP root changed while validating rename");
+        }
+        if (options.staged) {
+          const mode = destination.exists ? permissionBits(destination) : options.mode;
+          if (!Number.isInteger(mode) || mode < 0 || mode > 0o777) {
+            throw safetyError("TRANSFER_MODE: initial server permissions are unavailable");
+          }
+          await setTemporaryMode(from, source.root, mode);
         }
         await sftp.rename(source.path, destination.path);
       } catch (err) {

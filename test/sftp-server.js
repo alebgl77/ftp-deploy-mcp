@@ -20,8 +20,11 @@ function virtualNormalize(p) {
   return path.posix.normalize("/" + s);
 }
 
-export function startSftpServer({ root, user, password, publicKey }) {
+export function startSftpServer({ root, user, password, publicKey, initialModes = {}, denyChmod = false, ignoreChmod = false, onWrite, realPath }) {
   const realRoot = path.resolve(root);
+  // Windows cannot represent all POSIX mode bits. Track protocol metadata
+  // there; on POSIX every reported mode comes from the real filesystem.
+  const windowsModes = new Map();
   const allowedKey = publicKey === undefined ? null : utils.parseKey(publicKey);
   if (allowedKey instanceof Error) throw allowedKey;
 
@@ -31,9 +34,15 @@ export function startSftpServer({ root, user, password, publicKey }) {
     return path.join(realRoot, norm);
   }
 
-  function attrsFromStats(st) {
+  for (const [remote, mode] of Object.entries(initialModes)) {
+    const file = toReal(remote);
+    fs.chmodSync(file, mode);
+    if (process.platform === "win32") windowsModes.set(file, mode);
+  }
+
+  function attrsFromStats(st, file) {
     return {
-      mode: st.mode,
+      mode: windowsModes.has(file) ? (st.mode & ~0o777) | windowsModes.get(file) : st.mode,
       uid: 0,
       gid: 0,
       size: st.size,
@@ -59,7 +68,7 @@ export function startSftpServer({ root, user, password, publicKey }) {
     const hostKeySha256 =
       "SHA256:" +
       crypto.createHash("sha256").update(parsedHostKey.getPublicSSH()).digest("base64").replace(/=+$/, "");
-    const stats = { authenticationAttempts: 0, sftpSessions: 0, publicKeyAuthentications: 0 };
+    const stats = { authenticationAttempts: 0, sftpSessions: 0, publicKeyAuthentications: 0, permissions: [], removes: [], renames: [] };
     const clients = new Set();
 
     const server = new Server({ hostKeys: [privateKey] }, (client) => {
@@ -131,10 +140,10 @@ export function startSftpServer({ root, user, password, publicKey }) {
       };
 
       sftp.on("REALPATH", (reqid, p) => {
-        const v = virtualNormalize(p);
+        const v = realPath ? realPath(virtualNormalize(p)) : virtualNormalize(p);
         let attrs = { mode: 0o40755, size: 0 };
         try {
-          attrs = attrsFromStats(fs.statSync(toReal(v)));
+          attrs = attrsFromStats(fs.statSync(toReal(v)), toReal(v));
         } catch {
           /* path may not exist yet; still return a canonical name */
         }
@@ -143,7 +152,7 @@ export function startSftpServer({ root, user, password, publicKey }) {
 
       sftp.on("STAT", (reqid, p) => {
         try {
-          sftp.attrs(reqid, attrsFromStats(fs.statSync(toReal(p))));
+          sftp.attrs(reqid, attrsFromStats(fs.statSync(toReal(p)), toReal(p)));
         } catch (err) {
           fail(reqid, err);
         }
@@ -151,7 +160,7 @@ export function startSftpServer({ root, user, password, publicKey }) {
 
       sftp.on("LSTAT", (reqid, p) => {
         try {
-          sftp.attrs(reqid, attrsFromStats(fs.lstatSync(toReal(p))));
+          sftp.attrs(reqid, attrsFromStats(fs.lstatSync(toReal(p)), toReal(p)));
         } catch (err) {
           fail(reqid, err);
         }
@@ -161,7 +170,7 @@ export function startSftpServer({ root, user, password, publicKey }) {
         const h = getHandle(handle);
         if (!h) return sftp.status(reqid, STATUS_CODE.FAILURE);
         try {
-          sftp.attrs(reqid, attrsFromStats(fs.statSync(h.realPath)));
+          sftp.attrs(reqid, attrsFromStats(h.type === "file" ? fs.fstatSync(h.fd) : fs.statSync(h.realPath), h.realPath));
         } catch (err) {
           fail(reqid, err);
         }
@@ -188,7 +197,7 @@ export function startSftpServer({ root, user, password, publicKey }) {
         try {
           names = fs.readdirSync(h.realPath).map((name) => {
             const st = fs.statSync(path.join(h.realPath, name));
-            return { filename: name, longname: longname(name, st), attrs: attrsFromStats(st) };
+            return { filename: name, longname: longname(name, st), attrs: attrsFromStats(st, path.join(h.realPath, name)) };
           });
         } catch (err) {
           return fail(reqid, err);
@@ -196,17 +205,22 @@ export function startSftpServer({ root, user, password, publicKey }) {
         sftp.name(reqid, names);
       });
 
-      sftp.on("OPEN", (reqid, filename, flags, _attrs) => {
+      sftp.on("OPEN", (reqid, filename, flags, attrs) => {
         const realPath = toReal(filename);
         let fsFlags;
         if (flags & OPEN_MODE.WRITE) {
-          fsFlags = flags & OPEN_MODE.APPEND ? "a" : "w";
+          fsFlags = flags & OPEN_MODE.EXCL ? "wx" : flags & OPEN_MODE.APPEND ? "a" :
+            flags & OPEN_MODE.CREAT ? "w" : "r+";
         } else {
           fsFlags = "r";
         }
         let fd;
         try {
-          fd = fs.openSync(realPath, fsFlags);
+          fd = fs.openSync(realPath, fsFlags, attrs.mode);
+          if (fsFlags === "wx") {
+            windowsModes.delete(realPath);
+            stats.permissions.push({ action: "create", path: filename, flags: fsFlags, mode: fs.fstatSync(fd).mode & 0o777 });
+          }
         } catch (err) {
           return fail(reqid, err);
         }
@@ -231,6 +245,9 @@ export function startSftpServer({ root, user, password, publicKey }) {
         const h = getHandle(handle);
         if (!h || h.type !== "file") return sftp.status(reqid, STATUS_CODE.FAILURE);
         try {
+          stats.permissions.push({ action: "write", path: h.realPath,
+            mode: attrsFromStats(fs.fstatSync(h.fd), h.realPath).mode & 0o777 });
+          onWrite?.({ path: h.realPath, offset, bytes: data.length });
           fs.writeSync(h.fd, data, 0, data.length, offset);
         } catch (err) {
           return fail(reqid, err);
@@ -274,7 +291,9 @@ export function startSftpServer({ root, user, password, publicKey }) {
 
       sftp.on("REMOVE", (reqid, p) => {
         try {
+          stats.removes.push(p);
           fs.unlinkSync(toReal(p));
+          windowsModes.delete(toReal(p));
           sftp.status(reqid, STATUS_CODE.OK);
         } catch (err) {
           fail(reqid, err);
@@ -283,16 +302,41 @@ export function startSftpServer({ root, user, password, publicKey }) {
 
       sftp.on("RENAME", (reqid, oldPath, newPath) => {
         try {
+          stats.renames.push([oldPath, newPath]);
           fs.renameSync(toReal(oldPath), toReal(newPath));
+          if (windowsModes.has(toReal(oldPath))) {
+            windowsModes.set(toReal(newPath), windowsModes.get(toReal(oldPath)));
+            windowsModes.delete(toReal(oldPath));
+          } else windowsModes.delete(toReal(newPath));
           sftp.status(reqid, STATUS_CODE.OK);
         } catch (err) {
           fail(reqid, err);
         }
       });
 
-      // Accept (and ignore) attribute changes so put()/get() finalization works.
-      sftp.on("SETSTAT", (reqid) => sftp.status(reqid, STATUS_CODE.OK));
-      sftp.on("FSETSTAT", (reqid) => sftp.status(reqid, STATUS_CODE.OK));
+      function setAttributes(reqid, file, attrs) {
+        try {
+          if (attrs.mode !== undefined) {
+            const mode = attrs.mode & 0o777;
+            stats.permissions.push({ action: "chmod", path: file, mode });
+            if (typeof denyChmod === "function" ? denyChmod(mode, file) : denyChmod) {
+              return sftp.status(reqid, STATUS_CODE.PERMISSION_DENIED);
+            }
+            if (typeof ignoreChmod === "function" ? ignoreChmod(mode, file) : ignoreChmod) {
+              return sftp.status(reqid, STATUS_CODE.OK);
+            }
+            fs.chmodSync(file, mode);
+            if (process.platform === "win32") windowsModes.set(file, mode);
+          }
+          sftp.status(reqid, STATUS_CODE.OK);
+        } catch (err) { fail(reqid, err); }
+      }
+      sftp.on("SETSTAT", (reqid, p, attrs) => setAttributes(reqid, toReal(p), attrs));
+      sftp.on("FSETSTAT", (reqid, handle, attrs) => {
+        const h = getHandle(handle);
+        if (!h) return sftp.status(reqid, STATUS_CODE.FAILURE);
+        setAttributes(reqid, h.realPath, attrs);
+      });
     }
 
     server.on("error", reject);

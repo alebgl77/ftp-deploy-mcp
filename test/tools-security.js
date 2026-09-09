@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { registerTools } from "../src/tools.js";
+import { virtualTransferAdapter } from "./transfers.js";
 
 const TEST_PIN = `SHA256:${Buffer.alloc(32, 9).toString("base64").replace(/=+$/, "")}`;
 const TEST_SECRET = "local-tools-secret-must-not-leak";
@@ -50,19 +51,7 @@ function capturedTools(loaded, openAdapter) {
 }
 
 function basicAdapter(overrides = {}) {
-  return {
-    async list() {
-      return [];
-    },
-    async uploadFile() {},
-    async mkdirp() {},
-    async downloadFile(_remote, local) {
-      fs.mkdirSync(path.dirname(local), { recursive: true });
-      fs.writeFileSync(local, "downloaded");
-    },
-    async close() {},
-    ...overrides,
-  };
+  return virtualTransferAdapter(overrides);
 }
 
 function makeFiles(dir, names) {
@@ -182,8 +171,8 @@ export async function runToolsSecurityTests({ root, ok, contains, notContains })
   };
 
   result = await runDeploy("partial-one", ["a.txt", "b.txt"], {
-    async uploadFile(_local, remote) {
-      if (remote.endsWith("b.txt")) throw new Error("selected failure detail");
+    async uploadFile(local) {
+      if (path.basename(local) === "b.txt") throw new Error("selected failure detail");
     },
   });
   ok(result.isError && firstLine(result) === "PARTIAL DEPLOY — ERROR", "partial deploy: one success plus one failure is an MCP error", result.text);

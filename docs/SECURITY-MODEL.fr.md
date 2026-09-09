@@ -122,14 +122,48 @@ côté service distant. La suppression récursive exige un argument explicite,
 et la suppression de la racine configurée est refusée.
 
 Un déploiement n'est pas une transaction. Si un transfert échoue, `ftp_deploy`
-renvoie une erreur MCP et un résumé du déploiement partiel. Les transferts
-achevés plus tôt dans le même appel restent sur le serveur. Les opérateurs
+renvoie une erreur MCP et un résumé du déploiement partiel. Les fichiers
+promus plus tôt dans le même appel restent sur le serveur. Les opérateurs
 doivent examiner et réconcilier l'état distant avant de réessayer.
+
+Les envois et déploiements utilisent une promotion vérifiée depuis un
+temporaire : hash de la source, envoi borné vers un voisin imprévisible,
+relecture du nombre d'octets et du SHA256, puis un renommage vers le chemin
+final. Un échec de vérification laisse la cible précédente intacte du fait de
+cet outil ; un échec de renommage ne déclenche jamais sa suppression ni un
+repli vers un écrasement direct. Les téléchargements vérifient également un
+temporaire local exclusif et borné, puis le synchronisent avant promotion.
+Par défaut, `overwrite:false` crée un lien physique sans écrasement et refuse
+la promotion si cette primitive n'est pas prise en charge. Le nettoyage vise
+uniquement le temporaire possédé et peut le laisser sur place ; un changement
+connu de racine canonique SFTP interdit de reporter le nettoyage sous la nouvelle.
+
+Le remplacement local et SFTP conserve les bits de droits (0777) d'une cible
+régulière existante, selon la sémantique native du système de fichiers. SFTP
+vérifie le mode 0600 sur le handle exact du temporaire avant toute écriture
+de contenu, puis restaure les droits de la destination ou le mode de création
+serveur relevé avant promotion. FTP/FTPS ne conserve pas ces bits de façon
+portable : un fichier privé ou exécutable peut prendre les droits de création
+par défaut du serveur. Adaptez le compte, l'umask et les ACL. Ces contrôles de
+contenu ne conservent pas le propriétaire, les ACL, les horodatages, les bits
+spéciaux ni les relations de liens physiques.
+
+Les limites par serveur valent par défaut 256 Mio par fichier, 10000 fichiers
+sélectionnés et 1 Gio cumulé d'octets sources par déploiement. Les octets réels
+des flux sont contrôlés ; les tentatives échouées conservent leur réservation.
+Ces quotas ne bornent ni le parcours synchrone complet des dossiers ni son
+temps réel strict. Le nom réservé `.ftp-mcp-*.tmp` est exclu du déploiement,
+y compris lorsqu'un motif `include` explicite le sélectionne. Voir
+[TRANSFERS.fr.md](./TRANSFERS.fr.md) pour les bornes de configuration, le
+nettoyage et les garanties par transport. Les relectures augmentent le trafic.
+Le renommage dépend du serveur et ne fournit ni remplacement atomique universel
+ni atomicité de plusieurs fichiers ; aucun journal durable ni retour arrière
+n'est implémenté.
 
 Dans un même processus Node, les mutations distantes partagent un verrou FIFO
 par protocole, nom d'hôte, port et utilisateur normalisés, quels que soient
 l'alias du serveur ou sa racine. Les téléchargements verrouillent leur
-destination locale résolue et revérifient l'autorisation d'écrasement sous ce
+destination locale canonique et revérifient l'autorisation d'écrasement sous ce
 verrou. Les appels distants en lecture seule n'acquièrent pas les verrous de
 mutation de la cible. Les autres processus, alias DNS, comptes différents,
 fichiers locaux liés physiquement et écritures externes ne sont pas couverts

@@ -173,6 +173,9 @@ entry is exactly `SHA256:` plus 43 characters of unpadded base64.
 | `allowUnknownHostKey` | SFTP | Emergency compatibility override. `true` accepts an unverified server identity and visibly warns on results. |
 | `readOnly` | all | Blocks upload, deploy, mkdir, rename, and delete. A deploy dry run remains available. |
 | `operationTimeoutMs` | all | Tool deadline including queue and connection time, default 120000 ms. Integer from 100 to 3600000. Native transport timeouts also apply. |
+| `maxTransferBytes` | all | Maximum actual bytes per file, default 268435456 (256 MiB), maximum 1099511627776 (1 TiB). Positive safe integer. |
+| `maxDeployFiles` | all | Maximum selected files per deploy, default 10000, maximum 100000. Positive safe integer; does not bound the full directory scan. |
+| `maxDeployBytes` | all | Maximum cumulative source bytes per deploy, default 1073741824 (1 GiB), maximum 1099511627776 (1 TiB). Failed attempts retain their reservation. |
 | `implicitTLS` | FTPS | Uses implicit TLS, normally on port 990. |
 | `insecureTLS` | FTPS | Disables certificate verification. Requires `allowInsecure: true`. |
 | `allowInsecure` | FTP/FTPS | Explicitly accepts plaintext FTP or unverified FTPS. It does not make the connection secure. |
@@ -219,11 +222,28 @@ exists.
 | `ftp_rename` | `server?`, `from_path`, `to_path` | Rename or move. |
 | `ftp_delete` | `server?`, `path`, `recursive?` | Delete a file or, with explicit recursion, a directory. |
 
+### Verified staged promotion
+
+Uploads and deploys write to an unpredictable sibling temporary, verify its
+actual byte count and SHA256 against the local source, then promote it with one
+rename. A verification or rename failure never triggers deletion of the final
+target or a direct-overwrite fallback. Downloads verify an exclusive local
+temporary, synchronize and close it, then promote the complete file. The
+default `overwrite:false` uses a hard link to avoid clobbering a file that
+appeared meanwhile; filesystems without hard-link support fail closed.
+
+Local and SFTP replacements preserve an existing regular target's permission
+bits (0777); FTP/FTPS cannot portably preserve permissions, so account creation
+defaults, umask and ACL policy need to suit the destination. Rename behavior
+depends on the server and filesystem. This does not promise universal atomic
+replacement, a site transaction, or rollback. Readback adds network traffic.
+See [transfer guarantees, limits and cleanup](./docs/TRANSFERS.md).
+
 ### Execution, cancellation, and contention
 
 Within one Node process, upload, deploy, mkdir, rename, and delete run in FIFO
 order for the same normalized protocol, hostname, port, and username. Server
-aliases and roots share that lock. Downloads serialize by resolved local
+aliases and roots share that lock. Downloads serialize by canonical local
 destination, including across servers. Read-only remote operations can overlap.
 
 MCP cancellation and deadlines close active transports and stop subsequent
@@ -278,11 +298,13 @@ security boundary; enforce access with server credentials, `readOnly`,
 results contain a summary and bounded samples, not exhaustive file lists.
 
 `ftp_deploy` is not a transaction. If one or more transfers fail, the tool
-returns an MCP error with a partial-deployment summary; files transferred
+returns an MCP error with a partial-deployment summary; files already promoted
 before the failure are not rolled back.
 
 Default deploy exclusions include `node_modules`, `.git`, environment files,
 logs, OS metadata, `ftp-servers.json`, and `.ftp-mcp` content at any depth.
+The reserved `.ftp-mcp-*.tmp` basename is always excluded, even if an explicit
+`include` pattern matches it, so deploy cannot select a partial download temporary.
 
 ## Client setup
 

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { virtualTransferAdapter } from "./transfers.js";
 import path from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -177,7 +178,7 @@ export async function runMcpContractTests({ root, ok, contains, notContains }) {
   entries[0].name = `entry-${SECRET}.txt`;
   let mixedFailures = false;
 
-  const openAdapter = async () => ({
+  const openAdapter = async () => virtualTransferAdapter({
     async list(remotePath) {
       if (remotePath === "/fail") throw new Error(`list failed with ${SECRET}`);
       if (remotePath === "/empty") return [];

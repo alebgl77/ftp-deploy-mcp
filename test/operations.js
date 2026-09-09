@@ -10,6 +10,7 @@ import { loadConfig, normalizeServer } from "../src/config.js";
 import { registerTools } from "../src/tools.js";
 import * as ftp from "../src/adapters/ftp.js";
 import * as sftp from "../src/adapters/sftp.js";
+import { virtualTransferAdapter } from "./transfers.js";
 
 const SECRET = "operation-test-secret";
 const PIN = `SHA256:${Buffer.alloc(32, 17).toString("base64").replace(/=+$/, "")}`;
@@ -45,13 +46,7 @@ function capture(loaded, openAdapter) {
 }
 function text(result) { return result.content.map((item) => item.text || "").join("\n"); }
 function adapter(overrides = {}) {
-  return {
-    async list() { return []; }, async stat() { return { type: "file", size: 1 }; },
-    async mkdirp() {}, async uploadFile() {}, async deleteFile() {}, async deleteDir() {}, async rename() {},
-    async readFile() { return { buffer: Buffer.from("ok"), truncated: false }; },
-    async downloadFile(_remote, local) { fs.writeFileSync(local, "downloaded"); },
-    async close() {}, ...overrides,
-  };
+  return virtualTransferAdapter(overrides);
 }
 
 export async function runOperationTests({ root, ok }) {

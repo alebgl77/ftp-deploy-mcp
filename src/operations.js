@@ -170,7 +170,7 @@ export async function connectOperation(connectAdapter, server, operation) {
     operation.check();
   }
   const checked = checkedMethods(adapter, operation, [
-    "list", "stat", "uploadFile", "downloadFile", "readFile", "mkdirp", "deleteFile", "deleteDir", "rename",
+    "list", "stat", "uploadFile", "downloadFile", "readFile", "hashFile", "mkdirp", "deleteFile", "deleteDir", "rename",
   ]);
   return new Proxy(checked, { get(target, key) { return key === "close" ? close : Reflect.get(target, key); } });
 }

@@ -114,13 +114,43 @@ Recursive deletion requires an explicit argument, and deletion of the
 configured root is refused.
 
 A deploy is not a transaction. If any transfer fails, `ftp_deploy` returns an
-MCP error and a partial-deployment summary. Transfers completed earlier in the
+MCP error and a partial-deployment summary. Files promoted earlier in the
 same call remain on the server. Operators should inspect and reconcile remote
 state before retrying.
 
+Upload and deployment use verified staged promotion: source hashing, bounded
+upload to an unpredictable sibling temporary, byte-count and SHA256 readback,
+then one rename to the final path. Verification failure leaves the previous
+target untouched by this tool; rename failure never triggers destination
+deletion or a direct-overwrite fallback. Downloads similarly verify a bounded,
+exclusive local temporary and synchronize it before promotion. The default
+`overwrite:false` uses a no-clobber hard-link creation and fails closed if that
+primitive is unsupported. Cleanup targets only the owned temporary and can
+leave it behind; a known SFTP canonical-root change refuses rebased cleanup.
+
+Local and SFTP replacement preserves an existing regular target's permission
+bits (0777), subject to native filesystem semantics. SFTP verifies mode 0600 on
+its exact temporary handle before content is written, then restores either
+the destination bits or the recorded server creation mode before promotion.
+FTP/FTPS does not portably preserve these bits: replacement can change private
+or executable-file permissions to server creation defaults. Configure account,
+umask and ACL policy accordingly. Ownership, ACLs, timestamps, special bits and
+hard-link relationships are not preserved by these content checks.
+
+Per-server limits default to 256 MiB per file, 10000 selected deployment files,
+and 1 GiB cumulative deployment source bytes. Actual stream bytes are checked;
+failed attempts retain their budget reservation. These quotas do not bound
+the full synchronous directory scan or make its deadline a hard wall-clock
+limit. The reserved `.ftp-mcp-*.tmp` basename is excluded from deployment,
+including explicit `include` matches. See [TRANSFERS.md](./TRANSFERS.md) for
+configuration bounds, cleanup behavior and transport-specific guarantees.
+Readback adds traffic. Server-dependent rename does not provide universal
+atomic replacement or multi-file atomicity; no durable journal or rollback
+is implemented.
+
 Within one Node process, remote mutations share a FIFO lock by normalized
 protocol, hostname, port, and username, regardless of server alias or root.
-Downloads instead lock the resolved local destination and recheck overwrite
+Downloads instead lock the canonical local destination and recheck overwrite
 permission under that lock. Read-only remote calls do not acquire endpoint
 mutation locks. Other processes, DNS aliases, different accounts, hard-linked
 local files, and external writers are outside this coordination boundary.

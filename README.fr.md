@@ -177,6 +177,9 @@ base64 sans remplissage.
 | `allowUnknownHostKey` | SFTP | Dérogation de compatibilité urgente. `true` accepte une identité serveur non vérifiée et affiche un avertissement. |
 | `readOnly` | tous | Bloque upload, deploy, mkdir, rename et delete. Le dry-run de deploy reste possible. |
 | `operationTimeoutMs` | tous | Délai d'un appel, attente et connexion comprises : 120000 ms par défaut. Entier de 100 à 3600000. Les délais natifs du transport restent actifs. |
+| `maxTransferBytes` | tous | Maximum d'octets réels par fichier : 268435456 (256 Mio) par défaut, maximum 1099511627776 (1 Tio). Entier positif représentable exactement. |
+| `maxDeployFiles` | tous | Maximum de fichiers sélectionnés par déploiement : 10000 par défaut, maximum 100000. Entier positif ; ne borne pas le parcours complet des dossiers. |
+| `maxDeployBytes` | tous | Maximum cumulé d'octets sources par déploiement : 1073741824 (1 Gio) par défaut, maximum 1099511627776 (1 Tio). Les tentatives échouées conservent leur réservation. |
 | `implicitTLS` | FTPS | Active TLS implicite, normalement sur le port 990. |
 | `insecureTLS` | FTPS | Désactive la vérification du certificat. Exige `allowInsecure: true`. |
 | `allowInsecure` | FTP/FTPS | Accepte explicitement FTP en clair ou FTPS non vérifié. Ne sécurise pas la connexion. |
@@ -222,12 +225,31 @@ optionnel lorsqu'un `defaultServer` est défini ou qu'un seul serveur existe.
 | `ftp_rename` | `server?`, `from_path`, `to_path` | Renomme ou déplace. |
 | `ftp_delete` | `server?`, `path`, `recursive?` | Supprime un fichier ou, avec récursion explicite, un dossier. |
 
+### Promotion vérifiée depuis un fichier temporaire
+
+Les envois et déploiements écrivent dans un temporaire voisin imprévisible,
+vérifient son nombre réel d'octets et son SHA256 contre la source locale, puis
+le promeuvent par un unique renommage. Un échec de vérification ou de renommage
+ne déclenche jamais la suppression de la cible finale ni un repli vers un
+écrasement direct. Les téléchargements vérifient un temporaire local exclusif,
+le synchronisent et le ferment avant de promouvoir le fichier complet. Par
+défaut, `overwrite:false` utilise un lien physique pour préserver tout fichier
+apparu entre-temps ; les systèmes sans liens physiques échouent sans écraser.
+
+Les remplacements locaux et SFTP conservent les bits de droits (0777) d'une
+cible régulière existante ; FTP/FTPS ne le garantit pas de façon portable.
+Les droits de création du compte, l'umask et les ACL doivent donc convenir à
+la destination. Le renommage dépend du serveur et du système de fichiers.
+Il ne garantit ni remplacement atomique universel, ni transaction du site,
+ni retour arrière. La relecture augmente le trafic réseau. Voir les
+[garanties, limites et règles de nettoyage des transferts](./docs/TRANSFERS.fr.md).
+
 ### Exécution, annulation et contention
 
 Dans un même processus Node, upload, deploy, mkdir, rename et delete suivent
 une file FIFO pour un protocole, nom d'hôte, port et utilisateur normalisés
 identiques. Les alias de serveur et les racines partagent ce verrou. Les
-téléchargements sont sérialisés par destination locale résolue, y compris
+téléchargements sont sérialisés par destination locale canonique, y compris
 entre serveurs. Les lectures distantes peuvent se chevaucher.
 
 Une annulation MCP ou l'expiration du délai ferme les transports actifs et
@@ -285,11 +307,13 @@ résumé et des échantillons bornés, pas des listes exhaustives de fichiers.
 
 `ftp_deploy` n'est pas une transaction. Si un ou plusieurs transferts échouent,
 l'outil renvoie une erreur MCP avec un résumé du déploiement partiel ; les
-fichiers déjà transférés ne sont pas annulés.
+fichiers déjà promus ne sont pas annulés.
 
 Les exclusions par défaut couvrent notamment `node_modules`, `.git`, les
 fichiers d'environnement, journaux, métadonnées système, `ftp-servers.json` et
 `.ftp-mcp` à toute profondeur.
+Le nom réservé `.ftp-mcp-*.tmp` est toujours exclu, même si un motif `include`
+explicite le sélectionne, pour ne pas déployer un temporaire de téléchargement partiel.
 
 ## Configuration du client
 

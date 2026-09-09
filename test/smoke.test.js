@@ -25,6 +25,7 @@ import { runToolsSecurityTests } from "./tools-security.js";
 import { runMcpContractTests } from "./mcp-contract.js";
 import { runConfigDiscoveryTests } from "./config-discovery.js";
 import { runOperationTests } from "./operations.js";
+import { runTransferTests } from "./transfers.js";
 import { atomicWriteFileSync } from "../src/atomic-write.js";
 import { createRedactor } from "../src/redact.js";
 import { registerTools } from "../src/tools.js";
@@ -593,6 +594,19 @@ async function runScenario(client, serverName, proto, sampleDir, workDir, diskCh
   });
   ok(r.isError && r.text.includes("overwrite"), `${tag} download refuses overwrite`, r.text);
 
+  const emptySource = path.join(workDir, `empty-${proto}.txt`);
+  const emptyDownload = path.join(workDir, `empty-download-${proto}.txt`);
+  fs.writeFileSync(emptySource, "");
+  r = await client.callTool("ftp_upload", {
+    server: serverName, local_path: emptySource, remote_path: "a/b/c/empty.txt",
+  });
+  ok(!r.isError, `${tag} verified staged upload accepts zero bytes`, r.text);
+  r = await client.callTool("ftp_download", {
+    server: serverName, remote_path: "a/b/c/empty.txt", local_path: emptyDownload,
+  });
+  ok(!r.isError && fs.existsSync(emptyDownload) && fs.statSync(emptyDownload).size === 0,
+    `${tag} verified staged download promotes zero bytes`, r.text);
+
   // 6. rename
   r = await client.callTool("ftp_rename", {
     server: serverName,
@@ -1054,6 +1068,7 @@ async function main() {
 
   await runConfigDiscoveryTests({ root: path.join(baseDir, "config-discovery"), ok });
   await runOperationTests({ root: path.join(baseDir, "operations"), ok });
+  await runTransferTests({ root: path.join(baseDir, "transfers"), ok });
   await runToolsSecurityTests({
     root: path.join(baseDir, "tools-security"),
     ok,

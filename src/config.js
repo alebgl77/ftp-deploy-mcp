@@ -11,6 +11,7 @@ import path from "node:path";
 
 import { normalizeRoot } from "./remote-path.js";
 import { DEFAULT_OPERATION_TIMEOUT_MS } from "./operations.js";
+import { TRANSFER_LIMITS } from "./transfers.js";
 
 const PROTOCOLS = new Set(["ftp", "ftps", "sftp"]);
 
@@ -108,6 +109,11 @@ function validateServer(name, s) {
     return `${prefix} field "operationTimeoutMs" must be an integer between 100 and 3600000`;
   }
   const hasPassword = nonEmptyString(s.password);
+  for (const [field, limit] of Object.entries(TRANSFER_LIMITS)) {
+    if (s[field] !== undefined && (!Number.isSafeInteger(s[field]) || s[field] <= 0 || s[field] > limit.maximum)) {
+      return `${prefix} field "${field}" must be a positive safe integer no greater than ${limit.maximum}`;
+    }
+  }
   const hasKey = nonEmptyString(s.privateKeyPath);
   if (!hasPassword && !hasKey) {
     return `${prefix} no authentication method — provide "password" or "privateKeyPath"`;
@@ -193,6 +199,9 @@ export function normalizeServer(name, s) {
     host: s.host,
     port,
     operationTimeoutMs: s.operationTimeoutMs ?? DEFAULT_OPERATION_TIMEOUT_MS,
+    maxTransferBytes: s.maxTransferBytes ?? TRANSFER_LIMITS.maxTransferBytes.default,
+    maxDeployFiles: s.maxDeployFiles ?? TRANSFER_LIMITS.maxDeployFiles.default,
+    maxDeployBytes: s.maxDeployBytes ?? TRANSFER_LIMITS.maxDeployBytes.default,
     user: s.user,
     password: nonEmptyString(s.password) ? s.password : undefined,
     privateKeyPath: nonEmptyString(s.privateKeyPath) ? expandHome(s.privateKeyPath) : undefined,

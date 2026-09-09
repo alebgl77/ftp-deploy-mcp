@@ -29,6 +29,7 @@ import { resolveRemote, isRootPath, normalizeRoot } from "./remote-path.js";
 import { resolveLocalSource, resolveLocalDestination, localRootStatus } from "./local-path.js";
 import { createRedactor } from "./redact.js";
 import { createOperation, connectOperation, remoteLockKey, localLockKey } from "./operations.js";
+import { checkTransferSize, checkDeploySelection, hashLocalFile, uploadVerified, downloadVerified } from "./transfers.js";
 import * as ftpAdapter from "./adapters/ftp.js";
 import * as sftpAdapter from "./adapters/sftp.js";
 
@@ -43,6 +44,7 @@ const DEFAULT_EXCLUDES = [
   ".DS_Store",
   "Thumbs.db",
   "ftp-servers.json",
+  ".ftp-mcp-*.tmp",
   "**/.ftp-mcp/**",
 ];
 
@@ -425,7 +427,7 @@ async function withResolvedServer(name, server, opts, run, connectAdapter) {
     }
     return await operation.lock(write ? [remoteLockKey(server)] : (opts.lockKeys || []), async () => {
       operation.check();
-      opts.beforeConnect?.();
+      await operation.step(() => opts.beforeConnect?.());
       const adapter = await connectOperation(connectAdapter, server, operation);
       operation.progress();
       let result;
@@ -979,24 +981,29 @@ export function registerTools(server, loaded, options = {}) {
       const { name, server: s } = resolveServer(loaded, args.server);
       try {
         let source = resolveLocalSource(s, args.local_path, "file");
+        checkTransferSize(source.stat.size, s.maxTransferBytes);
+        let expected;
         const base = path.basename(source.path);
         const remoteRel = args.remote_path && args.remote_path.trim() ? args.remote_path : base;
         const target = resolveRemote(s.root, remoteRel);
         return await withResolvedServer(
           name,
           s,
-          { write: true, operation, beforeConnect: () => {
+          { write: true, operation, beforeConnect: async () => {
             source = resolveLocalSource(s, args.local_path, "file");
+            expected = await hashLocalFile(source.path, s.maxTransferBytes, operation);
           } },
           async ({ adapter }) => {
-            await adapter.uploadFile(source.path, target);
+            const transferred = await uploadVerified({
+              adapter, source: source.path, target, maxBytes: s.maxTransferBytes, operation, expected,
+            });
             return successResult(
-              `Uploaded ${source.path} -> ${target} (${formatSize(source.stat.size)}) on ${s.protocol}://${s.host}`,
+              `Uploaded ${source.path} -> ${target} (${formatSize(transferred.bytes)}) on ${s.protocol}://${s.host}`,
               {
                 server: boundedString(name),
                 local_path: boundedString(source.path),
                 remote_path: boundedString(target),
-                size_bytes: source.stat.size,
+                size_bytes: transferred.bytes,
                 security_warning: securityWarning(s),
               }
             );
@@ -1041,7 +1048,7 @@ export function registerTools(server, loaded, options = {}) {
         const lexicalDir = path.resolve(s.localRoot, args.local_dir);
         const files = selectDeployFiles(source.path, args.include, args.exclude);
         const remoteBase = resolveRemote(s.root, args.remote_dir ?? "");
-        const totalBytes = files.reduce((a, f) => a + f.size, 0);
+        let totalBytes = checkDeploySelection(files, s);
 
         if (args.dry_run) {
           // dry_run performs zero network I/O, so it's allowed even on a
@@ -1132,6 +1139,7 @@ export function registerTools(server, loaded, options = {}) {
           const uploadedList = [];
           const failures = [];
           let bytes = 0;
+          let attemptedBytes = 0;
           let consecutive = 0;
           let abortedEarly = false;
           let adapter = null;
@@ -1149,13 +1157,22 @@ export function registerTools(server, loaded, options = {}) {
                   : f.rel;
                 try {
                   const target = resolveRemote(s.root, relForRemote);
+                  const current = resolveLocalSource(s, path.resolve(lexicalDir, f.rel), "file");
+                  const expected = await hashLocalFile(current.path, s.maxTransferBytes, operation);
+                  if (expected.bytes > s.maxDeployBytes - attemptedBytes) {
+                    throw new Error("TRANSFER_LIMIT: deployment exceeds configured maxDeployBytes");
+                  }
+                  attemptedBytes += expected.bytes;
+                  totalBytes += expected.bytes - f.size;
+                  f.size = expected.bytes;
                   const parent = posix.dirname(target);
                   if (parent && parent !== "/" && !created.has(parent)) {
                     await adapter.mkdirp(parent);
                     created.add(parent);
                   }
-                  const current = resolveLocalSource(s, path.resolve(lexicalDir, f.rel), "file");
-                  await adapter.uploadFile(current.path, target);
+                  await uploadVerified({
+                    adapter, source: current.path, target, maxBytes: s.maxTransferBytes, operation, expected,
+                  });
                   operation.progress();
                   uploadedList.push({ path: f.rel, size_bytes: f.size });
                   bytes += f.size;
@@ -1277,29 +1294,36 @@ export function registerTools(server, loaded, options = {}) {
             `local file already exists inside "localRoot" — pass overwrite:true to replace it`
           );
         }
+        const destinationKey = localLockKey(destination.canonicalPath);
+        const revalidate = () => {
+          const current = resolveLocalDestination(s, args.local_path);
+          if (localLockKey(current.canonicalPath) !== destinationKey) {
+            throw new Error("TARGET_CHANGED: local destination changed while waiting for the operation lock");
+          }
+          if (current.exists && !args.overwrite) {
+            throw new Error('local file already exists inside "localRoot" — pass overwrite:true to replace it');
+          }
+          destination = current;
+          return current;
+        };
         return await withResolvedServer(
           name,
           s,
-          { write: false, operation, lockKeys: [localLockKey(destination.canonicalPath)], beforeConnect: () => {
-            const current = resolveLocalDestination(s, args.local_path);
-            if (localLockKey(current.canonicalPath) !== localLockKey(destination.canonicalPath)) {
-              throw new Error("TARGET_CHANGED: local destination changed while waiting for the operation lock");
-            }
-            if (current.exists && !args.overwrite) {
-              throw new Error('local file already exists inside "localRoot" — pass overwrite:true to replace it');
-            }
-            destination = current;
-          } },
+          { write: false, operation, lockKeys: [destinationKey], beforeConnect: revalidate },
           async ({ adapter }) => {
-            await adapter.downloadFile(target, destination.path);
+            const transferred = await downloadVerified({
+              adapter, remote: target, destination, maxBytes: s.maxTransferBytes,
+              overwrite: args.overwrite === true, operation, revalidate,
+            });
             const written = resolveLocalDestination(s, args.local_path);
             return successResult(
-              `Downloaded ${target} -> ${written.path} (${formatSize(written.stat.size)})`,
+              `Downloaded ${target} -> ${written.path} (${formatSize(transferred.bytes)})` +
+                (transferred.cleanupWarning ? `\n\n${transferred.cleanupWarning}` : ""),
               {
                 server: boundedString(name),
                 remote_path: boundedString(target),
                 local_path: boundedString(written.path),
-                size_bytes: written.stat.size,
+                size_bytes: transferred.bytes,
                 overwritten: destination.exists,
                 security_warning: securityWarning(s),
               }
