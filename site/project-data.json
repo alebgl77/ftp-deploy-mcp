@@ -8,16 +8,16 @@
       "version": "0.2.0",
       "updated": "9 septembre 2026",
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-      "head": "734b1f6d40eec27a196d10ee9477454871ed5791",
+      "head": "f8428238f1ded34597b529479aa2364f4ea05a17",
       "scope": "MCP stdio local · usage local supervisé",
       "toolCount": 10,
       "summary": "Contrôler, transférer, vérifier. Les garanties livrées sont explicites ; retrouver un état durable après incident reste la prochaine étape.",
-      "deliveryNote": "État poussé 734b1f6 : staging vérifié, contrat d’erreur strict et textes EN/FR, annulation, verrous et admission bornée sont livrés. CI 34305722763 entièrement réussie. Le runner strict d9a50ab a sa CI 34304948804 réussie. Plan/apply/status, journal, reprise, rollback, lecture par ranges et traces restent en préparation. Version 0.2.0 : aucun tag ni publication npm.",
+      "deliveryNote": "État poussé f842823 : staging vérifié, contrat d’erreur strict et textes EN/FR, annulation, verrous et admission bornée sont livrés. CI 34326855200 entièrement réussie. Le runner strict d9a50ab a sa CI 34304948804 réussie. Le stockage d’état interne borné (36977ba) et le modèle de workflow pur à budgets de reprise finis (f842823) sont poussés comme bibliothèques internes inertes : aucun outil MCP exposé. Plan/apply/status, journal, reprise, rollback, lecture par ranges et traces restent en préparation. Version 0.2.0 : aucun tag ni publication npm.",
       "metrics": [
         {
           "value": "672",
           "label": "assertions smoke réussies",
-          "detail": "6 transports · 14 CLI · 53 contrat · 29 ressources"
+          "detail": "6 transports · 14 CLI · 53 contrat · 29 ressources · 123 état · 100 workflow"
         },
         {
           "value": "86",
@@ -27,7 +27,7 @@
         {
           "value": "10",
           "label": "outils MCP",
-          "detail": "Version 0.2.0 · paquet local de 68 fichiers"
+          "detail": "Version 0.2.0 · paquet local de 81 fichiers"
         }
       ],
       "principles": [
@@ -413,8 +413,8 @@
             "Installer le tarball exact dans un environnement vierge et initialiser MCP.",
             "Séparer les transports et plateformes exécutés de ceux seulement configurés."
           ],
-          "evidence": "CI 34305722763 réussie. Archive locale 734b1f6 : 68 fichiers exacts et identiques aux sources, sans publication ni tag. Les 77 contrôles fresh-consumer concernent uniquement le tarball ab9c03a ; ils ne qualifient pas 734b1f6.",
-          "commit": "734b1f6d40eec27a196d10ee9477454871ed5791"
+          "evidence": "CI 34326855200 réussie. Archive locale f842823 : 81 fichiers exacts et identiques aux sources, sans publication ni tag. Les 77 contrôles fresh-consumer concernent uniquement le tarball ab9c03a ; ils ne qualifient pas f842823.",
+          "commit": "f8428238f1ded34597b529479aa2364f4ea05a17"
         },
         {
           "id": "B0",
@@ -591,20 +591,20 @@
       ],
       "quality": [
         {
-          "area": "CI actuelle — 734b1f6",
+          "area": "CI actuelle — f842823",
           "result": "6 combinaisons OS/Node réussies",
           "level": "verified",
-          "scope": "Run 34305722763 : Linux/macOS/Windows × Node 22/24 et chaîne d’approvisionnement.",
+          "scope": "Run 34326855200 : Linux/macOS/Windows × Node 22/24 et chaîne d’approvisionnement.",
           "limit": "Preuve de cette révision ; ne qualifie pas les fonctionnalités futures ni chaque artefact distribué.",
-          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34305722763"
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
           "area": "Runtime actuel : catégories séparées",
           "result": "Suites runtime réussies",
           "level": "verified",
-          "scope": "672 assertions smoke + 6 tests de transports chiffrés réels + 14 CLI + 53 contrat/cancellation + 29 ressources.",
+          "scope": "672 assertions smoke + 6 tests de transports chiffrés réels + 14 CLI + 53 contrat/cancellation + 29 ressources + 123 état + 100 workflow.",
           "limit": "Les catégories ne sont pas des mesures de réussite d’un agent. Tests Windows locaux puis CI référencée.",
-          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34305722763"
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
           "area": "Runner strict — d9a50ab",
@@ -624,27 +624,27 @@
         },
         {
           "area": "Artefact local actuel",
-          "result": "68 fichiers exacts",
+          "result": "81 fichiers exacts",
           "level": "verified",
-          "scope": "Archive 734b1f6 : fichiers réguliers, octets identiques aux sources, intégrité et empreinte avant/après vérifiées.",
+          "scope": "Archive f842823 : fichiers réguliers, octets identiques aux sources, intégrité et empreinte avant/après vérifiées.",
           "limit": "Version 0.2.0 ; aucun tag ni publication. Inspection locale, pas exécution de l’entrée CLI de publication.",
-          "url": "https://github.com/alebgl77/ftp-deploy-mcp/blob/734b1f6d40eec27a196d10ee9477454871ed5791/scripts/release-artifact.mjs"
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/blob/f8428238f1ded34597b529479aa2364f4ea05a17/scripts/release-artifact.mjs"
         },
         {
           "area": "Consommateur vierge — historique ab9c03a",
           "result": "77 contrôles réussis",
           "level": "verified",
           "scope": "Qualification du tarball ab9c03a dans un consommateur vierge.",
-          "limit": "Ne pas étendre ces 77 résultats au paquet 734b1f6 ; chaque archive a son périmètre.",
+          "limit": "Ne pas étendre ces 77 résultats au paquet f842823 ; chaque archive a son périmètre.",
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/commit/ab9c03a71571ce2843f050d7c80eeea7b82ebf96"
         },
         {
           "area": "Documentation et contrôles release",
-          "result": "15 paires · 68 contrôles release",
+          "result": "17 paires · 69 contrôles release",
           "level": "verified",
-          "scope": "175 liens locaux ; 11 tests du générateur et guide FR/EN autonome déterministe.",
-          "limit": "La CI 34305722763 qualifie sa révision documentaire ; cette actualisation du guide est vérifiée localement, séparément de cette CI.",
-          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34305722763"
+          "scope": "235 liens locaux ; 11 tests du générateur et guide FR/EN autonome déterministe.",
+          "limit": "La CI 34326855200 qualifie sa révision documentaire ; cette actualisation du guide est vérifiée localement, séparément de cette CI.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
           "area": "Dépendances de production",
@@ -736,7 +736,7 @@
           "name": "FTPS",
           "proof": "Tests supplémentaires réussis",
           "level": "verified",
-          "limits": "Certificats vérifiés et refus négatifs dans les 6 tests chiffrés. CI 34305722763 réussie ; permissions FTP/FTPS non préservées de façon portable."
+          "limits": "Certificats vérifiés et refus négatifs dans les 6 tests chiffrés. CI 34326855200 réussie ; permissions FTP/FTPS non préservées de façon portable."
         },
         {
           "name": "SFTP",
@@ -760,7 +760,7 @@
           "name": "Matrice CI / Node 22–24",
           "proof": "6 combinaisons réussies",
           "level": "verified",
-          "limits": "Linux, macOS et Windows × Node 22/24 ; run 34305722763, commit 734b1f6. Les garanties de récupération durable restent cibles."
+          "limits": "Linux, macOS et Windows × Node 22/24 ; run 34326855200, commit f842823. Les garanties de récupération durable restent cibles."
         }
       ],
       "competitors": [
@@ -949,7 +949,7 @@
           "path": "docs/SCRIPTED-EVALUATIONS.md"
         }
       ],
-      "sourceNote": "Audit du 8 septembre 2026, actualisé au 9 septembre sur les faits livrés jusqu’à 734b1f6. Les comparaisons GitHub restent des inspections statiques épinglées. Aucun concurrent ni modèle exécuté ; figures ChatGPT conservées comme vues cibles.",
+      "sourceNote": "Audit du 8 septembre 2026, actualisé au 9 septembre sur les faits livrés jusqu’à f842823. Les comparaisons GitHub restent des inspections statiques épinglées. Aucun concurrent ni modèle exécuté ; figures ChatGPT conservées comme vues cibles.",
       "illustrations": [
         {
           "id": "architecture-cible",
@@ -968,16 +968,16 @@
       "version": "0.2.0",
       "updated": "9 September 2026",
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-      "head": "734b1f6d40eec27a196d10ee9477454871ed5791",
+      "head": "f8428238f1ded34597b529479aa2364f4ea05a17",
       "scope": "Local MCP stdio · supervised local use",
       "toolCount": 10,
       "summary": "Check, transfer, verify. Delivered guarantees are explicit; recovering durable state after an incident remains the next step.",
-      "deliveryNote": "Pushed state 734b1f6: verified staging, strict error contract and EN/FR text, cancellation, locks and bounded admission are delivered. CI 34305722763 passed in full. Strict runner d9a50ab has passing CI 34304948804. Plan/apply/status, journal, recovery, rollback, range reads and traces remain in preparation. Version 0.2.0: no tag or npm publication.",
+      "deliveryNote": "Pushed state f842823: verified staging, strict error contract and EN/FR text, cancellation, locks and bounded admission are delivered. CI 34326855200 passed in full. Strict runner d9a50ab has passing CI 34304948804. Bounded internal state storage (36977ba) and the pure workflow model with finite recovery budgets (f842823) are pushed as inert internal libraries: no MCP tool exposed. Plan/apply/status, journal, recovery, rollback, range reads and traces remain in preparation. Version 0.2.0: no tag or npm publication.",
       "metrics": [
         {
           "value": "672",
           "label": "smoke assertions passed",
-          "detail": "6 transports · 14 CLI · 53 contract · 29 resource tests"
+          "detail": "6 transports · 14 CLI · 53 contract · 29 resource · 123 state · 100 workflow tests"
         },
         {
           "value": "86",
@@ -987,7 +987,7 @@
         {
           "value": "10",
           "label": "MCP tools",
-          "detail": "Version 0.2.0 · local 68-file package"
+          "detail": "Version 0.2.0 · local 81-file package"
         }
       ],
       "principles": [
@@ -1373,8 +1373,8 @@
             "Install the exact tarball in a clean environment and initialize MCP.",
             "Separate executed transports and platforms from those only configured."
           ],
-          "evidence": "CI 34305722763 passed. Local 734b1f6 archive: 68 exact files matching source bytes, without publication or tag. The 77 fresh-consumer checks concern only the ab9c03a tarball; they do not qualify 734b1f6.",
-          "commit": "734b1f6d40eec27a196d10ee9477454871ed5791"
+          "evidence": "CI 34326855200 passed. Local f842823 archive: 81 exact files matching source bytes, without publication or tag. The 77 fresh-consumer checks concern only the ab9c03a tarball; they do not qualify f842823.",
+          "commit": "f8428238f1ded34597b529479aa2364f4ea05a17"
         },
         {
           "id": "B0",
@@ -1551,20 +1551,20 @@
       ],
       "quality": [
         {
-          "area": "Current CI — 734b1f6",
+          "area": "Current CI — f842823",
           "result": "6 OS/Node combinations passed",
           "level": "verified",
-          "scope": "Run 34305722763: Linux/macOS/Windows × Node 22/24 and supply chain.",
+          "scope": "Run 34326855200: Linux/macOS/Windows × Node 22/24 and supply chain.",
           "limit": "Evidence for this revision; does not qualify future capabilities or every distributed artifact.",
-          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34305722763"
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
           "area": "Current runtime: separate categories",
           "result": "Runtime suites passed",
           "level": "verified",
-          "scope": "672 smoke assertions + 6 real encrypted-transport tests + 14 CLI + 53 contract/cancellation + 29 resource tests.",
+          "scope": "672 smoke assertions + 6 real encrypted-transport tests + 14 CLI + 53 contract/cancellation + 29 resource + 123 state + 100 workflow tests.",
           "limit": "Categories are not agent-success measurements. Local Windows tests followed by the referenced CI.",
-          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34305722763"
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
           "area": "Strict runner — d9a50ab",
@@ -1584,27 +1584,27 @@
         },
         {
           "area": "Current local artifact",
-          "result": "68 exact files",
+          "result": "81 exact files",
           "level": "verified",
-          "scope": "734b1f6 archive: regular files, source-byte identity, verified integrity and before/after hash.",
+          "scope": "f842823 archive: regular files, source-byte identity, verified integrity and before/after hash.",
           "limit": "Version 0.2.0; no tag or publication. Local inspection, not execution of the publication CLI entry point.",
-          "url": "https://github.com/alebgl77/ftp-deploy-mcp/blob/734b1f6d40eec27a196d10ee9477454871ed5791/scripts/release-artifact.mjs"
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/blob/f8428238f1ded34597b529479aa2364f4ea05a17/scripts/release-artifact.mjs"
         },
         {
           "area": "Fresh consumer — historical ab9c03a",
           "result": "77 checks passed",
           "level": "verified",
           "scope": "Qualification of the ab9c03a tarball in a fresh consumer.",
-          "limit": "Do not extend these 77 results to package 734b1f6; each archive has its own scope.",
+          "limit": "Do not extend these 77 results to package f842823; each archive has its own scope.",
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/commit/ab9c03a71571ce2843f050d7c80eeea7b82ebf96"
         },
         {
           "area": "Documentation and release checks",
-          "result": "15 pairs · 68 release checks",
+          "result": "17 pairs · 69 release checks",
           "level": "verified",
-          "scope": "175 local links; 11 generator tests and a deterministic standalone FR/EN guide.",
-          "limit": "CI 34305722763 qualifies its documentation revision; this guide refresh is verified locally, separately from that CI.",
-          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34305722763"
+          "scope": "235 local links; 11 generator tests and a deterministic standalone FR/EN guide.",
+          "limit": "CI 34326855200 qualifies its documentation revision; this guide refresh is verified locally, separately from that CI.",
+          "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
           "area": "Production dependencies",
@@ -1696,7 +1696,7 @@
           "name": "FTPS",
           "proof": "Additional tests passed",
           "level": "verified",
-          "limits": "Verified certificates and negative refusals in the 6 encrypted-transport tests. CI 34305722763 passed; no portable FTP/FTPS permission preservation."
+          "limits": "Verified certificates and negative refusals in the 6 encrypted-transport tests. CI 34326855200 passed; no portable FTP/FTPS permission preservation."
         },
         {
           "name": "SFTP",
@@ -1720,7 +1720,7 @@
           "name": "CI matrix / Node 22–24",
           "proof": "6 combinations passed",
           "level": "verified",
-          "limits": "Linux, macOS and Windows × Node 22/24; run 34305722763, commit 734b1f6. Durable recovery guarantees remain targets."
+          "limits": "Linux, macOS and Windows × Node 22/24; run 34326855200, commit f842823. Durable recovery guarantees remain targets."
         }
       ],
       "competitors": [
@@ -1909,7 +1909,7 @@
           "path": "docs/SCRIPTED-EVALUATIONS.md"
         }
       ],
-      "sourceNote": "Audit dated 8 September 2026, updated on 9 September with delivered facts through 734b1f6. GitHub comparisons remain pinned static inspections. No competitor or model executed; ChatGPT figures remain target views.",
+      "sourceNote": "Audit dated 8 September 2026, updated on 9 September with delivered facts through f842823. GitHub comparisons remain pinned static inspections. No competitor or model executed; ChatGPT figures remain target views.",
       "illustrations": [
         {
           "id": "architecture-cible",
