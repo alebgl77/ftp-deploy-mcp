@@ -90,7 +90,7 @@ export function validateCheckout(root, release, ref, files = [], eventCommit = p
   const git = (args) => execFileSync("git", ["-C", root, ...args], {
     encoding: "utf8", windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024,
   }).trim();
-  assert.equal(realpathSync(root), realpathSync(git(["rev-parse", "--show-toplevel"])), "Source root must be the checkout root");
+  assert.equal(realpathSync.native(root), realpathSync.native(git(["rev-parse", "--show-toplevel"])), "Source root must be the checkout root");
   const commit = checkoutCommit(root);
   assert.match(eventCommit ?? "", /^[a-f0-9]{40}$/, "Original event commit (GITHUB_SHA) is required");
   assert.equal(commit, eventCommit, "Checked-out commit must match the original event commit");
