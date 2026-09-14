@@ -1,3 +1,4 @@
+import { assertReleaseToolchain } from "./release-toolchain.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
@@ -80,12 +81,14 @@ export function validateMetadata(pkg, lock, server, ref, runtimeVersion) {
 }
 
 export function checkoutCommit(root) {
+  assertReleaseToolchain();
   return execFileSync("git", ["-C", root, "rev-parse", "--verify", "HEAD^{commit}"], {
     encoding: "utf8", windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024,
   }).trim();
 }
 
 export function validateCheckout(root, release, ref, files = [], eventCommit = process.env.GITHUB_SHA) {
+  assertReleaseToolchain();
   assert.equal(ref, `refs/tags/v${release.version}`, "Release must run from its exact version tag");
   const git = (args) => execFileSync("git", ["-C", root, ...args], {
     encoding: "utf8", windowsHide: true, timeout: 15000, maxBuffer: 1024 * 1024,
@@ -120,6 +123,7 @@ export function validateChangelog(text, version, label) {
 }
 
 export function readRelease(root = process.cwd(), ref = process.env.GITHUB_REF, { sourceOnly = false } = {}) {
+  assertReleaseToolchain();
   assert.ok(path.isAbsolute(root), "Explicit absolute source root is required");
   assert.ok(!existsSync(path.join(root, "npm-shrinkwrap.json")), "package-lock.json must be the sole lockfile");
   const read = (file) => JSON.parse(readFileSync(path.join(root, file), "utf8"));
@@ -138,6 +142,7 @@ export function isMain(url) {
 }
 
 if (isMain(import.meta.url)) {
+  assertReleaseToolchain();
   const args = process.argv.slice(2);
   assert.ok(new Set(args).size === args.length && args.every((arg) => ["--runtime", "--source-only"].includes(arg)), "Usage: node scripts/release-gate.mjs [--source-only] [--runtime]");
   const { pkg, lock, server, release } = readRelease(process.cwd(), process.env.GITHUB_REF, { sourceOnly: args.includes("--source-only") });

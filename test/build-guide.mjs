@@ -135,7 +135,7 @@ for (const files of [["TRANSFERS.md"], ["TRANSFERS.fr.md"], ["TRANSFERS.md", "TR
     for (const directory of ["docs", "evaluations", "test/fixtures/transport", "assets/provenance"]) {
       mkdirSync(path.join(f.directory, directory), { recursive: true });
     }
-    for (const file of ["check-docs.mjs", "release-artifact.mjs", "release-gate.mjs"]) {
+    for (const file of ["check-docs.mjs", "release-artifact.mjs", "release-gate.mjs", "release-toolchain.mjs"]) {
       copyFileSync(path.join(root, "scripts", file), path.join(f.directory, "scripts", file));
     }
     for (const file of files) writeFileSync(path.join(f.directory, "docs", file), "# New document\n");

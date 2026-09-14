@@ -1,3 +1,4 @@
+import { assertReleaseToolchain } from "../scripts/release-toolchain.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import childProcess from "node:child_process";
@@ -12,6 +13,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { MAX_ARCHIVE_BYTES, MAX_FILE_BYTES, MAX_TAR_BYTES, SOURCE_FILES as PACKAGE_FILES, NPM_PACKAGE_FILES, approvedSource, buildSourceArtifact, captureSourceInventory, checkArtifact, fetchNpmArtifact, inspectArtifact, integrity, readBoundedFile, registryTarballURL } from "../scripts/release-artifact.mjs";
 import { readRelease, validateCheckout } from "../scripts/release-gate.mjs";
+
+assertReleaseToolchain();
 
 const repo = realpathSync(fileURLToPath(new URL("..", import.meta.url)));
 const temp = realpathSync(mkdtempSync(path.join(os.tmpdir(), "ftp-release-artifact-")));

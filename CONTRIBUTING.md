@@ -5,6 +5,10 @@
 Thanks for considering a contribution. This project intentionally stays small and
 dependency-light — please read the principles below before opening a PR.
 
+The MCP runtime supports Node.js >=22. Release tooling requires **Node.js 24.20.0 exactly**: archive creation and inspection, source inventories, installed-graph checks, registry verification and `npm run test:release` reject other versions before performing those operations. Use the qualified Node distribution, including its bundled npm, and record Node/libuv/npm/tar versions with `node scripts/release-toolchain.mjs`. Consumer runtime qualification may still execute the MCP server with Node 22 while invoking the external release tools separately with Node 24.20.0.
+
+CI retains all six runtime jobs (Node 22/24 on Linux, macOS and Windows). The complete release suite runs separately on all three operating systems with Node 24.20.0. macOS has three predefined full passes; any failed pass fails the job. These are fixed qualification passes, with no failure retries, skipped cases or increased archive limits. Supply-chain and npm/MCP publication workflows use the same exact release Node version.
+
 ## Dev setup
 
 ```bash
