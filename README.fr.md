@@ -29,13 +29,14 @@ réponses d'outils, proposent lecture seule et dry-run, et limitent l'accès aux
 fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 étendue utilisant des serveurs FTP et SFTP locaux. Aucune télémétrie.
 
-> **Disponibilité :** l'installation depuis les sources fonctionne aujourd'hui.
-> Le paquet npm et l'entrée du registre MCP ne sont **pas encore publiés** :
-> `npx -y ftp-deploy-mcp` et l'installation depuis un registre échoueront
-> jusqu'à l'annonce de la première release. Les pages Glama et MCP Index
-> existantes sont des fiches de découverte, pas la preuve d'un paquet
-> installable. Les métadonnées du paquet et du serveur sont alignées sur la
-> release candidate 0.2.0, en attente de publication.
+> **Disponibilité :** [v0.2.0](https://github.com/alebgl77/ftp-deploy-mcp/releases/tag/v0.2.0)
+> a été publiée sur GitHub le 9 septembre 2026. Installez depuis les sources.
+> Le paquet npm n'est **pas encore publié** : `npx -y ftp-deploy-mcp` n'est donc
+> pas disponible. Le projet indique toujours que la publication dans l'Official
+> MCP Registry est en attente ; l'installation depuis un registre n'est pas
+> proposée ici. Les pages Glama et MCP Index sont des fiches de découverte,
+> pas la preuve d'un paquet installable. Les métadonnées du paquet et du serveur
+> sont alignées sur la version 0.2.0.
 
 ## Documentation
 
@@ -373,10 +374,11 @@ contrôle de version, restreignez ses droits, ajoutez `localRoot` et examinez
 chaque avertissement de transport ou de racine FTP/FTPS avant la connexion.
 `doctor` reste en lecture seule et ne montre pas les mots de passe.
 
-## Migration de v0.1 vers la v0.2 non publiée
+## Migration de v0.1 vers v0.2.0
 
-Le checkout source contient des travaux v0.2, mais aucun paquet ni registre
-v0.2 n'est encore publié.
+La release source v0.2.0 est disponible sur GitHub. Le paquet npm reste non
+publié, et la publication dans l'Official MCP Registry est toujours annoncée
+en attente.
 
 1. Ajoutez un `localRoot` absolu à tout serveur utilisé pour upload, deploy ou
    download.
@@ -392,9 +394,9 @@ v0.2 n'est encore publié.
    puis lancez `npm run doctor` et un dry-run.
 
 Le remplacement atomique des nouvelles configurations sensibles est une
-condition de release v0.2, pas une garantie des métadonnées 0.2.0 de cette
-release candidate. Consultez [docs/RELEASE.fr.md](./docs/RELEASE.fr.md) avant de créer la
-release.
+condition de release, pas une garantie établie par les seules métadonnées de
+version 0.2.0. Consultez [docs/RELEASE.fr.md](./docs/RELEASE.fr.md) pour les exigences
+de qualification d'une release.
 
 ## Sécurité et limites
 

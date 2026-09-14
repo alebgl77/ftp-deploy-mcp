@@ -29,12 +29,13 @@ support read-only servers and dry runs, and limit local file access with
 `localRoot`. The repository is covered by an extensive end-to-end suite that
 runs against local FTP and SFTP servers. There is no telemetry.
 
-> **Availability:** install from source today. The npm package and MCP registry
-> entry have **not been published yet**, so `npx -y ftp-deploy-mcp` and
-> registry-based installation will not work until the first release is
-> announced. Existing Glama and MCP Index pages are discovery listings, not
-> proof that an installable package is available. Package and server metadata
-> are aligned at release candidate 0.2.0, pending publication.
+> **Availability:** [v0.2.0](https://github.com/alebgl77/ftp-deploy-mcp/releases/tag/v0.2.0)
+> was published on GitHub on September 9, 2026. Install from source today.
+> The npm package has **not been published**, so `npx -y ftp-deploy-mcp` is not
+> available. The project still lists publication in the Official MCP Registry
+> as pending; registry-based installation is not offered here. Existing Glama
+> and MCP Index pages are discovery listings, not proof that an installable
+> package is available. Package and server metadata are aligned at 0.2.0.
 
 ## Documentation
 
@@ -363,10 +364,10 @@ insecure-transport or FTP/FTPS remote-root warning before connecting.
 `doctor` is read-only and reports configuration and client wiring without
 printing passwords.
 
-## Migrating from v0.1 to the unreleased v0.2
+## Migrating from v0.1 to v0.2.0
 
-The source checkout contains v0.2 work, but no v0.2 package or registry release
-exists yet.
+The v0.2.0 source release is available on GitHub. The npm package remains
+unpublished, and Official MCP Registry publication is still listed as pending.
 
 1. Add an absolute `localRoot` to every server used by upload, deploy, or
    download.
@@ -382,9 +383,9 @@ exists yet.
 5. Re-run `npm run setup` or update the MCP client command to this checkout,
    then run `npm run doctor` and a dry run.
 
-Atomic replacement for newly written sensitive configuration is a v0.2 release
-gate, not a guarantee of the 0.2.0 release-candidate metadata in this checkout. See
-[docs/RELEASE.md](./docs/RELEASE.md) before cutting a release.
+Atomic replacement for newly written sensitive configuration is a release
+gate, not a guarantee established by the 0.2.0 version metadata alone. See
+[docs/RELEASE.md](./docs/RELEASE.md) for release qualification requirements.
 
 ## Security and limitations
 
