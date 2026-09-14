@@ -1,0 +1,69 @@
+name: Bounded CI diagnostics
+
+on:
+  push:
+    branches: [codex/quality-ci-diagnostics]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - run: npm ci --ignore-scripts
+
+      - name: Record runtime and tar versions
+        shell: bash
+        run: |
+          node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,uv:process.versions.uv}))'
+          tar --version
+
+      - name: Compare SFTP fixture TCP no-delay settings
+        id: sftp
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: node test/ci-diagnostics/sftp-latency.mjs .
+
+      - name: Observe tar with concurrent test files
+        id: tar_concurrent
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: node --import ./test/ci-diagnostics/tar-observe.mjs --test --test-name-pattern="source builder uses approved bytes|source installation archive includes" test/release-artifact.js test/release-npm-pack.js
+
+      - name: Observe tar with sequential test files
+        id: tar_sequential
+        if: always() && runner.os == 'macOS' && steps.tar_concurrent.outcome != 'skipped'
+        continue-on-error: true
+        run: node --import ./test/ci-diagnostics/tar-observe.mjs --test --test-concurrency=1 --test-name-pattern="source builder uses approved bytes|source installation archive includes" test/release-artifact.js test/release-npm-pack.js
+
+      - name: Observe full release workload if targeted tests pass
+        id: tar_full
+        if: runner.os == 'macOS' && steps.tar_concurrent.outcome == 'success' && steps.tar_sequential.outcome == 'success'
+        continue-on-error: true
+        run: node --import ./test/ci-diagnostics/tar-observe.mjs --test test/release-gates.js test/release-artifact.js test/release-npm-pack.js test/release-graph.js
+
+      - name: Preserve independent diagnostic outcomes
+        if: always()
+        shell: bash
+        env:
+          SFTP_OUTCOME: ${{ steps.sftp.outcome }}
+          TAR_CONCURRENT_OUTCOME: ${{ steps.tar_concurrent.outcome }}
+          TAR_SEQUENTIAL_OUTCOME: ${{ steps.tar_sequential.outcome }}
+          TAR_FULL_OUTCOME: ${{ steps.tar_full.outcome }}
+        run: |
+          node -e 'const names=["SFTP_OUTCOME","TAR_CONCURRENT_OUTCOME","TAR_SEQUENTIAL_OUTCOME","TAR_FULL_OUTCOME"]; const outcomes=Object.fromEntries(names.map(name=>[name,process.env[name]]));console.log(JSON.stringify(outcomes));if(Object.values(outcomes).includes("failure"))process.exitCode=1;'
