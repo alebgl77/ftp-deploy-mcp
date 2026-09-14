@@ -29,9 +29,10 @@ support read-only servers and dry runs, and limit local file access with
 `localRoot`. The repository is covered by an extensive end-to-end suite that
 runs against local FTP and SFTP servers. There is no telemetry.
 
-> **Availability:** install from source today. The npm package and MCP registry
-> entry have **not been published yet**, so `npx -y ftp-deploy-mcp` and
-> registry-based installation remain unavailable. GitHub source releases are
+> **Availability:** install from source today. The npm package has **not been
+> published yet**, so `npx -y ftp-deploy-mcp` is unavailable. The project still
+> lists publication in the Official MCP Registry as pending; registry-based
+> installation is not offered here. GitHub source releases are
 > separate from npm and Official MCP Registry publication. Existing Glama and
 > MCP Index pages are discovery listings, not proof of an installable package.
 > This checkout has version 0.2.1. Find published source versions on
@@ -397,9 +398,10 @@ printing passwords.
 
 ## Migrating from v0.1 to v0.2
 
-GitHub v0.2.0 is published. This source checkout has version 0.2.1; neither
-npm nor the Official MCP Registry has been published. The steps below apply to
-the source installation and do not announce an npm release.
+GitHub v0.2.0 is published. This source checkout has version 0.2.1. The npm
+package remains unpublished, and the project still lists Official MCP Registry
+publication as pending. The steps below apply to the source installation and
+do not announce an npm release.
 
 1. Add an absolute `localRoot` to every server used by upload, deploy, or
    download.

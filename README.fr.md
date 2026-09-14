@@ -30,9 +30,10 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 étendue utilisant des serveurs FTP et SFTP locaux. Aucune télémétrie.
 
 > **Disponibilité :** l'installation depuis les sources fonctionne aujourd'hui.
-> Le paquet npm et l'entrée du registre MCP ne sont **pas encore publiés** :
-> `npx -y ftp-deploy-mcp` et l'installation depuis un registre échoueront
-> pour l'instant. Les releases de sources GitHub sont distinctes des publications
+> Le paquet npm n'est **pas encore publié** : `npx -y ftp-deploy-mcp` reste
+> indisponible. Le projet indique toujours que la publication dans le registre
+> MCP officiel est en attente ; l'installation depuis un registre n'est pas
+> proposée ici. Les releases de sources GitHub sont distinctes des publications
 > sur npm et le registre MCP officiel. Les pages Glama et MCP Index existantes
 > sont des fiches de découverte, pas la preuve d'un paquet installable.
 > Cette copie porte la version 0.2.1. Les versions sources publiées figurent sur
@@ -411,9 +412,9 @@ chaque avertissement de transport ou de racine FTP/FTPS avant la connexion.
 ## Migration de v0.1 vers v0.2
 
 La release GitHub v0.2.0 est publiée. Cette copie source porte la version
-0.2.1 ; les publications npm et registre MCP officiel restent en attente. Les
-étapes ci-dessous concernent l'installation depuis les sources et n'annoncent
-pas une release npm.
+0.2.1. Le paquet npm reste non publié et le projet indique toujours que la
+publication dans le registre MCP officiel est en attente. Les étapes ci-dessous
+concernent l'installation depuis les sources et n'annoncent pas une release npm.
 
 1. Ajoutez un `localRoot` absolu à tout serveur utilisé pour upload, deploy ou
    download.
