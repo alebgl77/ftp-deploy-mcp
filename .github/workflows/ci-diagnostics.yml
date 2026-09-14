@@ -33,11 +33,11 @@ jobs:
           node -e 'console.log(JSON.stringify({platform:process.platform,arch:process.arch,node:process.version,uv:process.versions.uv}))'
           tar --version
 
-      - name: Compare SFTP fixture TCP no-delay settings
+      - name: Measure the real SFTP adapter and fixture
         id: sftp
         if: runner.os == 'Linux'
         continue-on-error: true
-        run: node test/ci-diagnostics/sftp-latency.mjs .
+        run: node test/ci-diagnostics/sftp-final.mjs .
 
       - name: Observe tar with concurrent test files
         id: tar_concurrent

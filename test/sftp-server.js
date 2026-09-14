@@ -73,6 +73,7 @@ export function startSftpServer({ root, user, password, publicKey, initialModes 
 
     const server = new Server({ hostKeys: [privateKey] }, (client) => {
       clients.add(client);
+      client.setNoDelay(true);
       client.on("close", () => clients.delete(client));
       // A deliberately rejected host key ends key exchange and emits an error
       // on the server-side client object. It is expected in negative tests.

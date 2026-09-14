@@ -269,9 +269,11 @@ for (const mode of ["valid key", "wrong key", "wrong host pin"]) {
       hostKeySha256: mode === "wrong host pin" ? `SHA256:${Buffer.alloc(32).toString("base64").replace(/=+$/, "")}` : server.hostKeySha256,
     };
     let adapter;
+    const noDelay = t.mock.method(ssh2.Client.prototype, "setNoDelay");
     try {
       if (mode === "valid key") {
         adapter = await connectSftp(config);
+        assert.deepEqual(noDelay.mock.calls.map((call) => call.arguments), [[true]]);
         assert.equal(await exercise(adapter, dir), 61440);
         assert.equal(server.getStats().publicKeyAuthentications, 1);
         assert.equal(server.getStats().sftpSessions, 1);
