@@ -1,18 +1,16 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { readFileSync } from "node:fs";
 import test from "node:test";
-import { MCP_NAME, PACKAGE_NAME, SCHEMA, validateChangelog, validateMetadata } from "../scripts/release-gate.mjs";
-import { PACKAGE_FILES, checkArtifact, integrity, validateFiles, validatePack, validatePublished, verifyPublished } from "../scripts/release-artifact.mjs";
+import { MCP_NAME, PACKAGE_NAME, SCHEMA, PRODUCTION_PINS, validateChangelog, validateDependencies, validateMetadata, validateSourceMetadata } from "../scripts/release-gate.mjs";
+import { PACKAGE_FILES, MAX_ARCHIVE_BYTES, checkArtifact, downloadRegistryArchive, integrity, validateFiles, validatePack, validatePublished, verifyPublished } from "../scripts/release-artifact.mjs";
 
 const release = { name: PACKAGE_NAME, version: "0.2.0", mcpName: MCP_NAME };
 const ref = "refs/tags/v0.2.0";
 const digest = integrity(Buffer.from("reviewed tarball"));
 function fixture() {
   return {
-    pkg: { ...release, bin: { [PACKAGE_NAME]: "src/index.js" } },
-    lock: { name: PACKAGE_NAME, version: release.version, packages: { "": { name: PACKAGE_NAME, version: release.version } } },
+    pkg: { ...release, bin: { [PACKAGE_NAME]: "src/index.js" }, dependencies: { ...PRODUCTION_PINS } },
+    lock: { name: PACKAGE_NAME, version: release.version, lockfileVersion: 3, packages: { "": { name: PACKAGE_NAME, version: release.version, dependencies: { ...PRODUCTION_PINS } }, ...Object.fromEntries(Object.entries(PRODUCTION_PINS).map(([name, version]) => [`node_modules/${name}`, { version, resolved: `https://registry.npmjs.org/${name}/-/fixture-${version}.tgz`, integrity: digest }])) } },
     server: { $schema: SCHEMA, name: MCP_NAME, version: release.version, description: "Release fixture", packages: [{
       registryType: "npm", registryBaseUrl: "https://registry.npmjs.org", identifier: PACKAGE_NAME,
       version: release.version, transport: { type: "stdio" },
@@ -28,6 +26,51 @@ function published() {
 
 test("release gate accepts only coherent stable metadata and runtime", () => {
   assert.deepEqual(gate(fixture(), ref, "0.2.0"), release);
+});
+
+test("source metadata validation does not invent a publication ref", () => {
+  const { pkg, lock, server } = fixture();
+  assert.deepEqual(validateSourceMetadata(pkg, lock, server, release.version), release);
+  assert.throws(() => validateMetadata(pkg, lock, server, undefined));
+});
+
+for (const field of ["optionalDependencies", "peerDependencies", "peerDependenciesMeta", "bundledDependencies", "bundleDependencies", "overrides", "workspaces"]) {
+  for (const value of [null, {}, [], ""]) test(`root policy rejects presence of ${field}=${JSON.stringify(value)}`, () => {
+    for (const location of ["manifest", "lock"]) {
+      const { pkg, lock } = fixture();
+      (location === "manifest" ? pkg : lock.packages[""])[field] = value;
+      assert.throws(() => validateDependencies(pkg, lock));
+    }
+  });
+}
+for (const hook of ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepublishOnly", "prepack", "postpack", "publish", "postpublish"]) {
+  test(`root policy rejects ${hook} even when empty`, () => {
+    for (const location of ["manifest", "lock"]) {
+      const { pkg, lock } = fixture();
+      (location === "manifest" ? pkg : lock.packages[""]).scripts = { [hook]: "" };
+      assert.throws(() => validateDependencies(pkg, lock));
+    }
+  });
+}
+for (const resolved of ["http://registry.npmjs.org/a.tgz", "https://other.invalid/a.tgz", "https://registry.npmjs.org.evil.invalid/a.tgz", "https://user:secret@registry.npmjs.org/a.tgz", "https://@registry.npmjs.org/a.tgz", "https://registry.npmjs.org/a.tgz?query", "https://registry.npmjs.org/a.tgz#fragment", "https://registry.npmjs.org/a.tgz?", "https://registry.npmjs.org/a.tgz#", "file:../local", "git+https://github.com/example/repo", null]) {
+  test(`lock policy rejects unsafe resolution ${JSON.stringify(resolved)}`, () => {
+    const { pkg, lock } = fixture();
+    lock.packages["node_modules/basic-ftp"].resolved = resolved;
+    assert.throws(() => validateDependencies(pkg, lock));
+  });
+}
+for (const [key, value] of [["integrity", null], ["integrity", "sha1-invalid"], ["integrity", "sha512-invalid"], ["version", "^6.0.1"], ["link", false]]) {
+  test(`lock policy rejects invalid ${key}=${value}`, () => {
+    const { pkg, lock } = fixture();
+    lock.packages["node_modules/basic-ftp"][key] = value;
+    assert.throws(() => validateDependencies(pkg, lock));
+  });
+}
+test("root policy preserves legitimate transitive flags and ordinary named scripts", () => {
+  const { pkg, lock } = fixture();
+  pkg.scripts = { test: "node --test", setup: "node setup.js" };
+  Object.assign(lock.packages["node_modules/basic-ftp"], { peer: true, optional: true, hasInstallScript: true, peerDependencies: { other: "^1" }, peerDependenciesMeta: { other: { optional: true } } });
+  validateDependencies(pkg, lock);
 });
 
 for (const tag of [undefined, "", "refs/heads/main", "refs/heads/v0.2.0", "refs/tags/0.2.0", "refs/tags/v0.1.0", "refs/tags/v0.2.0-rc.1", "refs/tags/v0.2.0\n"]) {
@@ -114,6 +157,13 @@ test("changelog gate requires a dated newest section matching the release", () =
     "no release section here",
   ]) assert.throws(() => validateChangelog(bad, "0.2.0", "CHANGELOG.md"));
 });
+for (const date of ["0001-01-01", "0099-12-31", "1900-02-28", "2000-02-29", "2100-03-01", "2024-02-29"]) {
+  test(`changelog calendar accepts ${date}`, () => assert.equal(validateChangelog(`## [0.2.0] - ${date}`, "0.2.0", "fixture"), date));
+}
+for (const date of ["0000-01-01", "2026-00-01", "2026-01-00", "2026-13-01", "2026-04-31", "2026-02-29", "1900-02-29", "2100-02-29"]) {
+  test(`changelog calendar rejects ${date}`, () => assert.throws(() => validateChangelog(`## [0.2.0] - ${date}`, "0.2.0", "fixture")));
+}
+
 test("pack metadata binds a single archive to the release", () => {
   const pack = { ...release, filename: `${PACKAGE_NAME}-0.2.0.tgz`, files: PACKAGE_FILES.map((file) => ({ path: file })) };
   assert.equal(validatePack([pack], release), pack);
@@ -124,22 +174,8 @@ test("pack metadata binds a single archive to the release", () => {
     assert.throws(() => validatePack(invalid, release));
   }
 });
-test("artifact mutation, missing bytes, identity drift and filename drift fail closed", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "ftp-release-unit-"));
-  try {
-    const tarball = path.join(root, `${PACKAGE_NAME}-0.2.0.tgz`);
-    writeFileSync(tarball, "reviewed tarball");
-    const record = { ...release, tarball, integrity: digest };
-    assert.equal(checkArtifact(record, release), record);
-    for (const key of ["name", "version", "mcpName"]) assert.throws(() => checkArtifact({ ...record, [key]: "other" }, release));
-    assert.throws(() => checkArtifact({ ...record, tarball: path.join(root, "other.tgz") }, release));
-    writeFileSync(tarball, "modified tarball");
-    assert.throws(() => checkArtifact(record, release));
-    rmSync(tarball);
-    assert.throws(() => checkArtifact(record, release));
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+test("artifact recheck requires original source and workflow bindings", () => {
+  assert.throws(() => checkArtifact({ ...release, tarball: "untrusted.tgz", integrity: digest }, {}));
 });
 
 test("public npm metadata must match identity and the exact validated SHA512", () => {
@@ -209,15 +245,83 @@ test("publication workflows remain manual, pinned and secret-scoped", () => {
     assert.match(source, /timeout-minutes:/);
     assert.match(source, /cancel-in-progress: false/);
     assert.match(source, /node scripts\/release-gate\.mjs --runtime/);
+    const [qualification, publication] = source.split(/^  publish:\s*$/m);
+    assert.ok(qualification && publication, "Separate qualification and publication jobs are required");
+    assert.doesNotMatch(qualification, /id-token:|secrets\./);
+    assert.match(publication, /needs: qualify/);
+    assert.equal((publication.match(/id-token: write/g) || []).length, 1);
+    assert.doesNotMatch(publication, /npm (ci|install|test|run)|--runtime|release-smoke|node --test/);
+    assert.equal((source.match(/ref: \$\{\{ github.sha \}\}/g) || []).length, 2, "Both fresh checkouts must use the event commit");
+    assert.match(publication, /package-manager-cache: false/);
+    assert.ok(qualification.indexOf("release-artifact.mjs snapshot") < qualification.indexOf("npm ci --ignore-scripts"));
+    assert.match(qualification, /release-graph\.mjs .*--product-root .*node_modules\/ftp-deploy-mcp.*--install-root .*--output /);
+    assert.doesNotMatch(qualification, /continue-on-error:|release-graph[^\n]+\|\|/);
     for (const use of source.matchAll(/uses: ([^\s]+)/g)) assert.match(use[1], /@[a-f0-9]{40}$/);
   }
   const npm = readFileSync(new URL("release.yml", root), "utf8");
   assert.equal((npm.match(/npm pack /g) || []).length, 1);
   assert.match(npm, /npm publish "\$RELEASE_TARBALL" --ignore-scripts --provenance/);
   assert.equal((npm.match(/secrets\./g) || []).length, 1);
+  assert.ok(npm.indexOf("release-artifact.mjs snapshot") < npm.indexOf("npm ci --ignore-scripts"));
+  assert.match(npm, /artifact-ids: \$\{\{ needs.qualify.outputs.artifact-id \}\}/);
+  assert.match(npm, /path: \$\{\{ runner.temp \}\}\/release-input/);
+  assert.match(npm, /npm audit --prefix "\$RUNNER_TEMP\/release-smoke" --omit=dev/);
+  assert.match(npm, /inspect .*--expected-integrity "\$BUILD_INTEGRITY"/);
+  assert.match(npm, /check .*--inventory-sha256 "\$SOURCE_INVENTORY_SHA256" --expected-integrity "\$RELEASE_INTEGRITY" --expected-tarball "\$RELEASE_TARBALL"/);
+  assert.match(npm, /verify-npm .*--expected-integrity "\$RELEASE_INTEGRITY" --expected-tarball "\$RELEASE_TARBALL"/);
+  const uploaded = npm.match(/          path: \|\r?\n((?:            .+\r?\n?)+)/)?.[1].trim().split(/\r?\n/).map((line) => line.trim());
+  assert.deepEqual(uploaded, ["${{ steps.artifact.outputs.tarball }}", "${{ runner.temp }}/release-pack.json", "${{ runner.temp }}/source-inventory.json"]);
   const mcp = readFileSync(new URL("publish-mcp.yml", root), "utf8");
   assert.doesNotMatch(mcp, /releases\/latest|secrets\./);
   assert.match(mcp, /PUBLISHER_SHA256: [a-f0-9]{64}/);
   assert.match(mcp, /sha256sum --check --strict/);
+  assert.match(mcp, /release-artifact\.mjs fetch-npm .*--inventory-sha256 .*--distribution npm/);
+  assert.match(mcp, /integrity: \$\{\{ steps.artifact.outputs.integrity \}\}/);
   assert.ok(mcp.indexOf("release-artifact.mjs verify-npm") < mcp.indexOf("login github-oidc"));
+  const mcpPublication = mcp.split(/^  publish:\s*$/m)[1];
+  assert.match(mcpPublication, /QUALIFIED_INTEGRITY: \$\{\{ needs.qualify.outputs.integrity \}\}/);
+  assert.match(mcpPublication, /verify-npm .*--expected-integrity "\$QUALIFIED_INTEGRITY" --distribution npm/);
+  assert.ok(mcpPublication.indexOf("release-artifact.mjs verify-npm") < mcpPublication.indexOf("login github-oidc"));
+});
+
+test("CI shares pack normalization and installs only the authoritative source lock without scripts", () => {
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  assert.equal((ci.match(/cache-dependency-path: package-lock.json/g) || []).length, 2);
+  assert.match(ci, /import\{validatePack\}from'.\/scripts\/release-artifact.mjs'/);
+  assert.doesNotMatch(ci, /const\[\{files\}\]|npm ci\s*\r?\n/);
+  assert.match(ci, /npm run test:release/);
+});
+
+const registryURL = "https://registry.npmjs.org/ftp-deploy-mcp/-/ftp-deploy-mcp-0.2.1.tgz";
+function downloadFixture(chunks = [Buffer.from("archive")], { status = 200, url = registryURL, length } = {}) {
+  let canceled = 0, released = 0;
+  const response = { status, url, headers: { get: () => length ?? null }, body: {
+    cancel: async () => { canceled += 1; },
+    getReader: () => ({ read: async () => chunks.length ? { value: chunks.shift(), done: false } : { done: true },
+      cancel: async () => { canceled += 1; }, releaseLock: () => { released += 1; } }),
+  } };
+  return { fetchImpl: async (_url, options) => { assert.equal(options.redirect, "error"); assert.ok(options.signal instanceof AbortSignal); return response; },
+    counts: () => ({ canceled, released }) };
+}
+test("registry downloads retain the original bytes and release their reader", async () => {
+  const f = downloadFixture([Buffer.from("one"), Buffer.from("two")]);
+  assert.equal((await downloadRegistryArchive(registryURL, f)).toString(), "onetwo");
+  assert.deepEqual(f.counts(), { canceled: 1, released: 1 });
+});
+test("registry downloads reject redirects, unsafe URLs and oversized declarations before reading", async () => {
+  for (const url of [registryURL.replace("https:", "http:"), registryURL + "?x=1", registryURL.replace("registry.npmjs.org", "example.com"), registryURL.replace(".tgz", "-source.tar.gz")]) {
+    await assert.rejects(downloadRegistryArchive(url, { fetchImpl: async () => assert.fail("No unsafe fetch") }), /fixed official/);
+  }
+  for (const settings of [{ status: 302 }, { url: "https://example.com/archive" }, { length: String(MAX_ARCHIVE_BYTES + 1) }, { length: "-1" }]) {
+    const f = downloadFixture([], settings); await assert.rejects(downloadRegistryArchive(registryURL, f));
+    assert.deepEqual(f.counts(), { canceled: 1, released: 0 });
+  }
+});
+test("registry streaming byte cap and total deadline reject with reader cleanup", async () => {
+  const f = downloadFixture([Buffer.alloc(MAX_ARCHIVE_BYTES), Buffer.from("x")]);
+  await assert.rejects(downloadRegistryArchive(registryURL, f), /compressed byte bound/);
+  assert.deepEqual(f.counts(), { canceled: 1, released: 1 });
+  const timed = downloadFixture(); let calls = 0;
+  await assert.rejects(downloadRegistryArchive(registryURL, { ...timed, checkpoint: () => { if (++calls > 3) throw new Error("deadline"); return 1000; } }), /deadline/);
+  assert.deepEqual(timed.counts(), { canceled: 1, released: 1 });
 });

@@ -7,6 +7,66 @@ Toutes les modifications notables de ce projet sont consignées dans ce fichier.
 Le format s'inspire de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 et le projet suit le [versionnement sémantique](https://semver.org/lang/fr/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-14
+
+Ce correctif utilise le canal distinct des releases de sources
+GitHub ; le tag et la release v0.2.0 publiés restent inchangés.
+La publication sur npm et le registre MCP officiel reste en attente. Installez
+depuis les sources ; aucune disponibilité npm, `npx` ou registre n'est annoncée.
+
+### Corrections
+
+- La préparation interne est à usage unique, plafonnée à 10 secondes sans
+  prolonger l'échéance globale et conserve l'admission jusqu'à la fin réelle
+  du travail et du nettoyage. Les contextes préparés sont libérés une fois,
+  même après une fin tardive suivant une annulation. Une préparation annulée ou
+  expirée n'appelle jamais le handler ; son callback peut lui-même agir.
+  Aucun outil MCP public n'est ajouté.
+- La qualification de publication compare le manifeste attendu complet, le
+  verrouillage source de référence et les octets de toutes les sources livrées. Les
+  modificateurs de dépendances et hooks d'installation non autorisés sont
+  refusés avant l'installation du consommateur.
+- L'inspection lit et calcule l'empreinte des octets compressés une fois,
+  décompresse gzip strictement avec une borne globale de sortie de 32 MiB,
+  rejette les octets non nuls après la limite gzip consommée et fournit le
+  même TAR décodé à chaque invocation de tar. Le remplissage NUL terminal est
+  admis ; les frontières des membres gzip/TAR ne peuvent pas masquer de
+  fichiers supplémentaires à la validation.
+- Les workflows npm et MCP séparent une qualification sans OIDC ni secret de
+  la publication dans une copie fraîche épinglée à `github.sha`. npm transfère
+  l'identifiant exact de l'artefact déposé et les valeurs d'inventaire/intégrité
+  d'origine ; le job de publication vérifie ces liens avant de créer sa preuve
+  locale. Installation de dépendances, tests, smoke checks et `--runtime`
+  s'exécutent uniquement hors des jobs privilégiés de publication.
+- L'analyse des métadonnées accepte les formes JSON tableau/objet de npm pack
+  prises en charge de façon cohérente en CI. Les dates du journal doivent
+  correspondre à des dates calendaires valides.
+
+### Changements
+
+- Les six dépendances directes de production sont épinglées exactement ; le seul
+  `package-lock.json` conserve les 112 entrées non racine revues (110 de production
+  et deux de développement). Aucun shrinkwrap n'est livré.
+- Le builder produit une archive d'installation source de 82 fichiers avec le
+  verrouillage, distincte du paquet npm de 81 fichiers sans verrouillage. Les
+  preuves lient explicitement la distribution, les sources et l'intégrité.
+- L'installation source utilise `npm ci --omit=dev --ignore-scripts` ; celle des
+  contributeurs utilise `npm ci --ignore-scripts`. Les octets des archives peuvent
+  varier entre systèmes. Le graphe réellement installé est comparé à la référence
+  originale, dépendances transitives et peers compris, avant publication.
+- npm reste non qualifié après dix dérives observées lors d'une vraie installation.
+  Le job MCP qualifie l'archive réellement téléchargée du registre, puis le job
+  privilégié exige son intégrité originale avant authentification.
+
+- La documentation anglais/français d'installation et de publication distingue
+  les releases de sources GitHub de la disponibilité sur npm et le registre
+  MCP officiel.
+
+Les composants internes de préparation, d'état et de workflow n'exposent ni
+plan/apply/status public, ni journal, reprise ou retour arrière. Les tests
+scriptés ne sont pas un benchmark de LLM et ce correctif ne revendique aucune
+certification pour un usage en entreprise.
+
 ## [0.2.0] - 2026-09-09
 
 Le tag et la release GitHub sont créés depuis ce commit. La publication sur npm

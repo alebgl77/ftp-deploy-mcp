@@ -2,16 +2,18 @@
 
 **English** | [Français](./RELEASE.fr.md)
 
-This is the maintainer checklist for the first npm and MCP registry
-publication. It intentionally separates repository automation from manual
-account, ownership, and registry work.
+This is the maintainer checklist for the GitHub source release v0.2.1 and,
+separately, a future first npm and Official MCP Registry publication. A GitHub
+release does not make the npm identifier, `npx` command or registry entry
+available. The published GitHub v0.2.0 tag and release remain immutable.
 
-This guide prepares v0.2.0; it is not evidence of publication. Both workflows
-are manual (`workflow_dispatch`). Pushing a tag alone publishes nothing.
+Check available source assets on [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest).
+The npm and MCP workflows are manual (`workflow_dispatch`); do not dispatch
+them as part of a source-only GitHub release.
 
 ## Manual prerequisites
 
-Complete these outside the repository before creating a release tag:
+Complete these outside the repository before dispatching npm or MCP publication:
 
 - Confirm control of the intended npm package name and maintainer access to the
   npm account or organization.
@@ -38,88 +40,268 @@ Complete these outside the repository before creating a release tag:
 - Confirm that GitHub environments, required reviewers, branch protection, and
   release permissions are in place.
 
-Record who completed each manual prerequisite and when. Do not create the tag
-while any ownership or credential step is unresolved.
+Record who completed each manual prerequisite and when. Do not start npm or MCP
+publication while any ownership or credential step is unresolved. These registry
+prerequisites do not establish whether a GitHub source release is ready.
 
 ## Version and changelog gate
 
-For a v0.2.0 release:
+For the v0.2.1 GitHub release:
 
-1. Set `version` in [package.json](../package.json) and its lockfile to `0.2.0`.
+1. Set `version` in [package.json](../package.json), the root and root-package
+   metadata of `package-lock.json`, and `server.json` to `0.2.1`. The source lockfile
+   is the sole authoritative lockfile; do not keep a parallel `npm-shrinkwrap.json`.
 2. Set the MCP server's reported version to the same value. Search the source
-   and generated metadata for stale `0.1.0` strings; expected historical
+   and generated metadata for stale release strings; expected historical
    references in the changelog are exempt.
-3. At final release approval, replace the v0.2.0 `Release candidate` status in
-   [CHANGELOG.md](../CHANGELOG.md) and its `Version candidate` equivalent in
-   [CHANGELOG.fr.md](../CHANGELOG.fr.md) with the effective publication date. While
-   publication is pending, preserve the candidate status.
-4. Confirm every user-visible v0.2 change is documented in both
+3. Use the paired heading `## [0.2.1] - 2026-09-14` in
+   [CHANGELOG.md](../CHANGELOG.md) and [CHANGELOG.fr.md](../CHANGELOG.fr.md).
+   Confirm the effective release date is a valid calendar date, update it only
+   if the actual release day changes, and preserve the complete 0.2.0 history.
+4. Confirm every user-visible patch change is documented in both
    [README.md](../README.md) and [README.fr.md](../README.fr.md).
 5. Verify the release includes atomic replacement for newly written sensitive
    configuration and tests its failure path. This is a release gate, not a
    documentation-only claim.
-6. Confirm `node src/index.js --version`, package metadata, lockfile, tag, npm
-   version, and MCP registry version will all agree.
+6. Confirm `node src/index.js --version`, package metadata, source lockfile and tag
+   agree. Verify npm and Official MCP Registry versions separately only after
+   their respective publications.
 
-Use a dedicated release commit. Do not tag a commit whose package or server
-still reports 0.1.0.
+Use a dedicated release commit. Never move or reuse the published v0.2.0 tag.
 
-## Validate the exact tarball
+## Review the source and installed dependency graphs
 
-Run from a clean checkout of the intended release commit (Bash):
+The sole source authority is `package-lock.json`, with six exact direct pins and
+112 non-root records: 110 production and two development. Source/Docker/user
+installs use `npm ci --omit=dev --ignore-scripts`; contributors use
+`npm ci --ignore-scripts`. No shrinkwrap is retained. npm 12 no longer reads or
+writes shrinkwrap files, including in dependencies; see the
+[official npm lockfile documentation](https://docs.npmjs.com/cli/v12/configuring-npm/package-lock-json/).
+
+For an approved dependency update, change only the intended exact versions and
+regenerate the source lock with scripts disabled. Record Node/npm versions and
+review every graph change, registry URL, integrity value and optional/platform
+constraint. Keep the original reviewed source inventory as the authority when
+checking installations; never update it from the installed graph.
+
+The built-in-only graph verifier reads actual package manifests and installed
+lock records, including the hidden lock when present. It resolves transitive
+dependencies and peers from their real locations, including hoisted and nested
+packages. It rejects version/resolution/integrity drift, undeclared extras,
+missing required packages and changed dependency declarations. Declared optional
+omissions and source-proven development packages are reported separately; a
+present optional dependency with changed bytes or metadata is not an omission.
+No dependency code is imported by this verifier.
+
+## Qualify the source installation archive
+
+There are two fixed distributions. `ftp-deploy-mcp-0.2.1-source.tar.gz` contains
+82 regular files under `package/`, including the source lock. It is an
+installation archive, not the complete repository: tests, maintainer scripts and
+the HTML guide remain in the repository. GitHub's automatic source ZIP/tar
+contains the complete repository. The separate npm archive
+`ftp-deploy-mcp-0.2.1.tgz` contains 81 files and no lockfile.
+
+Capture all 82 reviewed source files before installation, tests or packing.
+Keep the portable inventory outside the checkout and retain its original SHA256
+independently of any generated proof. A source-only snapshot qualifies a pre-tag
+candidate; publication requires the actual clean tracked tag/event checkout.
+For a pre-tag candidate, run from the intended checkout (Bash):
+
+```bash
+source_root="$(pwd -P)"
+release_tmp="$(mktemp -d)"
+inventory="$release_tmp/source-inventory.json"
+node scripts/release-artifact.mjs snapshot "$inventory" --source-root "$source_root" --source-only
+```
+
+Record the original snapshot output in `inventory_sha256` before continuing.
+Never replace it with a value reread from a rewritten proof.
 
 ```bash
 npm ci --ignore-scripts
 npm test
-node --test test/release-gates.js
-export GITHUB_REF=refs/tags/v0.2.0
-node scripts/release-gate.mjs --runtime
-release_tmp="$(mktemp -d)"
-npm pack --ignore-scripts --json --pack-destination "$release_tmp" > "$release_tmp/release-pack.json"
-node scripts/release-artifact.mjs inspect "$release_tmp/release-pack.json"
-npm install --prefix "$release_tmp/smoke" --ignore-scripts --omit=dev --no-audit --no-fund "$release_tmp/ftp-deploy-mcp-0.2.0.tgz"
-node scripts/release-smoke.mjs "$release_tmp/smoke"
-node scripts/release-artifact.mjs check "$release_tmp/release-pack.json.verified.json"
+npm run test:release
+node scripts/release-gate.mjs --source-only --runtime
+node scripts/release-artifact.mjs build-source "$release_tmp/source-pack.json" --source-root "$source_root" --inventory "$inventory" --inventory-sha256 "$inventory_sha256" --source-only
+node scripts/release-artifact.mjs preflight "$release_tmp/source-pack.json" --source-root "$source_root" --inventory "$inventory" --inventory-sha256 "$inventory_sha256" --distribution source
 ```
 
-The local `GITHUB_REF` above simulates the metadata check; it does not create a
-tag or authorize publication. The workflow receives its real ref from GitHub.
-The archive check requires the exact allowlist in
-`scripts/release-artifact.mjs`, including:
+The builder writes only captured bytes into a private staging directory and uses
+real tar with bounded stdout. It validates every byte before exclusive archive
+and metadata writes. Retain the preflight's original canonical `tarball` path
+and SHA512 `integrity` outputs in those variables, then install in a fresh folder:
 
-- `src/`, license, README, and required runtime metadata;
-- absence of `ftp-servers.json`, local secrets, test credentials, temporary
-  files, and maintainer-only state;
-- a correct executable/bin entry and no dependency on unshipped workspace
-  files;
-- the expected package name and version.
+```bash
+mkdir "$release_tmp/consumer"
+tar --ignore-zeros -xzf "$tarball" -C "$release_tmp/consumer"
+(cd "$release_tmp/consumer/package" && npm ci --omit=dev --ignore-scripts)
+node scripts/release-graph.mjs --source-root "$source_root" --inventory "$inventory" --inventory-sha256 "$inventory_sha256" --product-root "$release_tmp/consumer/package" --install-root "$release_tmp/consumer/package" --output "$release_tmp/source-graph.json" --source-only
+npm audit --prefix "$release_tmp/consumer/package" --omit=dev --audit-level=moderate
+node scripts/release-artifact.mjs check "$release_tmp/source-pack.json.verified.json" --source-root "$source_root" --inventory "$inventory" --inventory-sha256 "$inventory_sha256" --expected-integrity "$integrity" --expected-tarball "$tarball" --distribution source --source-only
+```
 
-The smoke script uses only the isolated installation for the server and MCP
-client dependencies. It checks `--version`, `--help`, MCP initialize/version,
-`ftp_list_servers`, and `ftp_deploy` with `dry_run: true` against test-only
-configuration. It makes no FTP/SFTP connection. On Windows the scripts work
-with PowerShell-created temporary directories too; use native environment
-assignment and output handling instead of the Bash syntax above.
+Run the independent consumer runtime/transport cases, audits and production SBOM
+checks against this extracted installation before approving it. The installed
+product needs no `.git`; its Git provenance comes from the external checkout and
+original inventory. Never install the source tar.gz as an npm package. Users
+extract `package/`, run `npm ci --omit=dev --ignore-scripts` there, then run
+`node src/index.js setup` explicitly. Contributor commands run from the full
+repository, not from this installation archive.
 
-The npm workflow packs once, validates archive entries and SHA512, tests that
-archive, rechecks its bytes, and publishes that same `.tgz` with `--provenance`
-and lifecycle scripts disabled. No npm token is passed to install, tests, pack,
-or verification. Review allowlist changes explicitly when adding shipped files.
+The proof binds an explicit `source` or `npm` distribution, exact filename,
+`package/` prefix, scope, commit, inventory SHA256, original integrity and
+canonical artifact path. The controller supplies the expected distribution;
+`inspect`/`check` default to npm and refuse a source proof. Changing a proof or
+renaming an archive cannot change its distribution.
+
+## Keep npm qualification separate
+
+npm remains unqualified: a real npm 10.9.8 consumer changed ten production
+dependencies. Its failed candidate and reports are retained, never promoted to
+source-release evidence or attached as a qualified asset. A future matching npm
+graph would establish only the tested environment/date, not reproducibility of
+future npm installs. To inspect a separate npm candidate with the original
+82-file source inventory:
+
+```bash
+npm pack --ignore-scripts --json --pack-destination "$release_tmp" > "$release_tmp/npm-pack.json"
+node scripts/release-artifact.mjs preflight "$release_tmp/npm-pack.json" --source-root "$source_root" --inventory "$inventory" --inventory-sha256 "$inventory_sha256" --distribution npm
+```
+
+Inspection checks all 81 npm bytes against the source; the source lock remains
+external authority. Install this exact npm candidate in an isolated prefix with
+scripts disabled, then invoke `release-graph.mjs` with `--product-root` pointing
+to `<prefix>/node_modules/ftp-deploy-mcp` and `--install-root` to the prefix.
+Any graph difference must fail before smoke tests, artifact transfer or npm/MCP
+publication. A source-only pass never authorizes a registry publication.
+
+## Artifact validation and provenance limits
+
+The fixed allowlists exclude local configuration, credentials, tests, temporary
+files and maintainer state. Complete package metadata and the source lock are
+structurally validated; each shipped byte must match the original inventory.
+Publication commands receive real `GITHUB_REF` and `GITHUB_SHA` from GitHub;
+HEAD and the exact tag target must match that event. Never invent this context.
+Use `snapshot` without `--source-only`, `inspect` instead of `preflight`, and
+`check` without `--source-only` only in that real publication context.
+
+Compressed bytes are read once with an 8 MiB cap and provide the original SHA512.
+Strict built-in gzip decoding has a 32 MiB total output cap, including TAR headers
+and padding. `engine.bytesWritten` must be an integer within the input length;
+any unconsumed byte must be NUL. Terminal NUL padding is allowed, nonzero hidden
+tails are rejected. Every inspection tar call receives the same decoded raw TAR,
+without `-z`, and uses `--ignore-zeros`. Untrusted archive paths are never
+extracted to disk during inspection.
+
+| Inspection limit | Maximum |
+|---|---|
+| Compressed archive | 8 MiB |
+| Complete decoded TAR, headers and padding included | 32 MiB |
+| Each expected or extracted file | 1 MiB |
+| Complete inspection | 90 seconds |
+| Each tar invocation | 15 seconds, or the shorter remaining budget |
+
+These are input/output/time limits, not an exact memory bound. The deadline is
+checked before and after synchronous gzip decoding and cannot preempt it. Failed
+validation emits no new proof or publication outputs. Recheck original inventory,
+source bytes, integrity and path immediately before publication. The controls
+assume trusted workflow code and runner, not a fully compromised runner.
+
+Git commit identity, checkout byte inventory and archive digest are distinct.
+CRLF/LF checkout conversion can produce different valid inventories on different
+systems. Qualification binds the exact Windows-built asset to its recorded
+checkout bytes; the six OS/Node CI jobs qualify their own checkouts, not that
+Windows archive on every OS. After the final commit, establish an inventory for
+that commit and reinspect the same frozen bytes before release. Retain the
+pre-commit evidence as historical evidence, not as the final commit binding.
+On Windows, use native PowerShell paths, environment assignments and output
+handling instead of the Bash syntax above.
+
+## Separate qualification from publication
+
+The npm qualification job has `contents: read`, no OIDC permission and no
+secrets. It captures the source inventory before installation/tests/packing,
+then installs, tests, audits and qualifies the exact archive and consumer.
+The publication job starts on a fresh runner after qualification succeeds.
+Both checkouts are pinned to the event's `github.sha`; HEAD and the actual tag
+target must match that commit. Build outputs cannot select the privileged code.
+
+Only the `.tgz`, pack JSON and source inventory cross the job boundary through
+the exact upload artifact ID, downloaded outside the fresh checkout. No scripts,
+`node_modules`, caches, environment files or first-runner proof are transferred.
+The inventory is portable: commit, release identity, relative paths, sizes and
+byte hashes. Each command validates its own explicit canonical source root;
+moving roots never rewrites the original inventory bytes or SHA256.
+
+Qualification job outputs retain the original inventory SHA256 and archive
+SHA512. Fresh privileged `inspect` must enforce that original expected integrity
+against both pack JSON and compressed bytes before creating a local proof or
+outputs. It binds the portable inventory to the fresh source and newly downloaded
+canonical archive path. The final `check` uses the original inventory digest and
+the privileged inspection's integrity/path outputs; npm publishes only that
+checked path with `--provenance` and lifecycle scripts disabled. Registry
+verification retains those same original bindings.
+
+The privileged inspection receives `SOURCE_INVENTORY_SHA256` and
+`BUILD_INTEGRITY` from the original qualification job outputs:
+
+```bash
+node scripts/release-artifact.mjs inspect "$RUNNER_TEMP/release-input/release-pack.json" --source-root "$GITHUB_WORKSPACE" --inventory "$RUNNER_TEMP/release-input/source-inventory.json" --inventory-sha256 "$SOURCE_INVENTORY_SHA256" --expected-integrity "$BUILD_INTEGRITY"
+```
+
+The first qualification inspection emits the original archive digest; this
+fresh privileged inspection must require it, not choose a new expected value.
+
+Privileged jobs run only approved validators using Node built-ins, the npm CLI
+or the pinned MCP publisher. They run no `npm ci`/`npm install`, project tests,
+consumer smoke checks or `--runtime`. `NPM_TOKEN`, when needed for bootstrap,
+exists only in the final npm publish step. The MCP workflow uses the same job
+separation. Its nonprivileged job first captures the inventory, then `fetch-npm`
+verifies registry identity and SHA512, requires the fixed official HTTPS URL,
+downloads within the 8 MiB/time bounds and inspects all 81 files. It installs that
+actual download without scripts, checks the graph and runs consumer checks. The
+job output retains this qualified archive's original integrity. The privileged
+job receives it and requires it from the registry again before authentication:
+
+```bash
+node scripts/release-artifact.mjs verify-npm --source-root "$GITHUB_WORKSPACE" --expected-integrity "$QUALIFIED_INTEGRITY" --distribution npm
+```
+
+The standalone `verify-npm` form therefore enforces expected integrity too.
+No dependency files or code from the first runner are transferred; only the fresh
+event-pinned checkout supplies the published `server.json`.
+
+## GitHub release and assets
+
+After independent qualification and review, use the final verified commit,
+require its complete public CI, then create v0.2.1. Retain the exact validated
+`ftp-deploy-mcp-0.2.1-source.tar.gz` bytes. Prepare `SHA256SUMS` for this archive,
+the standalone bilingual HTML guide and final evidence/SBOM; upload only these
+verified files. Publish EN/FR notes that accurately describe the source scope,
+then download again and verify hashes. Record commit, tag, actual time, names
+and digests.
+
+Attach no drifting npm `.tgz`. GitHub's automatic ZIP/tar remains the separate
+complete repository. Asset uploads remain pending until verified; npm and MCP
+remain unqualified/pending. A source release does not make npm, `npx` or the
+Official MCP Registry available.
 
 ## Publish npm
 
 1. Review the prepared release workflow and confirm its trigger matches the
    intended tag policy.
 2. Create an annotated tag whose name exactly matches the version:
-   `git tag -a v0.2.0 -m "v0.2.0"`.
+   `git tag -a v0.2.1 -m "v0.2.1"`. If the GitHub source release already created
+   this tag, verify and reuse its unchanged target; do not recreate it.
 3. After maintainer approval and credential readiness, push the release commit
    and tag. Ensure the workflow is present on the default branch, then dispatch
    it explicitly on the tag:
 
    ```bash
-   gh workflow run release.yml --ref v0.2.0
+   gh workflow run release.yml --ref v0.2.1
    ```
-4. Require tests, version-consistency checks, tarball inspection, and provenance
+4. Require tests, version-consistency checks, installed graph equality, tarball inspection, and provenance
    generation to pass before the publish step.
 5. Wait for that workflow run to finish successfully. Its last step compares
    the public npm name, exact version, `mcpName`, and SHA512 integrity to the
@@ -136,9 +318,9 @@ or verification. Review allowlist changes explicitly when adding shipped files.
 7. Verify the public artifact independently:
 
 ```bash
-npm view ftp-deploy-mcp@0.2.0 name version mcpName dist.integrity
-npm view ftp-deploy-mcp@0.2.0 dist.tarball
-npx -y ftp-deploy-mcp@0.2.0 --version
+npm view ftp-deploy-mcp@0.2.1 name version mcpName dist.integrity
+npm view ftp-deploy-mcp@0.2.1 dist.tarball
+npx -y ftp-deploy-mcp@0.2.1 --version
 ```
 
 Compare the registry integrity/version with the validated tarball and tag.
@@ -150,18 +332,21 @@ changelog entry. Do not move or reuse a published tag.
 
 ## Publish to the MCP registry
 
-Publish only after the npm workflow and its artifact checks have succeeded:
+This step remains pending. Publish only after separate npm qualification, including the installed graph. The MCP workflow downloads and qualifies the actual published npm archive again; identity alone is insufficient:
 
 1. Review `server.json` against schema `2025-12-11`; it must agree with the tag,
-   both lockfile versions, runtime version, npm identifier, and `mcpName`.
+   source lockfile root/root-package versions, runtime version, npm identifier,
+   and `mcpName`.
 2. Dispatch the separate workflow on exactly the same tag:
 
    ```bash
-   gh workflow run publish-mcp.yml --ref v0.2.0
+   gh workflow run publish-mcp.yml --ref v0.2.1
    ```
 
-3. This workflow reruns the metadata/runtime gates and verifies the exact npm
-   version and `mcpName` from the public registry **before** MCP authentication.
+3. The nonprivileged job also qualifies the actual npm download and installed graph. Its
+   fresh privileged successor verifies structural metadata, the exact npm
+   version, `mcpName` and the qualified integrity **before** MCP authentication, without dependency
+   installation, tests or `--runtime`.
 4. It verifies the pinned official publisher archive, then runs
    `mcp-publisher login github-oidc` and `mcp-publisher publish`. GitHub OIDC
    proves the `io.github.alebgl77/` namespace; no dedicated MCP secret is used.
@@ -219,6 +404,10 @@ For a suspected security issue, pause the release and follow
 [SECURITY.md](../SECURITY.md).
 
 ## Post-release checks
+
+For the source release, verify its archive, checksum, source graph, runtime and
+external commit inventory. Perform the following registry checks only after
+separate npm/MCP publication has actually succeeded.
 
 - Confirm npm provenance is visible and refers to the expected repository,
   workflow, commit, and tag.

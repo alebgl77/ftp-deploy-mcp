@@ -1,6 +1,6 @@
 {
   "name": "ftp-deploy-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "mcpName": "io.github.alebgl77/ftp-deploy-mcp",
   "description": "Deploy, inspect and transfer files over FTP/FTPS/SFTP with local confinement and verified staging. / Déployer, inspecter et transférer des fichiers FTP/FTPS/SFTP avec confinement local et promotion vérifiée.",
   "type": "module",
@@ -22,7 +22,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js && node --test test/error-contract.js test/zero-cancellation.js && node --test test/resource-bounds.js && node --test test/state/*.test.mjs && node --test test/workflow/*.test.mjs",
+    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js && node --test test/error-contract.js test/zero-cancellation.js && node --test test/resource-bounds.js && node --test test/state/*.test.mjs && node --test test/workflow/*.test.mjs && node --test test/prepared-lifecycle.js",
     "test:transports": "node --test test/transport-qualification.js",
     "setup": "node src/index.js setup",
     "doctor": "node src/index.js doctor",
@@ -31,7 +31,10 @@
     "test:eval-runner": "node --test test/evaluation-runner.mjs",
     "test:bounds": "node --test test/resource-bounds.js",
     "test:state": "node --test test/state/*.test.mjs",
-    "test:workflow": "node --test test/workflow/*.test.mjs"
+    "test:workflow": "node --test test/workflow/*.test.mjs",
+    "test:prepared": "node --test test/prepared-lifecycle.js",
+    "test:release": "node --test test/release-gates.js test/release-artifact.js test/release-npm-pack.js test/release-graph.js",
+    "release:source": "node scripts/release-gate.mjs --source-only --runtime"
   },
   "files": [
     "src",
@@ -65,12 +68,12 @@
     "windsurf"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0",
-    "basic-ftp": "^6.0.1",
-    "picomatch": "^4",
-    "ssh2-sftp-client": "^12.1.1",
-    "zod": "^3.25",
-    "zod-to-json-schema": "^3.25.2"
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "basic-ftp": "6.0.1",
+    "picomatch": "4.0.5",
+    "ssh2-sftp-client": "12.1.1",
+    "zod": "3.25.76",
+    "zod-to-json-schema": "3.25.2"
   },
   "devDependencies": {
     "@electerm/ftp-srv": "^1.0.5",

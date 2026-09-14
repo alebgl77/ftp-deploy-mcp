@@ -32,10 +32,12 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 > **Disponibilité :** l'installation depuis les sources fonctionne aujourd'hui.
 > Le paquet npm et l'entrée du registre MCP ne sont **pas encore publiés** :
 > `npx -y ftp-deploy-mcp` et l'installation depuis un registre échoueront
-> jusqu'à l'annonce de la première release. Les pages Glama et MCP Index
-> existantes sont des fiches de découverte, pas la preuve d'un paquet
-> installable. Les métadonnées du paquet et du serveur sont alignées sur la
-> release candidate 0.2.0, en attente de publication.
+> pour l'instant. Les releases de sources GitHub sont distinctes des publications
+> sur npm et le registre MCP officiel. Les pages Glama et MCP Index existantes
+> sont des fiches de découverte, pas la preuve d'un paquet installable.
+> Cette copie porte la version 0.2.1. Les versions sources publiées figurent sur
+> [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest) ;
+> la release GitHub v0.2.0 publiée reste inchangée.
 
 ## Documentation
 
@@ -76,7 +78,7 @@ documentent leur rôle illustratif ; elles ne constituent pas une certification.
 1. Installez une version LTS de Node.js prise en charge : 22 ou 24 (minimum : 22).
 2. Lancez `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, puis
    `cd ftp-deploy-mcp`.
-3. Lancez `npm install`.
+3. Lancez `npm ci --omit=dev --ignore-scripts`.
 4. Lancez `npm run setup`, puis modifiez la configuration générée : renseignez
    un `localRoot` absolu, remplacez les identifiants et configurez le pin de clé
    d'hôte SFTP ou les acceptations de risque FTP/FTPS décrites plus bas.
@@ -90,6 +92,31 @@ Appelez ftp_deploy avec :
 Sous Windows, `install.cmd`, et sous macOS/Linux, `./install.sh`, peuvent
 remplacer les étapes 3–4. Relisez chaque serveur généré avant la première
 connexion.
+
+Pour une version étiquetée, sélectionnez son tag exact avant l'installation.
+`npm ci` utilise le seul fichier de référence `package-lock.json`, avec six
+dépendances directes épinglées exactement et le graphe revu. Conservez-le avec
+les sources. `--ignore-scripts` désactive les scripts automatiques de cycle de
+vie des dépendances ; le setup est une action explicite distincte.
+
+Le fichier d'installation source v0.2.1 porte le nom
+`ftp-deploy-mcp-0.2.1-source.tar.gz` : 82 fichiers, dont ce verrouillage. Après
+vérification de sa publication et de ses empreintes, extrayez-le dans un dossier
+neuf :
+
+```bash
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.2.1-source.tar.gz
+cd package
+npm ci --omit=dev --ignore-scripts
+node src/index.js setup
+```
+
+Cette archive d'installation exclut les tests et scripts de maintenance du dépôt ;
+le ZIP/tar automatique de GitHub contient le dépôt complet. Le `.tgz` npm distinct
+contient 81 fichiers sans verrouillage et reste non qualifié : un vrai consommateur
+npm a changé dix dépendances de production. Il ne garantit pas une installation
+verrouillée. Le [guide de publication](./docs/RELEASE.fr.md) décrit les contrôles
+et leurs limites.
 
 ## Matrice protocoles et sécurité
 
@@ -269,6 +296,14 @@ verrou reste détenu jusqu'au règlement et au nettoyage. Aucune mutation
 incertaine n'est réessayée automatiquement. Inspectez l'état distant et local
 partiel avant de réessayer ; il n'y a ni transaction ni rollback.
 
+La préparation interne est à usage unique et limitée à 10 secondes sans
+prolonger l'échéance globale. L'admission reste détenue jusqu'à la fin réelle
+du travail et du nettoyage. Un contexte préparé est libéré une fois, même s'il
+arrive après annulation ; le handler n'est pas appelé après une préparation
+annulée ou expirée. Les callbacks de préparation peuvent eux-mêmes agir. Cela
+n'ajoute ni outil MCP public ni workflow durable de déploiement. Voir les
+[limites de ressources](./docs/RESOURCE-BOUNDS.fr.md).
+
 La progression n'est envoyée qu'avec un token fourni par l'appelant, sous
 forme de compteurs croissants, sans chemins ni texte d'identifiants. Les
 verrous ne coordonnent pas les autres processus Node, alias DNS, comptes ou
@@ -373,10 +408,12 @@ contrôle de version, restreignez ses droits, ajoutez `localRoot` et examinez
 chaque avertissement de transport ou de racine FTP/FTPS avant la connexion.
 `doctor` reste en lecture seule et ne montre pas les mots de passe.
 
-## Migration de v0.1 vers la v0.2 non publiée
+## Migration de v0.1 vers v0.2
 
-Le checkout source contient des travaux v0.2, mais aucun paquet ni registre
-v0.2 n'est encore publié.
+La release GitHub v0.2.0 est publiée. Cette copie source porte la version
+0.2.1 ; les publications npm et registre MCP officiel restent en attente. Les
+étapes ci-dessous concernent l'installation depuis les sources et n'annoncent
+pas une release npm.
 
 1. Ajoutez un `localRoot` absolu à tout serveur utilisé pour upload, deploy ou
    download.
@@ -392,9 +429,9 @@ v0.2 n'est encore publié.
    puis lancez `npm run doctor` et un dry-run.
 
 Le remplacement atomique des nouvelles configurations sensibles est une
-condition de release v0.2, pas une garantie des métadonnées 0.2.0 de cette
-release candidate. Consultez [docs/RELEASE.fr.md](./docs/RELEASE.fr.md) avant de créer la
-release.
+condition vérifiée par les tests de publication ; un numéro de version seul
+n'établit pas cette garantie. Consultez
+[docs/RELEASE.fr.md](./docs/RELEASE.fr.md) pour la qualification et la publication.
 
 ## Sécurité et limites
 

@@ -10,7 +10,7 @@ limite ses dépendances ; lisez les principes ci-dessous avant d'ouvrir une PR.
 ```bash
 git clone https://github.com/alebgl77/ftp-deploy-mcp.git
 cd ftp-deploy-mcp
-npm install
+npm ci --ignore-scripts
 npm test
 ```
 
@@ -20,6 +20,26 @@ bout contre eux : aucun accès réseau externe n'est requis ni utilisé. Pour
 les modifications de documentation seules, vérifiez aussi que les exemples
 JSON modifiés s'analysent, que les liens Markdown relatifs existent, puis
 exécutez `git diff --check`.
+
+## Mettre à jour le graphe de dépendances
+
+`package-lock.json` est l'unique fichier de verrouillage de référence ;
+n'ajoutez pas de `npm-shrinkwrap.json` parallèle. Les six dépendances directes de
+production sont épinglées à une version exacte. L'installation courante utilise
+`npm ci --ignore-scripts` et ne doit pas réécrire le graphe.
+
+Pour une mise à jour voulue, modifiez uniquement les versions exactes approuvées,
+régénérez le verrouillage source avec les scripts de cycle de vie désactivés et la version
+npm qualifiée, puis consignez cette version npm. Examinez toute entrée du graphe
+ajoutée, supprimée ou modifiée, notamment `resolved`, `integrity`, les contraintes
+facultatives/de plateforme et les hooks d'installation. N'acceptez pas de
+modifications sans rapport issues d'une mise à jour ou d'une correction d'audit
+automatique. Exécutez une installation propre, les tests concernés, l'audit des
+dépendances et les contrôles de l'archive exacte et du consommateur isolé du
+[guide de publication](./docs/RELEASE.fr.md). Présentez ensemble les modifications
+des sources, du manifeste et du verrouillage source pour la revue.
+
+La distribution d'installation source contient 82 fichiers, dont ce verrouillage. Le paquet npm distinct contient 81 fichiers sans verrouillage et reste non qualifié après dix dérives observées dans une installation réelle. Les contrôles du graphe installé comparent aussi les dépendances transitives et les peers à l'inventaire source original ; tout écart bloque la publication npm/MCP.
 
 ## Principes
 
@@ -57,7 +77,7 @@ Exécutez séparément la qualification des transports et les contrôles de publ
 
 ```bash
 node --test test/transport-qualification.js
-node --test test/release-gates.js
+npm run test:release
 ```
 
 `npm test` exécute la suite principale et la qualification des transports.
@@ -81,8 +101,9 @@ concernés par le changement ; gardez les assertions existantes activées.
 N'improvisez pas la première publication à partir de cette courte section.
 Suivez le [guide de publication](./docs/RELEASE.fr.md), qui couvre :
 
-- la concordance des versions du paquet, du fichier de verrouillage, du
-  serveur, du tag, de npm et du registre MCP ;
+- la concordance des versions du paquet, du verrouillage source, du serveur et du tag,
+  puis la vérification distincte des versions npm et du registre MCP officiel
+  après publication ;
 - la validation d'une archive propre et les tests de bout en bout ;
 - npm Trusted Publishing, la provenance et le recours à un `NPM_TOKEN` de
   courte durée uniquement si l'amorçage de la première publication l'exige ;

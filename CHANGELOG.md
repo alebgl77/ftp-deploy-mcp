@@ -7,6 +7,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-14
+
+This patch uses the separate GitHub source release channel; the published v0.2.0 tag and
+release remain unchanged. npm and Official MCP Registry publication remain
+pending. Install from source; no npm, `npx` or registry availability is claimed.
+
+### Fixed
+
+- Internal preparation is single-use, capped at 10 seconds without extending
+  the overall deadline, and retains admission until actual work and cleanup
+  settle. Prepared contexts are released once, including late completion after
+  cancellation. A cancelled or expired preparation never invokes the handler;
+  the preparation callback itself may act. No public MCP tool is added.
+- Release qualification compares the complete expected package manifest,
+  authoritative source lock and all shipped source bytes. Unapproved dependency
+  modifiers and installation hooks are refused before consumer installation.
+- Archive inspection reads and hashes compressed bytes once, performs strict
+  gzip decoding with a 32 MiB aggregate output cap, rejects nonzero data after
+  the consumed gzip boundary, and supplies the same decoded TAR to every tar
+  invocation. Terminal NUL padding is allowed; gzip/TAR member boundaries
+  cannot hide extra files from validation.
+- npm and MCP workflows separate qualification without OIDC or secrets from
+  publication in a fresh checkout pinned to `github.sha`. npm transfers the
+  exact uploaded artifact ID and original inventory/integrity values; the
+  publication job validates those bindings before creating its local proof.
+  Dependency installation, tests, smoke checks and `--runtime` execute only
+  outside privileged publication jobs.
+- Release metadata parsing accepts the supported npm pack JSON array/object
+  forms consistently in CI. Changelog dates must be valid calendar dates.
+
+### Changed
+
+- The six direct production dependencies are pinned exactly; the sole
+  `package-lock.json` retains the 112 reviewed non-root records (110 production
+  and two development). No shrinkwrap is shipped.
+- The builder produces an 82-file source installation archive with its lockfile,
+  distinct from the 81-file npm package without a lockfile. Proofs explicitly
+  bind the distribution, sources and integrity.
+- Source installation uses `npm ci --omit=dev --ignore-scripts`; contributor
+  setup uses `npm ci --ignore-scripts`. Archive bytes may vary across systems.
+  The actual installed graph, including transitive dependencies and peers, is
+  compared with the original authority before publication.
+- npm remains unqualified after ten observed changes in a real installation.
+  MCP qualification checks the actual registry download, then the privileged
+  job requires its original integrity before authentication.
+
+- English/French installation and release documentation distinguishes GitHub
+  source releases from npm and Official MCP Registry availability.
+
+Preparation, state and workflow internals expose no public plan/apply/status,
+journal, resumption or rollback. Scripted tests are not an LLM benchmark, and
+this patch makes no enterprise-certification claim.
+
 ## [0.2.0] - 2026-09-09
 
 The GitHub tag and release are cut from this commit. Publication to npm and to

@@ -10,7 +10,7 @@ dependency-light — please read the principles below before opening a PR.
 ```bash
 git clone https://github.com/alebgl77/ftp-deploy-mcp.git
 cd ftp-deploy-mcp
-npm install
+npm ci --ignore-scripts
 npm test
 ```
 
@@ -19,6 +19,23 @@ on loopback ports and runs the full e2e suite against them — no external
 network access is required or used. Documentation-only changes should also
 parse changed JSON examples, check relative Markdown links, and run
 `git diff --check`.
+
+## Updating the dependency graph
+
+`package-lock.json` is the only authoritative lockfile; do not add a parallel
+`npm-shrinkwrap.json`. The six direct production dependencies are exact pins.
+Routine setup uses `npm ci --ignore-scripts` and must not rewrite the graph.
+
+For an intentional update, change only the approved exact versions, regenerate
+the source lockfile with lifecycle scripts disabled and the qualified npm version,
+and record that npm version. Review every added, removed or changed graph entry,
+including `resolved`, `integrity`, optional/platform constraints and install
+hooks. Do not accept unrelated graph changes from an automatic update or audit
+fix. Run a clean install, the affected tests, the dependency audit and exact
+tarball/isolated-consumer checks in the [release guide](./docs/RELEASE.md).
+Keep the source, manifest and lockfile changes together for review.
+
+The source installation distribution contains 82 files, including this lockfile. The separate npm package contains 81 files without a lockfile and remains unqualified after ten observed changes in a real installation. Installed-graph checks compare transitive dependencies and peers against the original source inventory; any difference blocks npm/MCP publication.
 
 ## Principles
 
@@ -54,7 +71,7 @@ Run the transport qualification and release gates separately:
 
 ```bash
 node --test test/transport-qualification.js
-node --test test/release-gates.js
+npm run test:release
 ```
 
 `npm test` runs the main smoke suite and transport qualification. Before
@@ -78,7 +95,8 @@ existing assertions enabled.
 Do not improvise the first publication from this short section. Follow the
 [release guide](./docs/RELEASE.md), which covers:
 
-- matching package, lockfile, server, tag, npm, and MCP registry versions;
+- matching package, lockfile, server and tag versions, then separately
+  verifying npm and Official MCP Registry versions after publication;
 - clean-tarball validation and end-to-end tests;
 - npm Trusted Publishing/provenance and the short-lived `NPM_TOKEN` fallback
   needed only when first-publication bootstrapping requires it;

@@ -53,6 +53,9 @@ de prime ni de délai de résolution.
 - Contournement de `readOnly` ou des protections d'opérations destructives,
   ou succès annoncé à tort après un déploiement partiel.
 - Corruption ou remplacement non sûr d'une configuration serveur ou client MCP.
+- Archive de publication acceptée malgré une modification des sources livrées,
+  du manifeste de dépendances ou du verrouillage source, ou malgré un modificateur de
+  dépendances ou un hook d'installation non autorisé.
 
 Les problèmes qui reposent sur un serveur FTP malveillant utilisant des liens
 symboliques hors d'une sous-racine configurée côté client sont importants,
@@ -61,6 +64,27 @@ de compte/chroot côté serveur. De même, les contrôles SFTP `realpath`/`lstat
 réduisent les sorties par lien symbolique sans pouvoir supprimer toutes les
 courses sur un serveur malveillant. Ces limites sont décrites dans le
 [modèle de sécurité](./docs/SECURITY-MODEL.fr.md).
+
+## Intégrité des dépendances et de la publication
+
+Les six dépendances directes de production utilisent des versions exactes.
+`package-lock.json` est l'unique référence du graphe source, livrée dans
+l'archive d'installation source de 82 fichiers. Utilisez
+`npm ci --omit=dev --ignore-scripts` après extraction et conservez ce fichier.
+Toute modification exige une revue du graphe complet, de ses URL et intégrités,
+puis les contrôles du [guide de publication](./docs/RELEASE.fr.md).
+
+Le paquet npm de 81 fichiers ne contient aucun verrouillage et reste non qualifié.
+Une installation réelle a changé dix dépendances de production. Les workflows
+refusent toute dérive du graphe installé avant publication npm ou MCP ; une preuve
+de type source ne peut pas autoriser npm. Un éventuel graphe npm conforme ne vaut
+que pour l'environnement et la date testés, sans garantir les installations futures.
+
+Un audit de dépendances réussi vaut pour ce graphe à cette date ; il ne garantit
+pas l'absence d'avis futurs et ne certifie pas un usage en production. Signalez
+en privé les contournements du validateur d'archive selon la procédure ci-dessus.
+Une release GitHub ne prouve pas la disponibilité sur npm ou le registre MCP
+officiel.
 
 ## Consignes de recherche
 

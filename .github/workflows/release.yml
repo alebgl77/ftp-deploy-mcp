@@ -1,4 +1,4 @@
-# Manual, exact-tag release. NPM_TOKEN is only for the first-publish bootstrap.
+# Manual, exact-tag release. Dependency execution has no publication authority.
 name: Release (npm)
 
 on:
@@ -11,29 +11,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  qualify:
     if: github.repository == 'alebgl77/ftp-deploy-mcp' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
       contents: read
-      id-token: write
+    outputs:
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      inventory-sha256: ${{ steps.snapshot.outputs.inventory-sha256 }}
+      integrity: ${{ steps.artifact.outputs.integrity }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
-      - name: Require coherent metadata and exact stable tag
-        run: node scripts/release-gate.mjs
+      - name: Capture the original clean event and tag source before dependency execution
+        id: snapshot
+        run: node scripts/release-artifact.mjs snapshot "$RUNNER_TEMP/source-inventory.json" --source-root "$GITHUB_WORKSPACE"
 
       - run: npm ci --ignore-scripts
 
-      - run: node --test test/release-gates.js
+      - run: npm run test:release
 
       - name: Validate bilingual documentation
         run: node scripts/check-docs.mjs
@@ -50,26 +57,96 @@ jobs:
 
       - run: npm audit --omit=dev --audit-level=moderate
 
-      - name: Pack once and validate the archive
+      - name: Pack once and inspect against the original source inventory
         id: artifact
+        env:
+          SOURCE_INVENTORY_SHA256: ${{ steps.snapshot.outputs.inventory-sha256 }}
         run: |
           npm pack --ignore-scripts --json --pack-destination "$RUNNER_TEMP" > "$RUNNER_TEMP/release-pack.json"
-          node scripts/release-artifact.mjs inspect "$RUNNER_TEMP/release-pack.json"
+          node scripts/release-artifact.mjs inspect "$RUNNER_TEMP/release-pack.json" --source-root "$GITHUB_WORKSPACE" --inventory "$RUNNER_TEMP/source-inventory.json" --inventory-sha256 "$SOURCE_INVENTORY_SHA256"
 
-      - name: Smoke test an isolated installation of this archive
+      - name: Reject graph drift before smoke testing or transferring the npm candidate
         env:
           RELEASE_TARBALL: ${{ steps.artifact.outputs.tarball }}
+          SOURCE_INVENTORY_SHA256: ${{ steps.snapshot.outputs.inventory-sha256 }}
         run: |
-          npm install --prefix "$RUNNER_TEMP/release-smoke" --ignore-scripts --omit=dev --no-audit --no-fund "$RELEASE_TARBALL"
+          npm install --prefix "$RUNNER_TEMP/release-smoke" --ignore-scripts --omit=dev --no-audit --no-fund --registry=https://registry.npmjs.org "$RELEASE_TARBALL"
+          node scripts/release-graph.mjs --source-root "$GITHUB_WORKSPACE" --inventory "$RUNNER_TEMP/source-inventory.json" --inventory-sha256 "$SOURCE_INVENTORY_SHA256" --product-root "$RUNNER_TEMP/release-smoke/node_modules/ftp-deploy-mcp" --install-root "$RUNNER_TEMP/release-smoke" --output "$RUNNER_TEMP/npm-graph.json"
           node scripts/release-smoke.mjs "$RUNNER_TEMP/release-smoke"
+          npm audit --prefix "$RUNNER_TEMP/release-smoke" --omit=dev --audit-level=moderate --registry=https://registry.npmjs.org
 
-      - name: Publish exactly the validated archive with provenance
+      - name: Preserve the installed graph report, including qualification failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-installed-graph
+          if-no-files-found: ignore
+          retention-days: 14
+          path: ${{ runner.temp }}/npm-graph.json
+
+      - name: Transfer only the archive, pack metadata and original inventory
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: qualified-release
+          if-no-files-found: error
+          retention-days: 1
+          path: |
+            ${{ steps.artifact.outputs.tarball }}
+            ${{ runner.temp }}/release-pack.json
+            ${{ runner.temp }}/source-inventory.json
+
+  publish:
+    needs: qualify
+    if: github.repository == 'alebgl77/ftp-deploy-mcp' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Require coherent metadata and the original event and exact stable tag
+        run: node scripts/release-gate.mjs
+
+      - name: Download the exact qualified artifact outside the checkout
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          artifact-ids: ${{ needs.qualify.outputs.artifact-id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/release-input
+
+      - name: Inspect every downloaded byte against the fresh source and original build digest
+        id: artifact
+        env:
+          SOURCE_INVENTORY_SHA256: ${{ needs.qualify.outputs.inventory-sha256 }}
+          BUILD_INTEGRITY: ${{ needs.qualify.outputs.integrity }}
+        run: node scripts/release-artifact.mjs inspect "$RUNNER_TEMP/release-input/release-pack.json" --source-root "$GITHUB_WORKSPACE" --inventory "$RUNNER_TEMP/release-input/source-inventory.json" --inventory-sha256 "$SOURCE_INVENTORY_SHA256" --expected-integrity "$BUILD_INTEGRITY"
+
+      - name: Reinspect and publish exactly the validated archive with provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           RELEASE_TARBALL: ${{ steps.artifact.outputs.tarball }}
+          RELEASE_INTEGRITY: ${{ steps.artifact.outputs.integrity }}
+          SOURCE_INVENTORY_SHA256: ${{ needs.qualify.outputs.inventory-sha256 }}
         run: |
-          node scripts/release-artifact.mjs check "$RUNNER_TEMP/release-pack.json.verified.json"
+          node scripts/release-artifact.mjs check "$RUNNER_TEMP/release-input/release-pack.json.verified.json" --source-root "$GITHUB_WORKSPACE" --inventory "$RUNNER_TEMP/release-input/source-inventory.json" --inventory-sha256 "$SOURCE_INVENTORY_SHA256" --expected-integrity "$RELEASE_INTEGRITY" --expected-tarball "$RELEASE_TARBALL"
           npm publish "$RELEASE_TARBALL" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
 
-      - name: Verify public npm identity and exact tarball integrity
-        run: node scripts/release-artifact.mjs verify-npm "$RUNNER_TEMP/release-pack.json.verified.json"
+      - name: Verify public npm identity and original tarball integrity
+        env:
+          RELEASE_TARBALL: ${{ steps.artifact.outputs.tarball }}
+          RELEASE_INTEGRITY: ${{ steps.artifact.outputs.integrity }}
+          SOURCE_INVENTORY_SHA256: ${{ needs.qualify.outputs.inventory-sha256 }}
+        run: node scripts/release-artifact.mjs verify-npm "$RUNNER_TEMP/release-input/release-pack.json.verified.json" --source-root "$GITHUB_WORKSPACE" --inventory "$RUNNER_TEMP/release-input/source-inventory.json" --inventory-sha256 "$SOURCE_INVENTORY_SHA256" --expected-integrity "$RELEASE_INTEGRITY" --expected-tarball "$RELEASE_TARBALL"

@@ -52,6 +52,8 @@ response target, not a bug-bounty or resolution-time promise.
 - `readOnly` bypass, destructive-operation guard bypass, or incorrect success
   reporting after a partial deployment.
 - Corruption or unsafe replacement of server or MCP client configuration.
+- A release archive accepted with changed shipped source, a changed dependency
+  manifest or source lockfile, or an unapproved dependency modifier or install hook.
 
 Issues that depend on a malicious FTP server using symlinks outside a
 client-configured sub-root are important but are **not claimed to be prevented**:
@@ -59,6 +61,26 @@ FTP/FTPS require a server-side account/chroot boundary. Likewise, SFTP
 realpath/lstat checks reduce symlink escapes but cannot remove every race on a
 malicious server. These limits are documented in the
 [security model](./docs/SECURITY-MODEL.md).
+
+## Dependency and release integrity
+
+The six direct production dependencies use exact versions.
+`package-lock.json` is the sole source graph authority, shipped in the 82-file
+source installation archive. Use `npm ci --omit=dev --ignore-scripts` after
+extraction and retain this file. Changes require review of the complete graph,
+its URLs and integrity values, then the checks in the
+[release guide](./docs/RELEASE.md).
+
+The 81-file npm package contains no lockfile and remains unqualified. A real
+installation changed ten production dependencies. Workflows reject installed
+graph drift before npm or MCP publication; a source proof cannot authorize npm.
+A future matching npm graph is evidence only for the tested environment and date,
+with no guarantee about future installations.
+
+A passing dependency audit is evidence for that graph on that date, not a
+guarantee against future advisories or a certification of production use.
+Report archive-validation bypasses privately using the same process above.
+GitHub releases do not establish npm or Official MCP Registry availability.
 
 ## Research guidelines
 

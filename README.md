@@ -31,10 +31,12 @@ runs against local FTP and SFTP servers. There is no telemetry.
 
 > **Availability:** install from source today. The npm package and MCP registry
 > entry have **not been published yet**, so `npx -y ftp-deploy-mcp` and
-> registry-based installation will not work until the first release is
-> announced. Existing Glama and MCP Index pages are discovery listings, not
-> proof that an installable package is available. Package and server metadata
-> are aligned at release candidate 0.2.0, pending publication.
+> registry-based installation remain unavailable. GitHub source releases are
+> separate from npm and Official MCP Registry publication. Existing Glama and
+> MCP Index pages are discovery listings, not proof of an installable package.
+> This checkout has version 0.2.1. Find published source versions on
+> [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest);
+> the published GitHub release v0.2.0 remains unchanged.
 
 ## Documentation
 
@@ -74,7 +76,7 @@ document their illustrative role; they are not a certification.
 1. Install a supported Node.js LTS version: 22 or 24 (minimum: 22).
 2. Run `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, then
    `cd ftp-deploy-mcp`.
-3. Run `npm install`.
+3. Run `npm ci --omit=dev --ignore-scripts`.
 4. Run `npm run setup`, then edit the generated server config: set an absolute
    `localRoot`, replace credentials, and configure the SFTP host-key pin or the
    FTP/FTPS safety acknowledgments described below.
@@ -88,6 +90,28 @@ Call ftp_deploy with:
 Windows users can run `install.cmd` and macOS/Linux users can run
 `./install.sh` instead of steps 3–4. Review every generated server entry before
 the first connection.
+
+For a tagged version, check out that exact tag before installing. `npm ci` uses
+the sole authoritative `package-lock.json`, with six exact direct pins and the
+reviewed graph. Keep it with the sources. `--ignore-scripts` disables automatic
+dependency lifecycle scripts; setup is a separate, explicit action.
+
+The v0.2.1 source installation asset is named
+`ftp-deploy-mcp-0.2.1-source.tar.gz`: 82 files, including that lockfile. Once its
+publication and checksums are verified, extract it in a fresh directory:
+
+```bash
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.2.1-source.tar.gz
+cd package
+npm ci --omit=dev --ignore-scripts
+node src/index.js setup
+```
+
+This installation archive excludes repository tests and maintainer scripts;
+GitHub's automatic source ZIP/tar contains the complete repository. The separate
+npm `.tgz` contains 81 files without a lockfile and remains unqualified: an actual
+npm consumer changed ten production dependencies. It provides no locked-install
+guarantee. See the [release guide](./docs/RELEASE.md) for verification and limits.
 
 ## Protocol and security matrix
 
@@ -262,6 +286,14 @@ operation settles, but its lock remains owned until settlement and cleanup.
 No uncertain mutation is retried automatically. Inspect partial remote/local
 state before retrying; this is not transactional deployment or rollback.
 
+Internal preparation is single-use and limited to 10 seconds without extending
+the overall operation deadline. Admission remains held until the actual work
+and cleanup settle. A prepared context is released once, including when it
+arrives after cancellation; the handler is not called after preparation is
+cancelled or expires. Preparation callbacks themselves may act. This adds no
+public MCP tool or durable deployment workflow. See the
+[resource limits](./docs/RESOURCE-BOUNDS.md).
+
 Progress notifications are sent only when the caller supplies a progress
 token, with increasing counters and no paths or credential text. Locks do not
 coordinate other Node processes, DNS aliases, other accounts, or external
@@ -363,10 +395,11 @@ insecure-transport or FTP/FTPS remote-root warning before connecting.
 `doctor` is read-only and reports configuration and client wiring without
 printing passwords.
 
-## Migrating from v0.1 to the unreleased v0.2
+## Migrating from v0.1 to v0.2
 
-The source checkout contains v0.2 work, but no v0.2 package or registry release
-exists yet.
+GitHub v0.2.0 is published. This source checkout has version 0.2.1; neither
+npm nor the Official MCP Registry has been published. The steps below apply to
+the source installation and do not announce an npm release.
 
 1. Add an absolute `localRoot` to every server used by upload, deploy, or
    download.
@@ -382,9 +415,9 @@ exists yet.
 5. Re-run `npm run setup` or update the MCP client command to this checkout,
    then run `npm run doctor` and a dry run.
 
-Atomic replacement for newly written sensitive configuration is a v0.2 release
-gate, not a guarantee of the 0.2.0 release-candidate metadata in this checkout. See
-[docs/RELEASE.md](./docs/RELEASE.md) before cutting a release.
+Atomic replacement for newly written sensitive configuration is checked by the
+release tests; a version number alone does not establish that guarantee. See
+[docs/RELEASE.md](./docs/RELEASE.md) for the qualification and publication steps.
 
 ## Security and limitations
 

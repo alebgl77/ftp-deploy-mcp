@@ -10,28 +10,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  qualify:
     if: github.repository == 'alebgl77/ftp-deploy-mcp' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     permissions:
       contents: read
-      id-token: write
+    outputs:
+      integrity: ${{ steps.artifact.outputs.integrity }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+          package-manager-cache: false
 
-      - name: Require coherent metadata and exact stable tag
-        run: node scripts/release-gate.mjs
+      - name: Capture the original clean event and tag source before dependency execution
+        id: snapshot
+        run: node scripts/release-artifact.mjs snapshot "$RUNNER_TEMP/source-inventory.json" --source-root "$GITHUB_WORKSPACE"
 
       - run: npm ci --ignore-scripts
 
-      - run: node --test test/release-gates.js
+      - run: npm run test:release
 
       - name: Validate bilingual documentation
         run: node scripts/check-docs.mjs
@@ -44,8 +49,58 @@ jobs:
 
       - run: node scripts/release-gate.mjs --runtime
 
-      - name: Require this version and mcpName on the public npm registry
-        run: node scripts/release-artifact.mjs verify-npm
+      - name: Download and inspect the actual public npm artifact against original source bytes
+        id: artifact
+        env:
+          SOURCE_INVENTORY_SHA256: ${{ steps.snapshot.outputs.inventory-sha256 }}
+        run: node scripts/release-artifact.mjs fetch-npm "$RUNNER_TEMP/registry-pack.json" --source-root "$GITHUB_WORKSPACE" --inventory "$RUNNER_TEMP/source-inventory.json" --inventory-sha256 "$SOURCE_INVENTORY_SHA256" --distribution npm
+
+      - name: Reject installed graph drift before qualifying the registry artifact
+        env:
+          RELEASE_TARBALL: ${{ steps.artifact.outputs.tarball }}
+          SOURCE_INVENTORY_SHA256: ${{ steps.snapshot.outputs.inventory-sha256 }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/registry-smoke" --ignore-scripts --omit=dev --no-audit --no-fund --registry=https://registry.npmjs.org "$RELEASE_TARBALL"
+          node scripts/release-graph.mjs --source-root "$GITHUB_WORKSPACE" --inventory "$RUNNER_TEMP/source-inventory.json" --inventory-sha256 "$SOURCE_INVENTORY_SHA256" --product-root "$RUNNER_TEMP/registry-smoke/node_modules/ftp-deploy-mcp" --install-root "$RUNNER_TEMP/registry-smoke" --output "$RUNNER_TEMP/npm-graph.json"
+          node scripts/release-smoke.mjs "$RUNNER_TEMP/registry-smoke"
+          npm audit --prefix "$RUNNER_TEMP/registry-smoke" --omit=dev --audit-level=moderate --registry=https://registry.npmjs.org
+
+      - name: Preserve the installed graph report, including qualification failures
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: registry-installed-graph
+          if-no-files-found: ignore
+          retention-days: 14
+          path: ${{ runner.temp }}/npm-graph.json
+
+  publish:
+    needs: qualify
+    if: github.repository == 'alebgl77/ftp-deploy-mcp' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Revalidate the fresh structural source and exact event and tag
+        run: node scripts/release-gate.mjs
+
+      - name: Require the exact identity and qualified npm integrity before authentication
+        env:
+          QUALIFIED_INTEGRITY: ${{ needs.qualify.outputs.integrity }}
+        run: node scripts/release-artifact.mjs verify-npm --source-root "$GITHUB_WORKSPACE" --expected-integrity "$QUALIFIED_INTEGRITY" --distribution npm
 
       - name: Install the verified, pinned official publisher
         env:
@@ -56,13 +111,13 @@ jobs:
             "https://github.com/modelcontextprotocol/registry/releases/download/$PUBLISHER_VERSION/mcp-publisher_linux_amd64.tar.gz" \
             --output "$RUNNER_TEMP/mcp-publisher.tar.gz"
           printf '%s  %s\n' "$PUBLISHER_SHA256" "$RUNNER_TEMP/mcp-publisher.tar.gz" | sha256sum --check --strict
-          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" --directory "$RUNNER_TEMP" mcp-publisher
+          tar --ignore-zeros -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" --directory "$RUNNER_TEMP" mcp-publisher
 
       - name: Authenticate with GitHub OIDC (no dedicated secret)
         id: login
         run: '"$RUNNER_TEMP/mcp-publisher" login github-oidc'
 
-      - name: Publish the checked server manifest
+      - name: Publish the fresh checked server manifest
         run: '"$RUNNER_TEMP/mcp-publisher" publish'
 
       - name: Clear temporary registry authentication

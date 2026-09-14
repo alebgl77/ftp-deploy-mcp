@@ -3,7 +3,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { CallToolRequestSchema, ListToolsRequestSchema, McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { createI18n } from "./i18n.js";
-import { createOperation } from "./operations.js";
+import { createOperation, DEFAULT_OPERATION_TIMEOUT_MS } from "./operations.js";
 import { acquireAdmission } from "./admission.js";
 import { ERROR_CODES, NEXT_ACTIONS, appError, messageSpec, normalizeError, renderError } from "./errors.js";
 
@@ -101,7 +101,11 @@ function schemaJSON(schema) {
   return body;
 }
 
-export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor = () => undefined, errorNotices = () => [], transportContext }) {
+export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor = () => undefined,
+  preparedTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, errorNotices = () => [], transportContext }) {
+  if (!Number.isSafeInteger(preparedTimeoutMs) || preparedTimeoutMs <= 0 || preparedTimeoutMs > 3600000) {
+    throw new TypeError("Invalid prepared operation timeout");
+  }
   const entries = new Map();
   const clean = (value, max = 2048) => truncateUtf8(redactor.strictText(value), max, i18n.t("error.truncated"));
   function failure(error, id, state = { effects: "none" }, notices = []) {
@@ -161,6 +165,10 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
   const registry = {
     registerTool(name, spec, handler) {
       if (entries.has(name)) throw new Error("Duplicate tool registration");
+      const hasPreparation = Object.hasOwn(spec, "prepare") || Object.hasOwn(spec, "disposePrepared");
+      if (hasPreparation && (typeof spec.prepare !== "function" || typeof spec.disposePrepared !== "function")) {
+        throw new TypeError("Preparation and disposal must be paired functions");
+      }
       const input = z.object(spec.inputSchema);
       const output = spec.outputSchema;
       const inputJSON = schemaJSON(input);
@@ -172,7 +180,8 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
         inputSchema: { $schema: "http://json-schema.org/draft-07/schema#", ...inputJSON }, annotations: spec.annotations,
         ...(output ? { outputSchema: { $schema: "http://json-schema.org/draft-07/schema#", type: "object",
           oneOf: [schemaJSON(output), schemaJSON(ERROR_SCHEMA)] } } : {}) };
-      entries.set(name, { name, input, output, descriptor, handler });
+      entries.set(name, { name, input, output, descriptor, handler,
+        ...(hasPreparation ? { prepare: spec.prepare, disposePrepared: spec.disposePrepared } : {}) });
     },
     list() { return { tools: [...entries.values()].map((entry) => entry.descriptor) }; },
     async call(name, args, extra = {}) {
@@ -192,10 +201,31 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
         checkParent();
         release = acquireAdmission();
         if (!release) return failure(appError("CAPACITY_LIMIT", "error.CAPACITY_LIMIT"), id);
-        const timeout = await timeoutFor(parsed.data);
+        const timeout = entry.prepare ? preparedTimeoutMs : await timeoutFor(parsed.data);
         checkParent();
         operation = createOperation(extra, timeout, { requestId: id, i18n });
-        const worker = operation.run(() => entry.handler(parsed.data, operation));
+        const worker = operation.run(async () => {
+          if (!entry.prepare) return entry.handler(parsed.data, operation);
+          let prepared, ready = false, failed = false;
+          try {
+            await operation.runPreparation(async () => {
+              prepared = await entry.prepare(parsed.data, operation);
+              // Capture ownership before runPreparation's post-await check.
+              ready = true;
+            });
+            return await operation.step(() => entry.handler(parsed.data, operation, prepared));
+          } catch (error) {
+            failed = true;
+            throw error;
+          } finally {
+            if (ready) {
+              // Cleanup must run after abort and retain admission until it
+              // settles; operation.step would skip it when already cancelled.
+              try { await entry.disposePrepared(prepared, operation); }
+              catch (error) { if (!failed) throw error; }
+            }
+          }
+        });
         workerStarted = true;
         // Keep the transport's private worker observer intact. Settlement is
         // independent of both response rendering and the outward abort race.

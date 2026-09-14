@@ -14,8 +14,12 @@ export function observeOperationWorker(extra, observer) { workerObservers.set(ex
 export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, { requestId, i18n = createI18n() } = {}) {
   const controller = new AbortController();
   const id = requestId ?? randomUUID();
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  let deadline = startedAt + timeoutMs;
   let timer;
+  let preparationTimer;
+  let preparationDeadline = Infinity;
+  let preparationStarted = false;
   let waiting = 0;
   let progress = 0;
   let finished = false;
@@ -29,6 +33,7 @@ export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOU
   const abort = (code) => {
     if (controller.signal.aborted) return;
     clearTimeout(timer);
+    clearTimeout(preparationTimer);
     const detail = messageSpec(waiting ? "error.busy" : "error.uncertain");
     controller.abort(appError(code, `error.${code}`, { id, detail }));
   };
@@ -41,6 +46,32 @@ export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOU
     i18n,
     settlement,
     signal: controller.signal,
+    shortenTimeout(timeoutMs) {
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 3600000) {
+        throw new TypeError("Invalid operation timeout");
+      }
+      if (finished || controller.signal.aborted) return;
+      deadline = Math.min(deadline, startedAt + timeoutMs);
+      clearTimeout(timer);
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) abort("TIMEOUT");
+      else timer = setTimeout(() => abort("TIMEOUT"), remaining);
+    },
+    async runPreparation(run) {
+      if (preparationStarted || finished) throw new Error("Preparation can only run once per operation");
+      preparationStarted = true;
+      operation.check();
+      preparationDeadline = Math.min(deadline, Date.now() + 10000);
+      preparationTimer = setTimeout(() => abort("TIMEOUT"), preparationDeadline - Date.now());
+      try {
+        // Await actual preparation: its resources remain owned after the
+        // outward run race has returned cancellation or timeout.
+        return await operation.step(run);
+      } finally {
+        clearTimeout(preparationTimer);
+        preparationDeadline = Infinity;
+      }
+    },
     dispatch() { dispatched = true; },
     confirm() { dispatched = true; confirmed = true; },
     trackFiles(totalFiles) {
@@ -79,7 +110,7 @@ export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOU
         ...(partial ? { partial: { ...partial, final: finished } } : {}) };
     },
     check() {
-      if (!controller.signal.aborted && Date.now() >= deadline) abort("TIMEOUT");
+      if (!controller.signal.aborted && Date.now() >= Math.min(deadline, preparationDeadline)) abort("TIMEOUT");
       if (controller.signal.aborted) throw controller.signal.reason;
     },
     async step(run) {
@@ -131,6 +162,7 @@ export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOU
       const worker = operation.step(run).finally(() => {
         finished = true;
         clearTimeout(timer);
+        clearTimeout(preparationTimer);
         extra.signal?.removeEventListener("abort", onParentAbort);
         settle();
       });

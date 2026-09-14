@@ -71,3 +71,47 @@ Ces limites ne coordonnent pas les processus, isolates ou hôtes distincts. Elle
 ne bornent ni les tampons d’entrée du transport ni l’analyse des requêtes refusées.
 Les limites du parcours local ne bornent pas le tampon distant sous-jacent de
 `list()` ; la sortie MCP paginée conserve l’implémentation de liste existante.
+
+## Cycle de vie interne des outils préparés
+
+Le registre expose une interface d’intégration interne ; les outils existants
+utilisent toujours leur résolveur `timeoutFor` ordinaire. Cette interface
+n’active aucun outil de reprise, identifiant de requête persistant ou nouveau
+champ de configuration. Les descripteurs et résultats publics sont inchangés.
+
+Une inscription peut fournir les callbacks privés appariés `prepare(args,
+operation)` et `disposePrepared(prepared, operation)`, tous deux obligatoirement
+des fonctions. Le handler reçoit la valeur préparée en troisième argument. Une
+préparation réussie transfère la propriété de sa ressource même si elle renvoie
+`undefined` ; le registre attend exactement une libération après le handler ou
+tout échec ultérieur. Une préparation qui rejette doit fermer chaque ressource
+acquise avant son rejet : le registre ne peut pas libérer un contexte jamais
+renvoyé. Le premier échec est conservé si la libération échoue aussi ; un échec
+de libération après un handler réussi devient une erreur d’outil bornée ordinaire.
+
+Préparation, traitement et libération s’exécutent dans le worker admis observé
+par le transport. Une annulation ou un dépassement de délai peut produire une
+réponse anticipée, mais le slot d’admission et l’identifiant de corrélation falsy
+concerné restent occupés jusqu’à la terminaison réelle, préparation tardive et
+libération comprises. La libération s’exécute même après l’annulation et ne doit
+pas passer par `operation.step`, dont le contrôle d’annulation empêcherait le
+nettoyage. Un travail non coopératif peut donc retenir la capacité indéfiniment ;
+le délai n’interrompt pas du JavaScript ou des entrées-sorties arbitraires.
+
+L’option privée `preparedTimeoutMs` du registre vaut 120000 par défaut et accepte
+un entier sûr positif jusqu’à 3600000. Les outils préparés ne consultent jamais
+`timeoutFor`. Le futur assemblage fournit le plus grand délai serveur validé.
+Après sélection du serveur, la préparation appelle
+`operation.shortenTimeout(server.operationTimeoutMs)`, puis `operation.check()`
+avant tout effet. Le raccourcissement part du début initial de l’opération, ne
+prolonge jamais l’échéance courante et annule immédiatement une échéance déjà
+dépassée. Une opération terminée ne peut pas créer un autre timer.
+
+`operation.runPreparation(run)` est à usage unique, sans imbrication. Son plafond
+fixe de 10000 ms commence avant l’appel du callback et reste borné par l’échéance
+principale. Les contrôles avant et après le callback imposent aussi ce plafond
+si la boucle événementielle n’a pas exécuté le timer. Son expiration annule
+irréversiblement toute l’opération avec `TIMEOUT`. Une préparation réussie retire
+seulement le plafond de l’étape et conserve l’échéance principale. Le callback
+réel reste attendu après une réponse anticipée ; les timers sont supprimés à
+l’annulation et à la terminaison réelle.

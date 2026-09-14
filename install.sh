@@ -13,6 +13,6 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 echo "Installing dependencies / Installation des dependances..."
-npm install --no-audit --no-fund
+npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 exec node src/index.js setup

@@ -44,6 +44,8 @@ test("runner reports actual outcomes, failures and bounded cleanup", async (t) =
   await t.test("positive real SDK case passes and measures listTools separately", () => {
     const result = run("positive");
     assert.equal(result.exitCode, 0); assert.equal(result.report.status, "PASS");
+    assert.ok(result.report.provenance.sourceFiles.some((entry) => entry.file === "package-lock.json"));
+    assert.ok(!result.report.provenance.sourceFiles.some((entry) => entry.file === "npm-shrinkwrap.json"));
     assert.ok(result.report.results[0].metrics.listToolsResultJsonBytes > 0);
     assert.equal(result.report.results[0].metrics.toolCalls, 0);
   });

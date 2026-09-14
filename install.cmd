@@ -14,10 +14,10 @@ if errorlevel 1 (
 )
 
 echo Installation des dependances / Installing dependencies...
-call npm install --no-audit --no-fund
+call npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 if errorlevel 1 (
   echo.
-  echo [ERREUR/ERROR] npm install a echoue / npm install failed.
+  echo [ERREUR/ERROR] npm ci a echoue / npm ci failed.
   echo.
   pause
   exit /b 1
