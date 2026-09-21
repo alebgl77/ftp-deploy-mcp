@@ -1,3 +1,4 @@
+import { assertReleaseToolchain } from "../scripts/release-toolchain.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -6,6 +7,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { NPM_PACKAGE_FILES, SOURCE_FILES, buildSourceArtifact, captureSourceInventory, inspectArtifact, validatePack } from "../scripts/release-artifact.mjs";
+
+assertReleaseToolchain();
 
 const repo = realpathSync(fileURLToPath(new URL("..", import.meta.url)));
 // npm run supplies npm_execpath. Direct node --test also works with the standard

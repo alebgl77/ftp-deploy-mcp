@@ -134,6 +134,8 @@ export async function connect(serverCfg, operation) {
 
   try {
     await sftp.connect(connOpts);
+    // Send interactive SFTP requests immediately instead of coalescing TCP writes.
+    transport.client.setNoDelay(true);
     await canonicalRoot();
   } catch (err) {
     await close();

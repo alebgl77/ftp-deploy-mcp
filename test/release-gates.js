@@ -1,9 +1,14 @@
+import { assertReleaseToolchain, RELEASE_NODE_VERSION, releaseToolchainVersions } from "../scripts/release-toolchain.mjs";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { MCP_NAME, PACKAGE_NAME, SCHEMA, PRODUCTION_PINS, validateChangelog, validateDependencies, validateMetadata, validateSourceMetadata } from "../scripts/release-gate.mjs";
 import { PACKAGE_FILES, MAX_ARCHIVE_BYTES, checkArtifact, downloadRegistryArchive, integrity, validateFiles, validatePack, validatePublished, verifyPublished } from "../scripts/release-artifact.mjs";
 
+
+assertReleaseToolchain();
 const release = { name: PACKAGE_NAME, version: "0.2.0", mcpName: MCP_NAME };
 const ref = "refs/tags/v0.2.0";
 const digest = integrity(Buffer.from("reviewed tarball"));
@@ -286,10 +291,104 @@ test("publication workflows remain manual, pinned and secret-scoped", () => {
 
 test("CI shares pack normalization and installs only the authoritative source lock without scripts", () => {
   const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
-  assert.equal((ci.match(/cache-dependency-path: package-lock.json/g) || []).length, 2);
+  assert.equal((ci.match(/cache-dependency-path: package-lock.json/g) || []).length, 3);
   assert.match(ci, /import\{validatePack\}from'.\/scripts\/release-artifact.mjs'/);
   assert.doesNotMatch(ci, /const\[\{files\}\]|npm ci\s*\r?\n/);
   assert.match(ci, /npm run test:release/);
+});
+
+test("release toolchain accepts only the exact qualified Node version", () => {
+  assert.equal(RELEASE_NODE_VERSION, "24.20.0");
+  assert.doesNotThrow(() => assertReleaseToolchain(RELEASE_NODE_VERSION));
+  for (const version of ["22.23.2", "24.19.0", "24.20.1", "25.0.0", "v24.20.0", "24.20.0-rc.1", "24.20.0+custom", " 24.20.0", null]) {
+    assert.throws(() => assertReleaseToolchain(version), { code: "ERR_RELEASE_TOOLCHAIN" });
+  }
+});
+
+test("all release I/O APIs refuse Node 22 before filesystem, process or network operations", () => {
+  const code = `
+    import assert from 'node:assert/strict';
+    Object.defineProperty(process.versions, 'node', { value: '22.23.2' });
+    const gate = await import(${JSON.stringify(new URL("../scripts/release-gate.mjs", import.meta.url).href)});
+    const artifact = await import(${JSON.stringify(new URL("../scripts/release-artifact.mjs", import.meta.url).href)});
+    const graph = await import(${JSON.stringify(new URL("../scripts/release-graph.mjs", import.meta.url).href)});
+    const toolchain = await import(${JSON.stringify(new URL("../scripts/release-toolchain.mjs", import.meta.url).href)});
+    assert.equal(gate.PACKAGE_NAME, 'ftp-deploy-mcp');
+    assert.equal(artifact.PACKAGE_FILES.length, 81);
+    assert.equal(artifact.integrity(Buffer.from('pure metadata')).startsWith('sha512-'), true);
+    let contacted = false;
+    const fetchImpl = async () => { contacted = true; throw new Error('network must not run'); };
+    const operations = [
+      () => gate.checkoutCommit('/absent'), () => gate.validateCheckout('/absent', {}, ''),
+      () => gate.readRelease('/absent'), () => artifact.readBoundedFile('/absent', 1),
+      () => artifact.captureSourceInventory('/absent', {}), () => artifact.approvedSource({}),
+      () => artifact.inspectArtifact('/absent', {}), () => artifact.checkArtifact({}, {}),
+      () => artifact.buildSourceArtifact('/absent', {}),
+      () => artifact.downloadRegistryArchive('invalid', { fetchImpl }),
+      () => artifact.fetchNpmArtifact('/absent', {}, { fetchImpl }),
+      () => artifact.verifyPublished({}, undefined, { fetchImpl }),
+      () => graph.compareInstalledGraph({}), () => graph.verifyInstalledGraph({}),
+      () => toolchain.releaseToolchainVersions(),
+    ];
+    for (const operation of operations) await assert.rejects(async () => operation(), { code: 'ERR_RELEASE_TOOLCHAIN' });
+    assert.equal(contacted, false);
+    console.log('15 guarded APIs rejected; pure imports work under Node 22');
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", code], { encoding: "utf8", timeout: 15000, windowsHide: true });
+  assert.equal(result.error, undefined);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /15 guarded APIs rejected/);
+});
+
+test("release CLIs and all four complete test modules reject unqualified Node before fixtures", () => {
+  const preload = "data:text/javascript," + encodeURIComponent("Object.defineProperty(process.versions, 'node', { value: '22.23.2' });");
+  for (const file of ["scripts/release-toolchain.mjs", "scripts/release-gate.mjs", "scripts/release-artifact.mjs", "scripts/release-graph.mjs", "test/release-gates.js", "test/release-artifact.js", "test/release-npm-pack.js", "test/release-graph.js"]) {
+    const result = spawnSync(process.execPath, ["--import", preload, fileURLToPath(new URL("../" + file, import.meta.url))], { encoding: "utf8", timeout: 15000, windowsHide: true });
+    assert.equal(result.error, undefined, file);
+    assert.notEqual(result.status, 0, file);
+    assert.match(result.stderr, /ERR_RELEASE_TOOLCHAIN/, file);
+    assert.doesNotMatch(result.stderr, /ENOENT|EACCES|ETIMEDOUT/, file);
+  }
+});
+
+test("release toolchain records the actual Node, libuv, bundled npm and tar versions", () => {
+  const versions = releaseToolchainVersions();
+  assert.equal(versions.node, RELEASE_NODE_VERSION);
+  assert.equal(versions.libuv, process.versions.uv);
+  assert.equal(versions.platform, process.platform);
+  assert.equal(versions.arch, process.arch);
+  assert.match(versions.npm, /^\d+\.\d+\.\d+$/);
+  assert.match(versions.tar, /tar/i);
+});
+
+test("CI separates six runtime jobs from exact-toolchain release jobs with three fixed macOS passes", () => {
+  const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const runtime = ci.split(/^  test:\s*$/m)[1].split(/^  release:\s*$/m)[0];
+  const qualification = ci.split(/^  release:\s*$/m)[1].split(/^  supply-chain:\s*$/m)[0];
+  assert.match(runtime, /os: \[ubuntu-latest, windows-latest, macos-latest\]/);
+  assert.match(runtime, /node: \[22, 24\]/);
+  assert.doesNotMatch(runtime, /test:release|release-toolchain/);
+  assert.match(qualification, /os: \[ubuntu-latest, windows-latest, macos-latest\]/);
+  assert.match(qualification, /node-version: '24\.20\.0'/);
+  assert.match(qualification, /timeout-minutes: 10/);
+  assert.equal((qualification.match(/npm run test:release/g) ?? []).length, 3);
+  assert.equal((qualification.match(/if: \$\{\{ !cancelled\(\) && runner.os == 'macOS' \}\}/g) ?? []).length, 2);
+  assert.doesNotMatch(qualification, /continue-on-error|--test-name-pattern|--test-skip-pattern|\|\|\s*true|retry/);
+  assert.equal((qualification.match(/shell: bash/g) ?? []).length, 4, "Explicit bash preserves pipefail for every tee pipeline");
+  assert.match(qualification, /release-toolchain\.json/);
+  assert.match(qualification, /release-tests-\*\.tap/);
+  const supply = ci.split(/^  supply-chain:\s*$/m)[1];
+  assert.match(supply, /node-version: '24\.20\.0'/);
+  assert.match(supply, /node scripts\/release-toolchain\.mjs/);
+  for (const file of ["release.yml", "publish-mcp.yml"]) {
+    const workflow = readFileSync(new URL("../.github/workflows/" + file, import.meta.url), "utf8");
+    assert.equal((workflow.match(/node-version: '24\.20\.0'/g) ?? []).length, 2);
+    assert.equal((workflow.match(/node scripts\/release-toolchain\.mjs/g) ?? []).length, 1);
+    const [qualified, privileged] = workflow.split(/^  publish:\s*$/m);
+    assert.ok(qualified.indexOf("release-artifact.mjs snapshot") < qualified.indexOf("node scripts/release-toolchain.mjs"));
+    assert.ok(qualified.indexOf("node scripts/release-toolchain.mjs") < qualified.indexOf("npm ci --ignore-scripts"));
+    assert.doesNotMatch(privileged, /release-toolchain\.mjs/);
+  }
 });
 
 const registryURL = "https://registry.npmjs.org/ftp-deploy-mcp/-/ftp-deploy-mcp-0.2.1.tgz";

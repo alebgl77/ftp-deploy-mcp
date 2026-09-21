@@ -1,3 +1,4 @@
+import { assertReleaseToolchain } from "./release-toolchain.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -93,6 +94,7 @@ const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 // A bounded descriptor read remains bounded if the file grows after stat. Callers keep
 // this private buffer for the entire inspection; tar never reopens the archive path.
 export function readBoundedFile(file, limit) {
+  assertReleaseToolchain();
   assert.ok(Number.isSafeInteger(limit) && limit > 0 && limit <= MAX_ARCHIVE_BYTES, "Invalid byte bound");
   assert.ok(lstatSync(file).isFile(), "Expected a regular file");
   const fd = openSync(file, "r");
@@ -159,6 +161,7 @@ function assertSourceObjects(source, bytes) {
 }
 
 export function captureSourceInventory(file, options) {
+  assertReleaseToolchain();
   const checkpoint = budget(options);
   const sourceRoot = canonical(options.sourceRoot);
   const inventoryPath = inventoryDestination(file, sourceRoot);
@@ -176,6 +179,7 @@ export function captureSourceInventory(file, options) {
 }
 
 export function approvedSource(options, checkpoint = budget(options)) {
+  assertReleaseToolchain();
   checkpoint();
   const sourceRoot = canonical(options.sourceRoot);
   const inventoryPath = canonical(options.inventoryPath);
@@ -244,6 +248,7 @@ function inspectArchiveBytes(archive, digest, source, checkpoint, distribution) 
 }
 
 export function inspectArtifact(file, options) {
+  assertReleaseToolchain();
   const checkpoint = budget(options);
   const source = approvedSource(options, checkpoint);
   const distribution = options.distribution ?? "npm";
@@ -263,6 +268,7 @@ export function inspectArtifact(file, options) {
 }
 
 export function checkArtifact(record, options) {
+  assertReleaseToolchain();
   const checkpoint = budget(options);
   const source = approvedSource(options, checkpoint);
   const distribution = options.distribution ?? "npm";
@@ -297,6 +303,7 @@ function writeArtifactFiles(file, source, item, archive) {
 }
 
 export function buildSourceArtifact(file, options) {
+  assertReleaseToolchain();
   assert.ok(options.distribution === undefined || options.distribution === "source", "Source builder requires source distribution");
   const checkpoint = budget(options);
   const source = approvedSource(options, checkpoint);
@@ -326,6 +333,7 @@ export function registryTarballURL(release) {
 }
 
 export async function downloadRegistryArchive(url, { fetchImpl = fetch, checkpoint = budget() } = {}) {
+  assertReleaseToolchain();
   assert.match(url, /^https:\/\/registry\.npmjs\.org\/ftp-deploy-mcp\/-\/ftp-deploy-mcp-\d+\.\d+\.\d+\.tgz$/, "Only the fixed official npm tarball URL is allowed");
   const response = await fetchImpl(url, { redirect: "error", signal: AbortSignal.timeout(checkpoint()) });
   let reader;
@@ -356,6 +364,7 @@ export async function downloadRegistryArchive(url, { fetchImpl = fetch, checkpoi
 }
 
 export async function fetchNpmArtifact(file, options, { fetchImpl = fetch } = {}) {
+  assertReleaseToolchain();
   assert.ok(options.distribution === undefined || options.distribution === "npm", "Registry download requires npm distribution");
   const checkpoint = budget(options);
   const source = approvedSource(options, checkpoint);
@@ -383,6 +392,7 @@ export function validatePublished(metadata, release, expectedIntegrity) {
 }
 
 export async function verifyPublished(release, expectedIntegrity, { fetchImpl = fetch, sleep = setTimeout, attempts = 6 } = {}) {
+  assertReleaseToolchain();
   assert.ok(Number.isInteger(attempts) && attempts >= 1 && attempts <= 6, "Invalid retry bound");
   const url = `https://registry.npmjs.org/${encodeURIComponent(release.name)}/${encodeURIComponent(release.version)}`;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -398,6 +408,7 @@ export async function verifyPublished(release, expectedIntegrity, { fetchImpl = 
 }
 
 if (isMain(import.meta.url)) {
+  assertReleaseToolchain();
   const [mode, ...args] = process.argv.slice(2);
   const file = args[0] && !args[0].startsWith("--") ? args.shift() : undefined;
   assert.ok(["snapshot", "build-source", "fetch-npm", "preflight", "inspect", "check", "verify-npm"].includes(mode), "Unknown release artifact command");

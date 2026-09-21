@@ -1,3 +1,4 @@
+import { assertReleaseToolchain } from "./release-toolchain.mjs";
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, opendirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -85,6 +86,7 @@ function installedPackages(root, checkpoint) {
 
 // Inputs are parsed data and filesystem paths only. Package code is never imported.
 export function compareInstalledGraph({ pkg, lock, productRoot, installRoot }) {
+  assertReleaseToolchain();
   const started = performance.now();
   const checkpoint = () => assert.ok(performance.now() - started < 90000, "Installed graph deadline exceeded");
   for (const root of [productRoot, installRoot]) {
@@ -180,12 +182,14 @@ export function compareInstalledGraph({ pkg, lock, productRoot, installRoot }) {
 }
 
 export function verifyInstalledGraph(options) {
+  assertReleaseToolchain();
   const source = approvedSource(options);
   const report = compareInstalledGraph({ ...source, productRoot: options.productRoot, installRoot: options.installRoot });
   return { ...report, sourceCommit: source.snapshot.commit, inventorySha256: source.inventorySha256, scope: source.snapshot.scope };
 }
 
 if (isMain(import.meta.url)) {
+  assertReleaseToolchain();
   const names = { "--source-root": "sourceRoot", "--inventory": "inventoryPath", "--inventory-sha256": "expectedInventorySha256",
     "--product-root": "productRoot", "--install-root": "installRoot", "--output": "output" };
   const options = {};

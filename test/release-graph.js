@@ -1,3 +1,4 @@
+import { assertReleaseToolchain } from "../scripts/release-toolchain.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
@@ -5,6 +6,8 @@ import path from "node:path";
 import test from "node:test";
 import { compareInstalledGraph } from "../scripts/release-graph.mjs";
 import { integrity } from "../scripts/release-artifact.mjs";
+
+assertReleaseToolchain();
 
 const writeJSON = (file, value) => { mkdirSync(path.dirname(file), { recursive: true }); writeFileSync(file, JSON.stringify(value, null, 2)); };
 const record = (name, version, fields = {}) => ({ version, resolved: `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`, integrity: integrity(Buffer.from(`${name}@${version}`)), ...fields });

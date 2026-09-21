@@ -1,3 +1,4 @@
+import { assertReleaseToolchain } from "../scripts/release-toolchain.mjs";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import childProcess from "node:child_process";
@@ -12,6 +13,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { MAX_ARCHIVE_BYTES, MAX_FILE_BYTES, MAX_TAR_BYTES, SOURCE_FILES as PACKAGE_FILES, NPM_PACKAGE_FILES, approvedSource, buildSourceArtifact, captureSourceInventory, checkArtifact, fetchNpmArtifact, inspectArtifact, integrity, readBoundedFile, registryTarballURL } from "../scripts/release-artifact.mjs";
 import { readRelease, validateCheckout } from "../scripts/release-gate.mjs";
+
+assertReleaseToolchain();
 
 const repo = realpathSync(fileURLToPath(new URL("..", import.meta.url)));
 const temp = realpathSync(mkdtempSync(path.join(os.tmpdir(), "ftp-release-artifact-")));
@@ -353,11 +356,30 @@ test("registry qualification rejects bad metadata, substituted bytes and source 
     assert.deepEqual(fs.readdirSync(destination), [], label + " must write no artifact, metadata or proof");
   }
 });
-test("publication context binds the real clean tag commit and tracked source inventory", () => {
+test("publication context binds the real clean tag commit and tracked source inventory", (t) => {
   reset(); git(["tag", `v${release.version}`]);
   const ref = `refs/tags/v${release.version}`;
   const eventCommit = git(["rev-parse", "HEAD"]).trim();
   assert.equal(validateCheckout(sourceRoot, release, ref, PACKAGE_FILES, eventCommit), eventCommit);
+  assert.throws(() => validateCheckout(path.join(sourceRoot, "src"), release, ref, [], eventCommit), /Source root must be the checkout root/);
+  const aliasRoot = path.join(temp, "source-alias");
+  fs.symlinkSync(sourceRoot, aliasRoot, process.platform === "win32" ? "junction" : "dir");
+  try {
+    assert.equal(validateCheckout(aliasRoot, release, ref, PACKAGE_FILES, eventCommit), eventCommit);
+    assert.throws(() => validateCheckout(path.join(aliasRoot, "src"), release, ref, [], eventCommit), /Source root must be the checkout root/);
+  } finally { rmSync(aliasRoot); }
+  if (process.platform === "win32") {
+    // cmd expands the current fixture directory without interpolating its path.
+    const shortRoot = execFileSync("cmd.exe", ["/d", "/c", "for %I in (.) do @echo %~fsI"], {
+      cwd: sourceRoot, encoding: "utf8", windowsHide: true, timeout: 15000,
+    }).trim();
+    assert.equal(realpathSync.native(shortRoot), realpathSync.native(sourceRoot));
+    if (realpathSync(shortRoot) !== realpathSync.native(shortRoot)) {
+      assert.equal(validateCheckout(shortRoot, release, ref, PACKAGE_FILES, eventCommit), eventCommit);
+      assert.throws(() => validateCheckout(path.join(shortRoot, "src"), release, ref, [], eventCommit), /Source root must be the checkout root/);
+      t.diagnostic("Validated the real Windows 8.3 alias and rejected its subdirectory");
+    } else t.diagnostic("This Windows volume supplies no distinct 8.3 alias; directory alias checked above");
+  }
   assert.throws(() => validateCheckout(sourceRoot, release, ref, PACKAGE_FILES, "0".repeat(40)), /event commit/);
   assert.throws(() => validateCheckout(sourceRoot, release, "refs/heads/main", PACKAGE_FILES));
   assert.throws(() => validateCheckout(sourceRoot, release, ref, [...PACKAGE_FILES, "untracked.txt"], eventCommit));

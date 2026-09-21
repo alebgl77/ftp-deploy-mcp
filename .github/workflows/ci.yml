@@ -51,7 +51,52 @@ jobs:
       - name: Validate scripted evaluation evidence
         run: node scripts/evaluation/validate-report.mjs .tmp/evaluations/reports/latest.json --ci true --locale both
 
-      - run: npm run test:release
+  release:
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24.20.0'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Record qualified release toolchain versions
+        shell: bash
+        run: node scripts/release-toolchain.mjs | tee "$RUNNER_TEMP/release-toolchain.json"
+
+      - run: npm ci --ignore-scripts
+
+      - name: Complete release qualification (pass 1)
+        shell: bash
+        run: npm run test:release | tee "$RUNNER_TEMP/release-tests-1.tap"
+
+      - name: Complete macOS release qualification (pass 2 of 3)
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        shell: bash
+        run: npm run test:release | tee "$RUNNER_TEMP/release-tests-2.tap"
+
+      - name: Complete macOS release qualification (pass 3 of 3)
+        if: ${{ !cancelled() && runner.os == 'macOS' }}
+        shell: bash
+        run: npm run test:release | tee "$RUNNER_TEMP/release-tests-3.tap"
+
+      - name: Preserve toolchain versions and every completed release pass
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-qualification-${{ matrix.os }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/release-toolchain.json
+            ${{ runner.temp }}/release-tests-*.tap
 
   supply-chain:
     runs-on: ubuntu-latest
@@ -60,11 +105,14 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 24
+          node-version: '24.20.0'
           cache: npm
           cache-dependency-path: package-lock.json
 
       - run: npm ci --ignore-scripts
+
+      - name: Record qualified release toolchain versions
+        run: node scripts/release-toolchain.mjs
 
       - name: Validate MCP manifest
         run: node scripts/release-gate.mjs --source-only --runtime
