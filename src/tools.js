@@ -32,8 +32,6 @@ import { createI18n } from "./i18n.js";
 import { appError, normalizeError, nativeError, renderError, withSecondary } from "./errors.js";
 import { createToolRegistry, addNotices, withRenderMetadata, utf8Size, truncateUtf8 } from "./tool-registry.js";
 import { checkTransferSize, checkDeploySelection, hashLocalFile, uploadVerified, downloadVerified } from "./transfers.js";
-import * as ftpAdapter from "./adapters/ftp.js";
-import * as sftpAdapter from "./adapters/sftp.js";
 
 const posix = path.posix;
 
@@ -198,8 +196,11 @@ function formatSize(n) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function openAdapter(serverCfg, operation) {
-  const mod = serverCfg.protocol === "sftp" ? sftpAdapter : ftpAdapter;
+async function openAdapter(serverCfg, operation) {
+  const mod = await (serverCfg.protocol === "sftp" ? import("./adapters/sftp.js") : import("./adapters/ftp.js"));
+  // Importing a protocol can cross the operation deadline or cancellation.
+  // Recheck before the adapter constructs a client or begins network I/O.
+  operation?.check();
   return mod.connect(serverCfg, operation);
 }
 
@@ -316,6 +317,13 @@ function sampleWithOmitted(items, limit = DEPLOY_SAMPLE_LIMIT) {
   return { sample, omitted: Math.max(0, items.length - sample.length) };
 }
 
+// Removing the tail also removes one comma, unless it was the only item.
+// Size the serialized value so escapes and multi-byte text count exactly.
+function popSampleBytes(sample) {
+  const bytes = utf8Size(sample.pop());
+  return bytes + (sample.length > 0 ? 1 : 0);
+}
+
 function fitListServerSamples(
   servers,
   errors,
@@ -324,12 +332,12 @@ function fitListServerSamples(
 ) {
   const serverSample = servers.slice(0, 20);
   const errorSample = errors.slice(0, 20);
+  let bytes = utf8Size({ servers: serverSample, errors: errorSample });
   while (
     (serverSample.length > 0 || errorSample.length > 0) &&
-    utf8Size({ servers: serverSample, errors: errorSample }) > STRUCTURED_SAMPLE_BUDGET
+    bytes > STRUCTURED_SAMPLE_BUDGET
   ) {
-    if (errorSample.length > 0) errorSample.pop();
-    else serverSample.pop();
+    bytes -= popSampleBytes(errorSample.length > 0 ? errorSample : serverSample);
   }
   return {
     servers: serverSample,
@@ -350,12 +358,12 @@ function projectedListEntry(entry, i18n) {
 
 function fitListPage(meta, entries, i18n) {
   const page = [];
+  let bytes = utf8Size({ ...meta, entries: [] });
   for (const entry of entries) {
-    page.push(projectedListEntry(entry, i18n));
-    if (page.length > 1 && utf8Size({ ...meta, entries: page }) > STRUCTURED_SAMPLE_BUDGET) {
-      page.pop();
-      break;
-    }
+    const projected = projectedListEntry(entry, i18n);
+    bytes += utf8Size(projected) + (page.length > 0 ? 1 : 0);
+    if (page.length > 0 && bytes > STRUCTURED_SAMPLE_BUDGET) break;
+    page.push(projected);
   }
   return page;
 }
@@ -370,7 +378,8 @@ function boundedDeploySamples(items, project = (item) => item, i18n = createI18n
         typeof projected.size_bytes === "number" && projected.size_bytes >= 0 ? projected.size_bytes : 0,
     };
   });
-  while (sample.length > 1 && utf8Size(sample) > STRUCTURED_SAMPLE_BUDGET) sample.pop();
+  let bytes = utf8Size(sample);
+  while (sample.length > 1 && bytes > STRUCTURED_SAMPLE_BUDGET) bytes -= popSampleBytes(sample);
   return { sample, omitted: items.length - sample.length };
 }
 

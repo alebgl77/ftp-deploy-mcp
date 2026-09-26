@@ -27,14 +27,7 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function redactLiteral(text, secret, minimumLength) {
-  if (secret.length < minimumLength) return text;
-  if (secret.length >= MIN_SECRET_LENGTH) return text.split(secret).join(REDACTED);
-  const isolated = new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(secret)}(?=$|[^A-Za-z0-9_])`, "g");
-  return text.replace(isolated, (_match, prefix) => `${prefix}${REDACTED}`);
-}
-
-function redactString(input, secrets, minimumLength) {
+function redactString(input, getMatchers, minimumLength) {
   let text = String(input);
   text = text.replace(
     /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]*?-----END \1-----/g,
@@ -49,26 +42,46 @@ function redactString(input, secrets, minimumLength) {
     (match, prefix) => (match.includes("${ENV:") ? match : `${prefix}${REDACTED}`)
   );
   text = text.replace(/(\b[a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)([^@\s/]+)(@)/gi, `$1${REDACTED}$3`);
-  for (const secret of [...secrets]
-    .filter((value) => value.length >= minimumLength)
-    .sort((a, b) => b.length - a.length)) {
-    text = redactLiteral(text, secret, minimumLength);
+  for (const matcher of getMatchers(minimumLength)) {
+    text = typeof matcher === "string"
+      ? text.split(matcher).join(REDACTED)
+      : text.replace(matcher, (_match, prefix) => `${prefix}${REDACTED}`);
   }
   return text;
 }
 
 export function createRedactor(...sources) {
   const secrets = new Set();
+  let matcherCount = -1;
+  let normalMatchers;
+  let strictMatchers;
+  function getMatchers(minimumLength) {
+    // Check after input coercion: it or a partially failed add() may collect secrets.
+    if (matcherCount !== secrets.size) {
+      normalMatchers = [];
+      strictMatchers = [];
+      for (const secret of [...secrets].sort((a, b) => b.length - a.length)) {
+        if (secret.length >= MIN_SECRET_LENGTH) {
+          normalMatchers.push(secret);
+          strictMatchers.push(secret);
+        } else {
+          strictMatchers.push(new RegExp(`(^|[^A-Za-z0-9_])${escapeRegExp(secret)}(?=$|[^A-Za-z0-9_])`, "g"));
+        }
+      }
+      matcherCount = secrets.size;
+    }
+    return minimumLength === MIN_SECRET_LENGTH ? normalMatchers : strictMatchers;
+  }
   const api = {
     add(source) {
       collect(source, secrets, new WeakSet());
       return api;
     },
     text(value) {
-      return redactString(value == null ? "" : value, secrets, MIN_SECRET_LENGTH);
+      return redactString(value == null ? "" : value, getMatchers, MIN_SECRET_LENGTH);
     },
     strictText(value) {
-      return redactString(value == null ? "" : value, secrets, 1);
+      return redactString(value == null ? "" : value, getMatchers, 1);
     },
     result(result) {
       if (!result || !Array.isArray(result.content)) return result;
@@ -76,13 +89,13 @@ export function createRedactor(...sources) {
         ...result,
         content: result.content.map((item) =>
           item && typeof item.text === "string"
-            ? { ...item, text: redactString(item.text, secrets, result.isError === true ? 1 : MIN_SECRET_LENGTH) }
+            ? { ...item, text: redactString(item.text, getMatchers, result.isError === true ? 1 : MIN_SECRET_LENGTH) }
             : item
         ),
       };
     },
     error(err) {
-      const clean = new Error(redactString(err && err.message ? err.message : err, secrets, 1));
+      const clean = new Error(redactString(err && err.message ? err.message : err, getMatchers, 1));
       if (err && err.code) clean.code = err.code;
       return clean;
     },

@@ -22,7 +22,7 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js && node --test test/error-contract.js test/zero-cancellation.js && node --test test/resource-bounds.js && node --test test/state/*.test.mjs && node --test test/workflow/*.test.mjs && node --test test/prepared-lifecycle.js",
+    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js && node --test test/error-contract.js test/zero-cancellation.js && node --test test/resource-bounds.js && node --test test/state/*.test.mjs && node --test test/workflow/*.test.mjs && node --test test/prepared-lifecycle.js && node --test test/redaction-performance.test.mjs test/agent-performance.test.mjs",
     "test:transports": "node --test test/transport-qualification.js",
     "setup": "node src/index.js setup",
     "doctor": "node src/index.js doctor",
@@ -33,6 +33,8 @@
     "test:state": "node --test test/state/*.test.mjs",
     "test:workflow": "node --test test/workflow/*.test.mjs",
     "test:prepared": "node --test test/prepared-lifecycle.js",
+    "test:performance": "node --test test/redaction-performance.test.mjs test/agent-performance.test.mjs",
+    "benchmark:agents": "node scripts/benchmark-agent-performance.mjs",
     "test:release": "node --test test/release-gates.js test/release-artifact.js test/release-npm-pack.js test/release-graph.js",
     "release:source": "node scripts/release-gate.mjs --source-only --runtime"
   },

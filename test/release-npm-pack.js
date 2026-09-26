@@ -31,13 +31,13 @@ function npmPack(source, output) {
   return { file, pack: JSON.parse(bytes) };
 }
 
-test("real npm pack contains exactly 81 reviewed files and no lockfile", () => {
+test("real npm pack contains exactly 83 reviewed files and no lockfile", () => {
   const temp = realpathSync(mkdtempSync(path.join(os.tmpdir(), "ftp-real-npm-pack-")));
   try {
     const inventory = captureSourceInventory(path.join(temp, "inventory.json"), { sourceRoot: repo, sourceOnly: true });
     const { file, pack } = npmPack(repo, path.join(temp, "artifact"));
     const item = validatePack(pack, inventory.snapshot.release);
-    assert.equal(item.files.length, 81);
+    assert.equal(item.files.length, 83);
     assert.ok(!item.files.some((entry) => ["package-lock.json", "npm-shrinkwrap.json"].includes(entry.path)));
     const { record } = inspectArtifact(file, { sourceRoot: repo, sourceOnly: true, inventoryPath: inventory.inventoryPath,
       expectedInventorySha256: inventory.inventorySha256 });
@@ -53,7 +53,7 @@ test("source installation archive includes the authoritative lock separately fro
     const options = { sourceRoot: repo, sourceOnly: true, distribution: "source", inventoryPath: inventory.inventoryPath, expectedInventorySha256: inventory.inventorySha256 };
     const file = path.join(temp, "source-pack.json");
     const { item } = buildSourceArtifact(file, options);
-    assert.equal(item.files.length, 82);
+    assert.equal(item.files.length, 84);
     assert.ok(item.files.some((entry) => entry.path === "package-lock.json"));
     assert.ok(!item.files.some((entry) => entry.path === "npm-shrinkwrap.json"));
     const { record } = inspectArtifact(file, options);

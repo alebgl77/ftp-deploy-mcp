@@ -126,7 +126,7 @@ for (const runtime of ["0.1.0", "", "0.2.0\nextra"]) {
 
 test("archive allowlist accepts exactly the reviewed files", () => validateFiles(PACKAGE_FILES));
 test("scripted evaluation and pure workflow files ship without tests, tooling or results", () => {
-  assert.equal(PACKAGE_FILES.length, 81);
+  assert.equal(PACKAGE_FILES.length, 83);
   for (const file of ["docs/SCRIPTED-EVALUATIONS.md", "docs/SCRIPTED-EVALUATIONS.fr.md", "docs/WORKFLOW-MODEL.md", "docs/WORKFLOW-MODEL.fr.md",
     "src/workflow/model.mjs", "src/workflow/events.mjs", "src/workflow/budget.mjs"]) assert.ok(PACKAGE_FILES.includes(file));
   for (const file of ["scripts/evaluation/run.mjs", "test/fixtures/evaluation/corpus.spec.json", ".tmp/evaluations/reports/latest.json",
@@ -314,7 +314,7 @@ test("all release I/O APIs refuse Node 22 before filesystem, process or network 
     const graph = await import(${JSON.stringify(new URL("../scripts/release-graph.mjs", import.meta.url).href)});
     const toolchain = await import(${JSON.stringify(new URL("../scripts/release-toolchain.mjs", import.meta.url).href)});
     assert.equal(gate.PACKAGE_NAME, 'ftp-deploy-mcp');
-    assert.equal(artifact.PACKAGE_FILES.length, 81);
+    assert.equal(artifact.PACKAGE_FILES.length, 83);
     assert.equal(artifact.integrity(Buffer.from('pure metadata')).startsWith('sha512-'), true);
     let contacted = false;
     const fetchImpl = async () => { contacted = true; throw new Error('network must not run'); };

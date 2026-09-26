@@ -51,6 +51,7 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 | Modèle de sécurité | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
 | Publication | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
 | Évaluation d'agents | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
+| Performances et intégration des agents | [Guide](./docs/AGENT-PERFORMANCE.md) | [Guide](./docs/AGENT-PERFORMANCE.fr.md) |
 | Conformité MCP scriptée | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
 | Langues de la CLI et des outils MCP | [Guide](./docs/LANGUAGES.md) | [Guide](./docs/LANGUAGES.fr.md) |
 | Contrat d'erreur MCP | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |

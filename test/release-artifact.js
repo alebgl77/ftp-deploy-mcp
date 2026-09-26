@@ -79,10 +79,10 @@ before(() => {
 });
 after(() => rmSync(temp, { recursive: true, force: true }));
 
-test("real tar accepts all 82 exact source files and an exclusive proof rechecks unchanged", () => {
+test("real tar accepts all 84 exact source files and an exclusive proof rechecks unchanged", () => {
   reset();
   const { item, record } = inspectArtifact(packFile, options);
-  assert.equal(item.files.length, 82);
+  assert.equal(item.files.length, 84);
   assert.equal(record.scope, "source-only");
   const proof = readFileSync(proofFile);
   assert.deepEqual(checkArtifact(record, { ...options, expectedIntegrity: record.integrity, expectedTarball: record.tarball }), record);
@@ -94,7 +94,7 @@ test("source builder uses approved bytes and source proofs cannot pass as npm", 
   reset(); const destination = path.join(temp, "source-builder"); mkdirSync(destination);
   const metadata = path.join(destination, "pack.json");
   const { item } = buildSourceArtifact(metadata, options);
-  assert.equal(item.distribution, "source"); assert.equal(item.files.length, 82);
+  assert.equal(item.distribution, "source"); assert.equal(item.files.length, 84);
   const { record } = inspectArtifact(metadata, options);
   assert.equal(record.prefix, "package/");
   assert.equal(record.filename, `${release.name}-${release.version}-source.tar.gz`);
@@ -102,7 +102,7 @@ test("source builder uses approved bytes and source proofs cannot pass as npm", 
   assert.throws(() => checkArtifact({ ...record, distribution: "npm" }, { ...options, expectedIntegrity: record.integrity, expectedTarball: record.tarball }));
   assert.throws(() => inspectArtifact(metadata, { ...options, distribution: "npm" }));
   assert.throws(() => buildSourceArtifact(metadata, options), /EEXIST/);
-  assert.equal(NPM_PACKAGE_FILES.length, 81);
+  assert.equal(NPM_PACKAGE_FILES.length, 83);
   assert.ok(!NPM_PACKAGE_FILES.includes("package-lock.json"));
 });
 
@@ -188,7 +188,7 @@ test("normal gzip, terminal zero padding and members reconstructing one conformi
   const raw = gunzipSync(archive);
   const middle = Math.floor(raw.length / 2);
   for (const bytes of [archive, Buffer.concat([archive, Buffer.alloc(512)]), Buffer.concat([gzipSync(raw.subarray(0, middle)), gzipSync(raw.subarray(middle))])]) {
-    reset(); pack(bytes); assert.equal(inspectArtifact(packFile, options).item.files.length, 82);
+    reset(); pack(bytes); assert.equal(inspectArtifact(packFile, options).item.files.length, 84);
   }
 });
 test("unlisted, traversal, directory and link headers are rejected before extraction", () => {
@@ -266,7 +266,7 @@ test("archive/file byte caps and deadlines reject without proof or outputs", () 
   // Exhaust the deadline between validation stages, including the final pre-proof checkpoint.
   let calls = 0;
   reset(); const baseline = inspectArtifact(packFile, { ...options, now: () => { calls += 1; return 0; } });
-  assert.equal(baseline.item.files.length, 82);
+  assert.equal(baseline.item.files.length, 84);
   for (const at of [90, calls]) {
     reset(); let current = 0;
     rejected(archive, /deadline/, { ...options, now: () => (++current >= at ? 90001 : 0) });
@@ -337,7 +337,7 @@ test("registry qualification inspects the actual npm archive and preserves its o
     : new Response(JSON.stringify({ ...release, dist: { tarball: url, integrity: integrity(npmArchive) } }), { status: 200 });
   const npmOptions = { ...options, distribution: "npm" };
   const { item, record } = await fetchNpmArtifact(metadata, npmOptions, { fetchImpl });
-  assert.equal(item.files.length, 81); assert.equal(record.distribution, "npm");
+  assert.equal(item.files.length, 83); assert.equal(record.distribution, "npm");
   assert.equal(record.integrity, integrity(npmArchive));
   assert.deepEqual(readFileSync(record.tarball), npmArchive);
   checkArtifact(record, { ...npmOptions, expectedIntegrity: record.integrity, expectedTarball: record.tarball });
