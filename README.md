@@ -50,6 +50,7 @@ runs against local FTP and SFTP servers. There is no telemetry.
 | Security model | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
 | Release process | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
 | Agent evaluation | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
+| Agent performance and client integration | [Guide](./docs/AGENT-PERFORMANCE.md) | [Guide](./docs/AGENT-PERFORMANCE.fr.md) |
 | Scripted MCP conformance | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
 | CLI and MCP languages | [Guide](./docs/LANGUAGES.md) | [Guide](./docs/LANGUAGES.fr.md) |
 | MCP error contract | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |

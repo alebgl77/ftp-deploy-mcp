@@ -23,6 +23,7 @@ export const NPM_PACKAGE_FILES = Object.freeze([
   "docs/RESOURCE-BOUNDS.md", "docs/RESOURCE-BOUNDS.fr.md",
   "docs/STATE-STORAGE.md", "docs/STATE-STORAGE.fr.md",
   "docs/WORKFLOW-MODEL.md", "docs/WORKFLOW-MODEL.fr.md",
+  "docs/AGENT-PERFORMANCE.md", "docs/AGENT-PERFORMANCE.fr.md",
   "src/index.js", "src/config.js", "src/clients.js", "src/atomic-write.js",
   "src/tools.js", "src/setup.js", "src/remote-path.js", "src/redact.js", "src/operations.js",
   "src/i18n.js", "src/locales/en.js", "src/locales/fr.js",

@@ -143,14 +143,15 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
     let result = { content: [...body, ...notices], ...(structured === undefined ? {} : { structuredContent: structured }) };
     while (structured && utf8Size(structured) > 22000 && shrinkSample(structured)) renderBody();
     result.content = [...body, ...notices];
-    while (utf8Size(result) > MAX_RESULT_BYTES) {
+    let resultBytes;
+    while ((resultBytes = utf8Size(result)) > MAX_RESULT_BYTES) {
       // Render metadata, not marker-like remote text, identifies body/notices.
       let largest = -1;
       for (let index = 0; index < body.length; index++) {
         if (body[index].text && (largest < 0 || Buffer.byteLength(body[index].text) > Buffer.byteLength(body[largest].text))) largest = index;
       }
       if (largest >= 0) {
-        const excess = utf8Size(result) - MAX_RESULT_BYTES;
+        const excess = resultBytes - MAX_RESULT_BYTES;
         body[largest].text = truncateUtf8(body[largest].text, Math.max(0, Buffer.byteLength(body[largest].text) - excess - 128), i18n.t("error.truncated"));
       } else if (shrinkSample(structured)) {
         renderBody();
