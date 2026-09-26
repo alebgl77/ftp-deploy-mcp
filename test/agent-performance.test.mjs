@@ -164,22 +164,29 @@ for (const protocol of ["ftp", "sftp"]) {
       const script = `
         import assert from 'node:assert/strict';
         import { registerHooks } from 'node:module';
+        import { mock } from 'node:test';
         const protocol = ${JSON.stringify(protocol)}, outcome = ${JSON.stringify(outcome)};
+        const operationTimeoutMs = 30000, startedAt = 100000;
+        mock.timers.enable({ apis: ['setTimeout', 'Date'], now: startedAt });
         const controller = new AbortController();
         globalThis.loadedProtocols = []; globalThis.connects = 0; globalThis.closes = 0;
-        globalThis.onAdapterLoad = () => { if (outcome === 'cancel') controller.abort(); };
+        globalThis.onAdapterLoad = () => {
+          assert.equal(Date.now(), startedAt, 'setup must not consume the operation deadline');
+          if (outcome === 'cancel') controller.abort();
+          if (outcome === 'timeout') mock.timers.setTime(startedAt + operationTimeoutMs + 1);
+        };
         registerHooks({ resolve(specifier, context, next) {
           const match = specifier.match(/\\/adapters\\/(ftp|sftp)\\.js$/);
           if (!match) return next(specifier, context);
           const adapter = "globalThis.loadedProtocols.push(" + JSON.stringify(match[1]) + "); globalThis.onAdapterLoad(); " +
-            (outcome === 'timeout' ? "await new Promise(resolve => setTimeout(resolve, 50)); " : "") +
             "export async function connect() { globalThis.connects++; return { list: async () => [], close: async () => { globalThis.closes++; } }; }";
           return { url: 'data:text/javascript;base64,' + Buffer.from(adapter).toString('base64'), shortCircuit: true };
         } });
         const { registerTools } = await import(${JSON.stringify(new URL("../src/tools.js", import.meta.url).href)});
+        const { observeOperationWorker } = await import(${JSON.stringify(new URL("../src/operations.js", import.meta.url).href)});
         const loaded = { found: true, serverNames: ['fixture'], defaultServer: 'fixture', config: { servers: {
           fixture: { protocol, host: 'fixture.invalid', user: 'fixture', password: 'fixture-secret', root: '/',
-            allowInsecure: true, allowUnknownHostKey: true, operationTimeoutMs: outcome === 'timeout' ? 5 : 2000 }
+            allowInsecure: true, allowUnknownHostKey: true, operationTimeoutMs }
         } } };
         const registry = registerTools(null, loaded);
         assert.equal(registry.list().tools.length, 10);
@@ -188,15 +195,29 @@ for (const protocol of ["ftp", "sftp"]) {
         const injected = registerTools(null, loaded, { openAdapter: async () => ({ list: async () => [], close: async () => { injectedClose++; } }) });
         assert.equal((await injected.call('ftp_list', {})).isError, undefined);
         assert.equal(injectedClose, 1); assert.deepEqual(globalThis.loadedProtocols, []);
-        const result = await registry.call('ftp_list', {}, { signal: controller.signal });
-        if (outcome === 'success') { assert.equal(result.isError, undefined); assert.equal(globalThis.connects, 1); assert.equal(globalThis.closes, 1); }
-        else {
-          assert.equal(result.structuredContent.error.code, outcome === 'cancel' ? 'CANCELLED' : 'TIMEOUT');
-          assert.equal(result.structuredContent.error.effects, 'none');
-          await new Promise(resolve => setTimeout(resolve, 80));
-          assert.equal(globalThis.connects, 0); assert.equal(globalThis.closes, 0);
+        const extra = { signal: controller.signal };
+        let workerResult;
+        observeOperationWorker(extra, worker => {
+          workerResult = worker.then(value => ({ value }), error => ({ error }));
+        });
+        try {
+          const result = await registry.call('ftp_list', {}, extra);
+          assert.ok(workerResult, 'operation worker must be observed');
+          const settled = await workerResult;
+          if (outcome === 'success') {
+            assert.equal(settled.error, undefined); assert.equal(result.isError, undefined);
+            assert.equal(globalThis.connects, 1); assert.equal(globalThis.closes, 1);
+          } else {
+            const code = outcome === 'cancel' ? 'CANCELLED' : 'TIMEOUT';
+            assert.equal(settled.error?.code, code);
+            assert.equal(result.structuredContent.error.code, code);
+            assert.equal(result.structuredContent.error.effects, 'none');
+            assert.equal(globalThis.connects, 0); assert.equal(globalThis.closes, 0);
+          }
+          assert.deepEqual(globalThis.loadedProtocols, [protocol]);
+        } finally {
+          mock.timers.reset();
         }
-        assert.deepEqual(globalThis.loadedProtocols, [protocol]);
       `;
       const run = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 10000, windowsHide: true, cwd: root });
       assert.equal(run.status, 0, run.stderr || run.error?.message);
