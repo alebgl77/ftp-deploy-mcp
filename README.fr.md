@@ -10,6 +10,10 @@ Donnez à Claude Code, Claude Desktop, Cursor, Windsurf, Trae, Antigravity ou
 tout client MCP un moyen ciblé de lister, lire, téléverser, télécharger et
 déployer des fichiers sur vos propres serveurs FTP, FTPS et SFTP.
 
+Le serveur stdio implémente la révision MCP `2026-07-28` avec le SDK TypeScript
+modulaire v2 stable et conserve la négociation historique du SDK pour les
+anciens clients MCP.
+
 *English version → [README.md](./README.md)*
 
 Langue de la CLI et des outils MCP : anglais par défaut ; utilisez `--lang fr` ou `FTP_MCP_LANG=fr`.
@@ -36,7 +40,7 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 > proposée ici. Les releases de sources GitHub sont distinctes des publications
 > sur npm et le registre MCP officiel. Les pages Glama et MCP Index existantes
 > sont des fiches de découverte, pas la preuve d'un paquet installable.
-> Cette copie porte la version 0.2.1. Les versions sources publiées figurent sur
+> Cette copie porte la version 0.3.0. Les versions sources publiées figurent sur
 > [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest) ;
 > la release GitHub v0.2.0 publiée reste inchangée.
 
@@ -57,8 +61,8 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 | Contrat d'erreur MCP | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |
 | Transferts vérifiés par promotion | [Guide](./docs/TRANSFERS.md) | [Guide](./docs/TRANSFERS.fr.md) |
 | Limites de parcours et d'admission | [Limits](./docs/RESOURCE-BOUNDS.md) | [Limites](./docs/RESOURCE-BOUNDS.fr.md) |
-| Primitives de stockage d'état (bibliothèque interne, aucun outil MCP) | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
-| Modèle de workflow durable (bibliothèque interne, aucun outil MCP) | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
+| Stockage d'état durable | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
+| Modèle du workflow durable | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
 | Licence MIT | [Texte canonique](./LICENSE) | [Traduction informative](./LICENSE.fr.md) |
 
 ## Architecture et scénarios
@@ -77,7 +81,7 @@ documentent leur rôle illustratif ; elles ne constituent pas une certification.
 
 ## Première installation depuis les sources
 
-1. Installez une version LTS de Node.js prise en charge : 22 ou 24 (minimum : 22).
+1. Installez une version de Node.js prise en charge : 22, 24 ou 26 (minimum : 22).
 2. Lancez `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, puis
    `cd ftp-deploy-mcp`.
 3. Lancez `npm ci --omit=dev --ignore-scripts`.
@@ -101,13 +105,13 @@ dépendances directes épinglées exactement et le graphe revu. Conservez-le ave
 les sources. `--ignore-scripts` désactive les scripts automatiques de cycle de
 vie des dépendances ; le setup est une action explicite distincte.
 
-Le fichier d'installation source v0.2.1 porte le nom
-`ftp-deploy-mcp-0.2.1-source.tar.gz` : 82 fichiers, dont ce verrouillage. Après
+Le fichier d'installation source v0.3.0 porte le nom
+`ftp-deploy-mcp-0.3.0-source.tar.gz` : 90 fichiers, dont ce verrouillage. Après
 vérification de sa publication et de ses empreintes, extrayez-le dans un dossier
 neuf :
 
 ```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.2.1-source.tar.gz
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.0-source.tar.gz
 cd package
 npm ci --omit=dev --ignore-scripts
 node src/index.js setup
@@ -115,7 +119,7 @@ node src/index.js setup
 
 Cette archive d'installation exclut les tests et scripts de maintenance du dépôt ;
 le ZIP/tar automatique de GitHub contient le dépôt complet. Le `.tgz` npm distinct
-contient 81 fichiers sans verrouillage et reste non qualifié : un vrai consommateur
+contient 89 fichiers sans verrouillage et reste non qualifié : un vrai consommateur
 npm a changé dix dépendances de production. Il ne garantit pas une installation
 verrouillée. Le [guide de publication](./docs/RELEASE.fr.md) décrit les contrôles
 et leurs limites.
@@ -167,6 +171,8 @@ configuration doit être du JSON strict ; partez de
 ```jsonc
 {
   "defaultServer": "prod",
+  "stateDir": "/home/alice/.local/state/ftp-deploy-mcp",
+  "requirePlan": true,
   "servers": {
     "prod": {
       "protocol": "sftp",
@@ -203,6 +209,9 @@ base64 sans remplissage.
 
 | Champ | Protocoles | Signification |
 |---|---|---|
+| `stateDir` | niveau supérieur | Répertoire absolu et normalisé facultatif pour l'état durable, canoniquement disjoint de chaque `localRoot`. Son activation publie les quatre outils durables. |
+| `requirePlan` | niveau supérieur | Avec `stateDir`, vaut `true` par défaut. Bloque les mutations distantes legacy sauf le dry-run de `ftp_deploy` ; `false` les conserve sous le même verrou persistant d'alias. |
+| `stateLimits` | niveau supérieur | Quotas stricts facultatifs pour l'état, les sauvegardes, plans, opérations, fichiers/octets de plan, octets/événements de journal et fichiers de sauvegarde. |
 | `protocol` | tous | Requis : `ftp`, `ftps` ou `sftp`. |
 | `host` / `port` / `user` | tous | Hôte, port et compte. Ports par défaut : 21, 990 pour FTPS implicite et 22 pour SFTP. |
 | `password` | tous | Mot de passe ou placeholder `${ENV:NOM}`. |
@@ -262,6 +271,35 @@ optionnel lorsqu'un `defaultServer` est défini ou qu'un seul serveur existe.
 | `ftp_mkdir` | `server?`, `path` | Crée un dossier distant récursivement. |
 | `ftp_rename` | `server?`, `from_path`, `to_path` | Renomme ou déplace. |
 | `ftp_delete` | `server?`, `path`, `recursive?` | Supprime un fichier ou, avec récursion explicite, un dossier. |
+| `ftp_plan_deploy` | `server?`, `local_dir`, `remote_dir?`, `include?`, `exclude?`, `ttl_seconds?` | Publie un plan durable immuable et expirant. Disponible seulement avec `stateDir`. |
+| `ftp_apply_deploy` | `plan_id`, `idempotency_key`, `resume?` | Confirme, associe puis reprend explicitement une application durable. |
+| `ftp_deploy_status` | exactement un de `plan_id` / `operation_id`, `offset?`, `limit?`, `if_journal_seq?` | Lit un instantané durable paginé, sans réseau ni écriture d'état. |
+| `ftp_rollback_deploy` | `operation_id`, `resume?` | Confirme et reprend explicitement le retour arrière prudent des fichiers durablement acquittés. |
+
+### Garanties du workflow durable
+
+Les outils durables exigent le flux officiel MCP `input_required`, sans repli
+booléen. L'état signé lie session, méthode, digest du plan, opération, hash de
+la clé d'idempotence, choix de reprise, séquence du journal et expiration. Un
+refus, une preuve invalide ou expirée, ou un client incompatible n'a aucun effet
+distant. L'association seule renvoie un statut ; toute mutation distante non
+terminale exige `resume:true`.
+
+Le niveau est `observable_state_reconciled` : le remplacement par fichier dépend
+du serveur, l'atomicité multi-fichiers et l'exécution exactement une fois sont
+fausses, et le retour arrière couvre seulement les fichiers durablement acquittés.
+SFTP remplace et crée seulement sous un parent canonique existant ; FTP/FTPS
+remplace seulement un fichier régulier existant. Aucun parent durable n'est créé,
+aucun extra distant purgé, aucun retour automatique lancé et aucun
+`SATISFIED_UNOWNED` restauré.
+
+Les processus coopérants partageant le même `stateDir` canonique sérialisent
+l'alias exact avant construction de l'adaptateur. Ce n'est pas un verrou distant
+distribué et cela ne coordonne ni aliases ni répertoires d'état différents.
+Aliases d'écriture qui se chevauchent, renommage d'alias, binaires mélangés et
+processus tué avec verrou persistant exigent une intervention : mettez les
+écrivains en pause pour les mises à niveau et récupérez les verrous hors ligne.
+Les écrivains externes et courses ABA restent hors de la garantie observable.
 
 ### Promotion vérifiée depuis un fichier temporaire
 
@@ -278,8 +316,8 @@ Les remplacements locaux et SFTP conservent les bits de droits (0777) d'une
 cible régulière existante ; FTP/FTPS ne le garantit pas de façon portable.
 Les droits de création du compte, l'umask et les ACL doivent donc convenir à
 la destination. Le renommage dépend du serveur et du système de fichiers.
-Il ne garantit ni remplacement atomique universel, ni transaction du site,
-ni retour arrière. La relecture augmente le trafic réseau. Voir les
+Le chemin legacy ne garantit ni remplacement atomique universel, ni transaction
+du site, ni retour arrière. La relecture augmente le trafic réseau. Voir les
 [garanties, limites et règles de nettoyage des transferts](./docs/TRANSFERS.fr.md).
 
 ### Exécution, annulation et contention
@@ -296,14 +334,15 @@ ou `TIMEOUT` ; `TARGET_BUSY` indique l'attente d'une autre opération. Une
 réponse peut précéder le règlement réel d'une opération bloquée, mais son
 verrou reste détenu jusqu'au règlement et au nettoyage. Aucune mutation
 incertaine n'est réessayée automatiquement. Inspectez l'état distant et local
-partiel avant de réessayer ; il n'y a ni transaction ni rollback.
+partiel avant de réessayer ; les mutations legacy ne sont pas transactionnelles
+et ne fournissent aucun retour arrière.
 
 La préparation interne est à usage unique et limitée à 10 secondes sans
 prolonger l'échéance globale. L'admission reste détenue jusqu'à la fin réelle
 du travail et du nettoyage. Un contexte préparé est libéré une fois, même s'il
 arrive après annulation ; le handler n'est pas appelé après une préparation
-annulée ou expirée. Les callbacks de préparation peuvent eux-mêmes agir. Cela
-n'ajoute ni outil MCP public ni workflow durable de déploiement. Voir les
+annulée ou expirée. Les callbacks de préparation peuvent eux-mêmes agir. Les
+outils durables appliquent la même discipline de terminaison. Voir les
 [limites de ressources](./docs/RESOURCE-BOUNDS.fr.md).
 
 La progression n'est envoyée qu'avec un token fourni par l'appelant, sous
@@ -413,7 +452,7 @@ chaque avertissement de transport ou de racine FTP/FTPS avant la connexion.
 ## Migration de v0.1 vers v0.2
 
 La release GitHub v0.2.0 est publiée. Cette copie source porte la version
-0.2.1. Le paquet npm reste non publié et le projet indique toujours que la
+0.3.0. Le paquet npm reste non publié et le projet indique toujours que la
 publication dans le registre MCP officiel est en attente. Les étapes ci-dessous
 concernent l'installation depuis les sources et n'annoncent pas une release npm.
 

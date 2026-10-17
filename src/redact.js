@@ -1,6 +1,6 @@
 const REDACTED = "[REDACTED]";
 const MIN_SECRET_LENGTH = 4;
-const SENSITIVE_KEYS = new Set(["password", "passphrase", "privatekey", "privatekeydata"]);
+const SENSITIVE_KEYS = new Set(["password", "passphrase", "privatekey", "privatekeydata", "privatekeypath"]);
 const ENV_VALUE = /^\$\{ENV:([^}]+)\}$/;
 
 function addLiteral(secrets, value) {
@@ -34,7 +34,7 @@ function redactString(input, getMatchers, minimumLength) {
     "[REDACTED PRIVATE KEY]"
   );
   text = text.replace(
-    /("(?:password|passphrase|privateKey|privateKeyData)"\s*:\s*)("(?:\\.|[^"\\])*"|[^,\s}\]]+)/gi,
+    /("(?:password|passphrase|privateKey|privateKeyData|privateKeyPath)"\s*:\s*)("(?:\\.|[^"\\])*"|[^,\s}\]]+)/gi,
     (match, prefix, value) => (value.includes("${ENV:") ? match : `${prefix}"${REDACTED}"`)
   );
   text = text.replace(

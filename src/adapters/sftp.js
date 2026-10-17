@@ -8,12 +8,14 @@
 
 import SftpClient from "ssh2-sftp-client";
 import { Writable } from "node:stream";
+import { finished } from "node:stream/promises";
 import crypto from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 import { checkedMethods } from "../operations.js";
 import { appError, isAppError, nativeError, messageSpec } from "../errors.js";
-import { TRANSFER_LIMITS, hashRemoteStream, sendLocalStream, receiveLocalStream } from "../transfers.js";
+import { TRANSFER_LIMITS, checkTransferSize, hashRemoteStream, sendReadableStream,
+  receiveLocalStream, receiveRemoteStream } from "../transfers.js";
 
 import { normalizeRoot, relativeRemote, rebaseRemote } from "../remote-path.js";
 
@@ -103,8 +105,8 @@ export async function connect(serverCfg, operation) {
   if (serverCfg.privateKeyPath) {
     try {
       connOpts.privateKey = fs.readFileSync(serverCfg.privateKeyPath);
-    } catch (err) {
-      throw appError("CONFIG_INVALID", "runtime.sftp.keyUnreadable", { path: serverCfg.privateKeyPath, name: serverCfg.name, error: err.message }, { origin: "local" });
+    } catch {
+      throw appError("CONFIG_INVALID", "runtime.sftp.keyUnreadable", { name: serverCfg.name }, { origin: "local" });
     }
     if (serverCfg.passphrase) connOpts.passphrase = serverCfg.passphrase;
   }
@@ -238,10 +240,59 @@ export async function connect(serverCfg, operation) {
     return entry.stat.mode & 0o777;
   }
 
+  function fileIdentity(entry) {
+    const mode = permissionBits(entry);
+    const bytes = entry.stat.size;
+    if (!Number.isSafeInteger(bytes) || bytes < 0) throw appError("TRANSFER_VERIFY", "runtime.transfer.digestMismatch");
+    return Object.freeze({ root: entry.root, canonicalRoot: entry.root, path: entry.path,
+      parent: posix.dirname(entry.path), bytes, mode,
+      ...(Number.isFinite(entry.stat.modifyTime) ? { modifiedAt: entry.stat.modifyTime } : {}) });
+  }
+
   function assertIdentity(entry, identity) {
-    if (identity && (entry.root !== identity.root || entry.path !== identity.path)) {
+    if (!identity) return;
+    const root = identity.canonicalRoot ?? identity.root;
+    const regular = typeof entry.stat?.isFile === "function" ? entry.stat.isFile() : entry.stat?.isFile;
+    if (!regular || (root !== undefined && entry.root !== root) ||
+        (identity.path !== undefined && entry.path !== identity.path) ||
+        (identity.parent !== undefined && posix.dirname(entry.path) !== identity.parent) ||
+        (identity.bytes !== undefined && entry.stat.size !== identity.bytes) ||
+        (identity.mode !== undefined && permissionBits(entry) !== identity.mode) ||
+        (identity.modifiedAt !== undefined && entry.stat.modifyTime !== identity.modifiedAt)) {
       throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
     }
+  }
+
+  function assertObservedIdentity(observation, identity) {
+    const observedIdentity = observation?.identity;
+    const root = identity?.canonicalRoot ?? identity?.root;
+    if (!identity || observation?.type !== "file" ||
+        (root !== undefined && observation.canonicalRoot !== root) ||
+        (identity.path !== undefined && observation.path !== identity.path) ||
+        (identity.parent !== undefined && observation.parent !== identity.parent) ||
+        (identity.bytes !== undefined && observation.bytes !== identity.bytes) ||
+        (identity.sha256 !== undefined && observation.sha256 !== identity.sha256) ||
+        (identity.mode !== undefined && observation.mode !== identity.mode) ||
+        (identity.modifiedAt !== undefined && observedIdentity?.modifiedAt !== identity.modifiedAt)) {
+      throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    }
+  }
+
+  async function inspectRemoteFile(remotePath, maxBytes = maxTransferBytes) {
+    const parent = await safePath(posix.dirname(remotePath), { requireDirectory: true });
+    const source = await safePath(remotePath, { allowMissing: true });
+    if (source.root !== parent.root) throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    if (!source.exists) return { type: "absent", path: source.path, parent: parent.path, canonicalRoot: parent.root };
+    const before = fileIdentity(source);
+    checkTransferSize(before.bytes, Math.min(maxBytes, maxTransferBytes));
+    const actual = await hashRemoteStream((output) => sftp.get(source.path, output),
+      Math.min(maxBytes, maxTransferBytes), operation);
+    const after = await safePath(remotePath);
+    assertIdentity(after, before);
+    if (actual.bytes !== before.bytes) throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    const identity = Object.freeze({ ...before, sha256: actual.sha256 });
+    return { type: "file", path: source.path, parent: parent.path, canonicalRoot: parent.root,
+      bytes: actual.bytes, sha256: actual.sha256, mode: before.mode, identity };
   }
 
   async function setTemporaryMode(remotePath, expectedRoot, mode) {
@@ -261,7 +312,7 @@ export async function connect(serverCfg, operation) {
     });
   }
 
-  async function stagedUpload(localPath, destination, maxBytes, options) {
+  async function stagedUpload(readable, destination, expected, options) {
     operation?.check();
     options.onCreating?.();
     // Do not use ssh2's WriteStream.open(): it silently FCHMODs to its default
@@ -278,7 +329,7 @@ export async function connect(serverCfg, operation) {
       const restricted = permissionBits({ stat: await handleRequest("fstat", handle) });
       operation?.check();
       if (restricted !== 0o600) throw appError("TRANSFER_VERIFY", "runtime.sftp.temporaryModeUnverified", {});
-      await sendLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation, async (input) => {
+      await sendReadableStream(readable, Math.min(expected.bytes, maxTransferBytes), operation, async (input) => {
         let offset = 0;
         for await (const chunk of input) {
           operation?.check();
@@ -294,6 +345,41 @@ export async function connect(serverCfg, operation) {
       // A failed close must not replace an earlier transfer diagnostic.
       try { await handleRequest("close", handle); } catch (error) { if (!failed) throw error; }
     }
+  }
+
+  async function uploadReadable(readable, remotePath, expected, options = {}) {
+    checkTransferSize(expected?.bytes, Math.min(expected?.bytes, maxTransferBytes));
+    if (options.createParents === false) await safePath(posix.dirname(remotePath), { requireDirectory: true });
+    else await ensureDirectory(posix.dirname(remotePath));
+    const parent = await safePath(posix.dirname(remotePath), { requireDirectory: true });
+    const destination = await safePath(remotePath, { allowMissing: true });
+    if (parent.root !== destination.root) {
+      throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedUpload", {});
+    }
+    if (options.staged) {
+      if (destination.exists) throw appError("ALREADY_EXISTS", "runtime.sftp.stagingExists", {});
+      return stagedUpload(readable, destination, expected, options);
+    }
+    await sendReadableStream(readable, Math.min(expected.bytes, maxTransferBytes), operation,
+      (input) => sftp.put(input, destination.path));
+    return {};
+  }
+
+  async function downloadReadable(remotePath, writable, maxBytes, options = {}) {
+    const source = await safePath(remotePath);
+    assertIdentity(source, options.identity);
+    const identity = fileIdentity(source);
+    checkTransferSize(identity.bytes, Math.min(maxBytes, maxTransferBytes));
+    const actual = await receiveRemoteStream(writable, Math.min(maxBytes, maxTransferBytes), operation,
+      (output) => sftp.get(source.path, output), { sha256: typeof options.identity?.sha256 === "string" });
+    const after = await safePath(remotePath);
+    assertIdentity(after, identity);
+    assertIdentity(after, options.identity);
+    if (actual.bytes !== identity.bytes ||
+        (options.identity?.sha256 !== undefined && actual.sha256 !== options.identity.sha256)) {
+      throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    }
+    return actual;
   }
 
   async function ensureDirectory(remotePath) {
@@ -359,19 +445,22 @@ export async function connect(serverCfg, operation) {
     },
 
     async uploadFile(localPath, remotePath, maxBytes = maxTransferBytes, options = {}) {
+      const readable = fs.createReadStream(localPath);
+      const settled = finished(readable).catch(() => {});
       try {
-        await ensureDirectory(posix.dirname(remotePath));
-        const parent = await safePath(posix.dirname(remotePath), { requireDirectory: true });
-        const destination = await safePath(remotePath, { allowMissing: true });
-        if (parent.root !== destination.root) {
-          throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedUpload", {});
-        }
-        if (options.staged) {
-          if (destination.exists) throw appError("ALREADY_EXISTS", "runtime.sftp.stagingExists", {});
-          return await stagedUpload(localPath, destination, maxBytes, options);
-        }
-        await sendLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
-          (input) => sftp.put(input, destination.path));
+        return await uploadReadable(readable, remotePath, { bytes: maxBytes },
+          { createParents: true, ...options });
+      } catch (err) {
+        throw friendlyError(err, { ...ctx, path: remotePath });
+      } finally {
+        readable.destroy();
+        await settled;
+      }
+    },
+
+    async uploadStream(readable, remotePath, expected, options = {}) {
+      try {
+        return await uploadReadable(readable, remotePath, expected, options);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: remotePath });
       }
@@ -384,6 +473,22 @@ export async function connect(serverCfg, operation) {
         fs.mkdirSync(path.dirname(localPath), { recursive: true });
         await receiveLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
           (output) => sftp.get(source.path, output));
+      } catch (err) {
+        throw friendlyError(err, { ...ctx, path: remotePath });
+      }
+    },
+
+    async downloadStream(remotePath, writable, maxBytes = maxTransferBytes, options = {}) {
+      try {
+        return await downloadReadable(remotePath, writable, maxBytes, options);
+      } catch (err) {
+        throw friendlyError(err, { ...ctx, path: remotePath });
+      }
+    },
+
+    async inspectFile(remotePath, { maxBytes = maxTransferBytes } = {}) {
+      try {
+        return await inspectRemoteFile(remotePath, maxBytes);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: remotePath });
       }
@@ -462,6 +567,13 @@ export async function connect(serverCfg, operation) {
         if (parent.root !== target.root) {
           throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedDelete", {});
         }
+        if (typeof options.identity?.sha256 === "string") {
+          const observed = await inspectRemoteFile(p, options.identity.bytes ?? maxTransferBytes);
+          assertObservedIdentity(observed, options.identity);
+          if (observed.canonicalRoot !== parent.root) {
+            throw appError("TARGET_CHANGED", "runtime.sftp.rootChangedDelete", {});
+          }
+        }
         await sftp.delete(target.path);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: p });
@@ -492,7 +604,8 @@ export async function connect(serverCfg, operation) {
         if (relativeRemote(configuredRoot, absoluteRemote(to, messageSpec("runtime.sftp.renameDestinationLabel"))) === "") {
           throw appError("PATH_REJECTED", "runtime.sftp.overwriteRootRefused", {});
         }
-        await ensureDirectory(posix.dirname(to));
+        if (options.createParents === false) await safePath(posix.dirname(to), { requireDirectory: true });
+        else await ensureDirectory(posix.dirname(to));
         const sourceParent = await safePath(posix.dirname(from), { requireDirectory: true });
         const destinationParent = await safePath(posix.dirname(to), { requireDirectory: true });
         const source = await safePath(from);
@@ -510,7 +623,18 @@ export async function connect(serverCfg, operation) {
           if (!Number.isInteger(mode) || mode < 0 || mode > 0o777) {
             throw appError("TRANSFER_VERIFY", "runtime.sftp.initialModeMissing", {});
           }
+          if (typeof options.identity?.sha256 === "string") {
+            const beforeMode = await inspectRemoteFile(from, options.identity.bytes ?? maxTransferBytes);
+            assertObservedIdentity(beforeMode, options.identity);
+          }
           await setTemporaryMode(from, source.root, mode);
+          if (typeof options.identity?.sha256 === "string") {
+            const beforeRename = await inspectRemoteFile(from, options.identity.bytes ?? maxTransferBytes);
+            assertObservedIdentity(beforeRename, { ...options.identity, mode, modifiedAt: undefined });
+          }
+        } else if (typeof options.identity?.sha256 === "string") {
+          const beforeRename = await inspectRemoteFile(from, options.identity.bytes ?? maxTransferBytes);
+          assertObservedIdentity(beforeRename, options.identity);
         }
         await sftp.rename(source.path, destination.path);
       } catch (err) {

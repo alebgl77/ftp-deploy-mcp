@@ -24,14 +24,18 @@ import {
   unsafeRemoteRootWarningText,
   unknownHostKeyBlockedMessage,
   unknownHostKeyWarningText,
+  resolveDurableConfig,
 } from "./config.js";
 import { resolveRemote, isRootPath, normalizeRoot } from "./remote-path.js";
 import { resolveLocalSource, resolveLocalDestination, localRootStatus } from "./local-path.js";
-import { connectOperation, remoteLockKey, localLockKey } from "./operations.js";
+import { connectOperation, MAX_OPERATION_TIMEOUT_MS, remoteLockKey, localLockKey } from "./operations.js";
 import { createI18n } from "./i18n.js";
 import { appError, normalizeError, nativeError, renderError, withSecondary } from "./errors.js";
 import { createToolRegistry, addNotices, withRenderMetadata, utf8Size, truncateUtf8 } from "./tool-registry.js";
 import { checkTransferSize, checkDeploySelection, hashLocalFile, uploadVerified, downloadVerified } from "./transfers.js";
+import { registerDurableTools, DURABLE_TOOL_NAMES } from "./durable-tools.js";
+import { durableLockKey } from "./durable/engine.js";
+import { endpointLockHash, openDurableState, pinSeparatedLocalRoot, revalidateCanonicalLocalRoot } from "./durable/state.js";
 
 const posix = path.posix;
 
@@ -196,7 +200,7 @@ function formatSize(n) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-async function openAdapter(serverCfg, operation) {
+export async function openAdapter(serverCfg, operation) {
   const mod = await (serverCfg.protocol === "sftp" ? import("./adapters/sftp.js") : import("./adapters/ftp.js"));
   // Importing a protocol can cross the operation deadline or cancellation.
   // Recheck before the adapter constructs a client or begins network I/O.
@@ -228,14 +232,36 @@ function requireConfig(loaded) {
 
 // Resolve server, optionally block writes on read-only servers, connect,
 // run `run({ name, server, adapter })`, and always close.
-async function withResolvedServer(name, server, opts, run, connectAdapter) {
+async function withLegacyWriteCoordination(loaded, name, server, operation, run) {
+  const durable = resolveDurableConfig(loaded);
+  if (!durable.enabled) return operation.lock([remoteLockKey(server)], run);
+  if (durable.requirePlan) throw appError("READ_ONLY", "runtime.tools.planRequired", { name });
+  const state = await openDurableState({ loaded, signal: operation.signal, create: true });
+  let result, failure;
+  try {
+    const endpoint = endpointLockHash(name, durable.stateLimits);
+    result = await operation.lock([remoteLockKey(server), durableLockKey(durable.stateDir, name)], () =>
+      state.store.withEndpointLock(endpoint, run));
+  } catch (error) { failure = error; }
+  try { await state.close(); } catch (error) { failure ??= error; }
+  if (failure) throw failure;
+  return result;
+}
+
+function pinLegacyLocalRoot(loaded, name, server) {
+  const durable = resolveDurableConfig(loaded);
+  if (!durable.enabled) return null;
+  return pinSeparatedLocalRoot(server.localRoot, { stateDir: durable.stateDir, serverAlias: name });
+}
+
+async function withResolvedServer(name, server, opts, run, connectAdapter, loaded) {
   const write = opts && opts.write;
   const operation = opts.operation;
   try {
     if (write && server.readOnly) {
       throw appError("READ_ONLY", "runtime.tools.readOnly", { name });
     }
-    return await operation.lock(write ? [remoteLockKey(server)] : (opts.lockKeys || []), async () => {
+    const connected = async () => {
       operation.check();
       await operation.step(() => opts.beforeConnect?.());
       const adapter = await connectOperation(connectAdapter, server, operation);
@@ -267,7 +293,9 @@ async function withResolvedServer(name, server, opts, run, connectAdapter) {
       }
       if (closeFailed) throw nativeError(closeError, "transport");
       return withTransportNotices(result, server, operation.i18n);
-    });
+    };
+    if (write) return await withLegacyWriteCoordination(loaded, name, server, operation, connected);
+    return await operation.lock(opts.lockKeys || [], connected);
   } catch (err) {
     throw withTransportError(err, server);
   }
@@ -276,7 +304,7 @@ async function withResolvedServer(name, server, opts, run, connectAdapter) {
 async function withServer(loaded, requestedServer, opts, run, connectAdapter) {
   requireConfig(loaded);
   const { name, server } = resolveServer(loaded, requestedServer);
-  return withResolvedServer(name, server, opts, run, connectAdapter);
+  return withResolvedServer(name, server, opts, run, connectAdapter, loaded);
 }
 
 // ---- deploy helpers -------------------------------------------------------
@@ -391,9 +419,12 @@ export function registerTools(sdkServer, loaded, options = {}) {
   const connectAdapter = options.openAdapter || openAdapter;
   const redactor = configRedactor(loaded);
   const selected = (args) => { try { return resolveServer(loaded, args?.server).server; } catch { return null; } };
-  const server = createToolRegistry({ redactor, i18n, transportContext: options.transportContext,
-    timeoutFor: (args) => selected(args)?.operationTimeoutMs,
+  const server = createToolRegistry({ redactor, i18n,
+    timeoutFor: (args, toolName) => ["ftp_apply_deploy", "ftp_rollback_deploy"].includes(toolName)
+      ? MAX_OPERATION_TIMEOUT_MS
+      : selected(args)?.operationTimeoutMs,
     errorNotices: (args) => { const resolved = selected(args); return resolved ? transportWarningTexts(resolved, i18n) : []; },
+    mintRequestState: options.mintRequestState,
   });
   const guardTool = (handler) => handler;
   const boundedString = (value, max = 2048) => truncateUtf8(value, max, t("error.truncated"));
@@ -696,6 +727,7 @@ export function registerTools(sdkServer, loaded, options = {}) {
     guardTool(async (args, operation) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
+      const localRootPin = pinLegacyLocalRoot(loaded, name, s);
       operation.trackFiles(1);
       try {
         let source = resolveLocalSource(s, args.local_path, "file");
@@ -708,6 +740,7 @@ export function registerTools(sdkServer, loaded, options = {}) {
           name,
           s,
           { write: true, operation, beforeConnect: async () => {
+            if (localRootPin) revalidateCanonicalLocalRoot(localRootPin, { serverAlias: name, relativePath: args.local_path });
             source = resolveLocalSource(s, args.local_path, "file");
             expected = await hashLocalFile(source.path, s.maxTransferBytes, operation);
           } },
@@ -726,7 +759,8 @@ export function registerTools(sdkServer, loaded, options = {}) {
               }
             );
           },
-          connectAdapter
+          connectAdapter,
+          loaded
         );
       } catch (err) {
         throw withTransportError(err, s);
@@ -761,10 +795,12 @@ export function registerTools(sdkServer, loaded, options = {}) {
     guardTool(async (args, operation) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
+      const localRootPin = pinLegacyLocalRoot(loaded, name, s);
       try {
         const source = resolveLocalSource(s, args.local_dir, "directory");
         const lexicalDir = path.resolve(s.localRoot, args.local_dir);
         const files = await selectDeployFiles(source.path, args.include, args.exclude, s, operation);
+        if (localRootPin) revalidateCanonicalLocalRoot(localRootPin, { serverAlias: name, relativePath: args.local_dir });
         const remoteBase = resolveRemote(s.root, args.remote_dir ?? "");
         let totalBytes = checkDeploySelection(files, s);
         if (!args.dry_run) operation.trackFiles(files.length);
@@ -817,6 +853,10 @@ export function registerTools(sdkServer, loaded, options = {}) {
           );
         }
 
+        if (resolveDurableConfig(loaded).enabled && resolveDurableConfig(loaded).requirePlan) {
+          throw appError("READ_ONLY", "runtime.tools.planRequired", { name });
+        }
+
         if (s.readOnly) {
           throw appError("READ_ONLY", "runtime.tools.readOnly", { name });
         }
@@ -851,7 +891,8 @@ export function registerTools(sdkServer, loaded, options = {}) {
         }
 
         const t0 = Date.now();
-        return await operation.lock([remoteLockKey(s)], async () => {
+        return await withLegacyWriteCoordination(loaded, name, s, operation, async () => {
+          if (localRootPin) revalidateCanonicalLocalRoot(localRootPin, { serverAlias: name, relativePath: args.local_dir });
           const created = new Set();
           const uploadedList = [];
           const failures = [];
@@ -869,6 +910,7 @@ export function registerTools(sdkServer, loaded, options = {}) {
             try {
               for (const f of files) {
                 operation.check();
+                if (localRootPin) revalidateCanonicalLocalRoot(localRootPin, { serverAlias: name, relativePath: f.rel });
                 const relForRemote = args.remote_dir
                   ? posix.join(String(args.remote_dir).replace(/\\/g, "/"), f.rel)
                   : f.rel;
@@ -1005,6 +1047,7 @@ export function registerTools(sdkServer, loaded, options = {}) {
     guardTool(async (args, operation) => {
       requireConfig(loaded);
       const { name, server: s } = resolveServer(loaded, args.server);
+      const localRootPin = pinLegacyLocalRoot(loaded, name, s);
       operation.trackFiles(1);
       try {
         const target = resolveRemote(s.root, args.remote_path);
@@ -1014,6 +1057,7 @@ export function registerTools(sdkServer, loaded, options = {}) {
         }
         const destinationKey = localLockKey(destination.canonicalPath);
         const revalidate = () => {
+          if (localRootPin) revalidateCanonicalLocalRoot(localRootPin, { serverAlias: name, relativePath: args.local_path });
           const current = resolveLocalDestination(s, args.local_path);
           if (localLockKey(current.canonicalPath) !== destinationKey) {
             throw appError("TARGET_CHANGED", "runtime.tools.download.targetChanged");
@@ -1047,7 +1091,8 @@ export function registerTools(sdkServer, loaded, options = {}) {
               }
             );
           },
-          connectAdapter
+          connectAdapter,
+          loaded
         );
       } catch (err) {
         throw withTransportError(err, s);
@@ -1160,6 +1205,7 @@ export function registerTools(sdkServer, loaded, options = {}) {
       })
     )
   );
+  if (resolveDurableConfig(loaded).enabled) registerDurableTools(server, loaded, { openAdapter: connectAdapter, fault: options.fault });
   if (sdkServer) server.install(sdkServer);
   return server;
 }
@@ -1176,3 +1222,5 @@ export const TOOL_NAMES = [
   "ftp_rename",
   "ftp_delete",
 ];
+
+export const ALL_TOOL_NAMES = Object.freeze([...TOOL_NAMES, ...DURABLE_TOOL_NAMES]);

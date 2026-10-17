@@ -4,15 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
 import { loadConfig, normalizeServer } from "../src/config.js";
 import { registerTools } from "../src/tools.js";
 import { selectDeployFiles } from "../src/scanner.js";
 import { createToolRegistry, ERROR_SCHEMA, MAX_RESULT_BYTES, utf8Size } from "../src/tool-registry.js";
 import { createRedactor } from "../src/redact.js";
 import { createI18n } from "../src/i18n.js";
-import { withZeroCancellation } from "../src/zero-cancellation.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const success = () => ({ content: [{ type: "text", text: "complete" }] });
@@ -90,7 +88,7 @@ function virtualTree(t, root, tree, hooks = {}) {
 }
 function registry(handler, options = {}) {
   const value = createToolRegistry({ redactor: createRedactor(), ...options });
-  value.registerTool("ftp_read", { inputSchema: { max_bytes: z.number().optional() }, annotations: {} }, handler);
+  value.registerTool("ftp_read", { inputSchema: z.object({ max_bytes: z.number().optional() }), annotations: {} }, handler);
   return value;
 }
 async function occupy(t, count = 64) {
@@ -348,16 +346,14 @@ for (const id of [0, "", 1, "0"]) {
   test(`actual SDK ID ${JSON.stringify(id)} cancellation retains admission and permits reuse after settlement`, async (t) => {
     const held = await occupy(t, 63), gate = deferred(), operations = [];
     const server = new McpServer({ name: "resource-bounds", version: "1.0.0" });
-    const [peer, base] = InMemoryTransport.createLinkedPair();
-    const transport = withZeroCancellation(base), messages = [];
-    let scopes = 0, closes = 0;
-    const scope = transport.scope;
-    transport.scope = (extra) => { scopes++; return scope(extra); };
+    const [peer, transport] = InMemoryTransport.createLinkedPair();
+    const messages = [];
+    let closes = 0;
     const value = registry(async (_args, operation) => {
       operations.push(operation);
       if (operations.length === 1) await gate.promise;
       return success();
-    }, { transportContext: transport });
+    });
     value.install(server);
     peer.onmessage = (message) => messages.push(message);
     peer.onclose = () => { closes++; };
@@ -377,7 +373,7 @@ for (const id of [0, "", 1, "0"]) {
     gate.resolve(); await operations[0].settlement; await tick();
     await sendCall(); await until(() => messages.some((message) => message.id === id));
     assert.equal(messages.find((message) => message.id === id).result.isError, undefined);
-    assert.equal(operations.length, 2); assert.equal(scopes, 2); assert.equal(closes, 0);
+    assert.equal(operations.length, 2); assert.equal(closes, 0);
     await held.release();
   });
 }

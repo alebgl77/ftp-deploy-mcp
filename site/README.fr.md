@@ -6,7 +6,7 @@ Ce fichier HTML unique documente l’architecture, les flux, les preuves et la f
 
 ## Reconstruire et ouvrir
 
-Depuis la racine du dépôt, avec Node 22 ou 24 :
+Depuis la racine du dépôt, avec Node 22, 24 ou 26 :
 
 ```sh
 node scripts/build-guide.mjs

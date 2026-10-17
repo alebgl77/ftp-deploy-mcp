@@ -121,7 +121,7 @@ via le serveur MCP. Préférez des identifiants également limités à la lectur
 côté service distant. La suppression récursive exige un argument explicite,
 et la suppression de la racine configurée est refusée.
 
-Un déploiement n'est pas une transaction. Si un transfert échoue, `ftp_deploy`
+Un déploiement legacy n'est pas une transaction. Si un transfert échoue, `ftp_deploy`
 renvoie une erreur MCP et un résumé du déploiement partiel. Les fichiers
 promus plus tôt dans le même appel restent sur le serveur. Les opérateurs
 doivent examiner et réconcilier l'état distant avant de réessayer.
@@ -137,6 +137,11 @@ Par défaut, `overwrite:false` crée un lien physique sans écrasement et refuse
 la promotion si cette primitive n'est pas prise en charge. Le nettoyage vise
 uniquement le temporaire possédé et peut le laisser sur place ; un changement
 connu de racine canonique SFTP interdit de reporter le nettoyage sous la nouvelle.
+Les interfaces privées de transfert durable exigent une inspection stricte.
+Une identité hashée est relue et comparée dans l’adaptateur FTP/SFTP juste avant
+le renommage ou la suppression ; toute divergence empêche la mutation. Si un
+échec de staging ne peut pas être attribué par une identité entièrement vérifiée,
+le nettoyage est refusé et le temporaire reste sur place avec un avertissement.
 
 Le remplacement local et SFTP conserve les bits de droits (0777) d'une cible
 régulière existante, selon la sémantique native du système de fichiers. SFTP
@@ -160,17 +165,32 @@ y compris lorsqu'un motif `include` explicite le sélectionne. Voir
 [TRANSFERS.fr.md](./TRANSFERS.fr.md) pour les bornes de configuration, le
 nettoyage et les garanties par transport. Les relectures augmentent le trafic.
 Le renommage dépend du serveur et ne fournit ni remplacement atomique universel
-ni atomicité de plusieurs fichiers ; aucun journal durable ni retour arrière
-n'est implémenté.
+ni atomicité de plusieurs fichiers. Avec `stateDir`, les outils durables
+journalisent l'état observé et restaurent seulement les fichiers durablement
+acquittés. Leur garantie est `observable_state_reconciled`, jamais atomique ni
+exactement une fois ; une promotion incertaine devient `SATISFIED_UNOWNED` et
+n'est pas restaurée.
 
 Dans un même processus Node, les mutations distantes partagent un verrou FIFO
 par protocole, nom d'hôte, port et utilisateur normalisés, quels que soient
 l'alias du serveur ou sa racine. Les téléchargements verrouillent leur
 destination locale canonique et revérifient l'autorisation d'écrasement sous ce
 verrou. Les appels distants en lecture seule n'acquièrent pas les verrous de
-mutation de la cible. Les autres processus, alias DNS, comptes différents,
-fichiers locaux liés physiquement et écritures externes ne sont pas couverts
-par cette coordination.
+mutation de la cible. Avec l'état durable, les processus coopérants partageant
+le même `stateDir` canonique prennent aussi un verrou persistant sur l'alias exact
+avant construction de l'adaptateur. L'identité distante et la politique
+recalculées après connexion restent l'autorité. Aliases ou `stateDir` différents,
+alias DNS et écrivains externes ne sont pas coordonnés. Renommage d'alias,
+aliases d'écriture qui se chevauchent, binaires mélangés et verrous laissés par
+un crash exigent une pause ou récupération hors ligne ; aucun verrou n'est volé par TTL.
+
+Les plans durables ne conservent qu'un hash salé par domaine de la racine locale
+canonique et des chemins relatifs stricts. Racines absolues, identifiants et clés
+d'idempotence brutes ne sont pas stockés. Apply réépingle et re-hashe la racine
+et chaque source avant construction de l'adaptateur puis juste avant mutation.
+Rollback ignore une dérive locale et s'appuie sur l'état scellé, l'identité
+distante, les sauvegardes et préconditions. L'état v1 est refusé avant décodage
+des plans et doit être réinitialisé hors ligne.
 
 Le délai `operationTimeoutMs` par serveur vaut 120000 ms par défaut et accepte
 les entiers de 100 à 3600000, attente dans la file et connexion comprises.
@@ -194,20 +214,27 @@ empaqueté avant publication.
 ## Erreurs structurées et annulation
 
 Les erreurs d’outils connus utilisent une enveloppe stricte avec un code stable,
-un nouvel UUID, des effets observés prudemment et aucune autorisation de reprise
-automatique. Les neuf outils structurés publient des possibilités strictes de
+un nouvel UUID, des effets observés prudemment et aucune reprise automatique.
+Pour les erreurs durables, `retryable:true` ne désigne qu’une condition que le
+client peut retenter après avoir suivi `next_action` ; il n’autorise jamais à
+rejouer une mutation incertaine. Les neuf outils structurés publient des possibilités strictes de
 succès ou d’erreur. Le résultat complet est limité à 25 000 octets JSON UTF-8
 après masquage ; les avertissements et la pagination reposent sur des métadonnées
 internes fiables. Le [contrat d’erreur](./ERROR-CONTRACT.fr.md) décrit les champs
 et codes exacts.
 
 Une annulation du client supprime normalement la réponse MCP, tandis qu’une
-échéance interne peut renvoyer `TIMEOUT`. Un décorateur du transport public
-corrige les annulations ignorées par le SDK installé pour le nombre `0` et la
-chaîne vide, avec deux emplacements indépendants. Les emplacements et verrous
-restent détenus jusqu’au règlement réel du traitement. Un doublon actif dans
-l’un de ces emplacements ferme la connexion ; une réponse dont l’envoi a déjà
-commencé ne peut pas être rappelée. Ces mécanismes ne permettent ni retour
+échéance interne peut renvoyer `TIMEOUT`. L’annulation native du SDK v2 traite
+tous les identifiants de requête valides, dont le nombre `0` et la chaîne vide.
+La garde du canal possédée par le point d’entrée réserve chaque identifiant de
+requête entrant, toutes méthodes confondues, avant sa remise au SDK. Tout doublon
+actif ferme la connexion avant l’exécution d’un second handler. Les identifiants
+d’appels d’outil et les verrous restent détenus jusqu’au règlement ou à l’échec
+de l’envoi de la réponse terminale et au règlement réel de tous les tours de
+handler enregistrés, de la préparation et de la libération, y compris les tours
+pilotés par le shim legacy d’entrée requise. Une annulation qui supprime la
+réponse conserve l’identifiant jusqu’à la fermeture de la connexion. Une réponse dont l’envoi a
+déjà commencé ne peut pas être rappelée. Ces mécanismes ne permettent ni retour
 arrière ni preuve d’absence d’effets d’une écriture incertaine.
 
 ## Secrets et consignes d'exploitation

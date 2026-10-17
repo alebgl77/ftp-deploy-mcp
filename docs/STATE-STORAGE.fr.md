@@ -2,13 +2,16 @@
 
 [English](./STATE-STORAGE.md)
 
-Cette bibliothèque interne sans dépendance fournit uniquement le stockage.
-Elle n'est raccordée ni aux outils MCP, ni à la configuration, ni au déploiement,
-ni au rollback ou à un serveur de production. L'application doit fournir un
+Cette bibliothèque interne sans dépendance fournit les primitives utilisées par
+le moteur MCP durable. Elle ne se connecte pas elle-même à un serveur de
+production et ne décide pas la politique de déploiement. L'application fournit un
 schéma de plan fermé et un validateur/réducteur d'événements pur. Le stockage ne
 décide jamais qu'un effet distant appartient à une opération. L'UUID de requête
-reste distinct de l'identifiant d'opération persistante. Ces primitives ne
-livrent aucun workflow de déploiement.
+reste distinct de l'identifiant d'opération persistante.
+
+Le marqueur de domaine est v2. Un marqueur v1 est refusé avant parcours ou
+décodage des plans et exige une réinitialisation hors ligne ; il n'existe ni
+migration automatique ni double lecteur.
 
 Exécuter les tests isolés depuis la racine du dépôt source :
 

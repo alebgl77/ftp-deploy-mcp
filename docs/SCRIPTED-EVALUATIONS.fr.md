@@ -18,7 +18,7 @@ l’autonomie en production ni la sécurité de façon exhaustive.
 
 ## Exécuter depuis un checkout source
 
-Installer les dépendances du dépôt avec `npm ci` sur Node 22 ou 24, puis lancer :
+Installer les dépendances du dépôt avec `npm ci` sur Node 22, 24 ou 26, puis lancer :
 
 ```sh
 npm run test:eval-runner

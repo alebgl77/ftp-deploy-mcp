@@ -69,12 +69,12 @@ courses sur un serveur malveillant. Ces limites sont décrites dans le
 
 Les six dépendances directes de production utilisent des versions exactes.
 `package-lock.json` est l'unique référence du graphe source, livrée dans
-l'archive d'installation source de 82 fichiers. Utilisez
+l'archive d'installation source de 90 fichiers. Utilisez
 `npm ci --omit=dev --ignore-scripts` après extraction et conservez ce fichier.
 Toute modification exige une revue du graphe complet, de ses URL et intégrités,
 puis les contrôles du [guide de publication](./docs/RELEASE.fr.md).
 
-Le paquet npm de 81 fichiers ne contient aucun verrouillage et reste non qualifié.
+Le paquet npm de 89 fichiers ne contient aucun verrouillage et reste non qualifié.
 Une installation réelle a changé dix dépendances de production. Les workflows
 refusent toute dérive du graphe installé avant publication npm ou MCP ; une preuve
 de type source ne peut pas autoriser npm. Un éventuel graphe npm conforme ne vaut

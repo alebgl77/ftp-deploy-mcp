@@ -3,13 +3,12 @@ import { getEventListeners } from "node:events";
 import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { z } from "zod";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
 import { createOperation, DEFAULT_OPERATION_TIMEOUT_MS, observeOperationWorker } from "../src/operations.js";
-import { createToolRegistry, ERROR_SCHEMA, MAX_RESULT_BYTES, utf8Size } from "../src/tool-registry.js";
+import { bindRequestLifecycle, createRequestLifecycleTransport, createToolRegistry,
+  ERROR_SCHEMA, MAX_RESULT_BYTES, utf8Size } from "../src/tool-registry.js";
 import { createRedactor } from "../src/redact.js";
 import { appError } from "../src/errors.js";
-import { withZeroCancellation } from "../src/zero-cancellation.js";
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const success = () => ({ content: [{ type: "text", text: "complete" }] });
@@ -24,7 +23,7 @@ async function until(check) {
 }
 function registry(spec = {}, handler = success, options = {}) {
   const value = createToolRegistry({ redactor: createRedactor(), ...options });
-  value.registerTool("ftp_read", { inputSchema: { max_bytes: z.number().optional() }, annotations: {}, ...spec }, handler);
+  value.registerTool("ftp_read", { inputSchema: z.object({ max_bytes: z.number().optional() }), annotations: {}, ...spec }, handler);
   return value;
 }
 function error(result, code) {
@@ -312,18 +311,14 @@ const call = (id) => ({ jsonrpc: "2.0", id, method: "tools/call", params: { name
 const cancel = (id) => ({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id } });
 async function sdkFixture(t, spec, handler = success, options = {}) {
   const server = new McpServer({ name: "prepared-lifecycle", version: "1.0.0" });
-  const [peer, base] = InMemoryTransport.createLinkedPair(), transport = withZeroCancellation(base);
-  const originalScope = transport.scope;
-  transport.scope = (extra) => {
-    const scoped = originalScope(extra);
-    if (extra.requestId === 1 || extra.requestId === "0") assert.equal(scoped, extra);
-    return scoped;
-  };
-  const value = registry(spec, handler, { preparedTimeoutMs: 2000, transportContext: transport, ...options });
+  const [peer, transport] = InMemoryTransport.createLinkedPair();
+  const requestLifecycle = createRequestLifecycleTransport(transport);
+  bindRequestLifecycle(server, requestLifecycle);
+  const value = registry(spec, handler, { preparedTimeoutMs: 2000, ...options });
   value.install(server);
   const messages = []; let closes = 0;
   peer.onmessage = (message) => messages.push(message); peer.onclose = () => { closes++; };
-  await server.connect(transport); await peer.start(); t.after(() => server.close());
+  await server.connect(requestLifecycle); await peer.start(); t.after(() => server.close());
   await peer.send({ jsonrpc: "2.0", id: 97, method: "initialize", params: {
     protocolVersion: "2025-11-25", clientInfo: { name: "raw-peer", version: "1.0.0" }, capabilities: {},
   } });
@@ -334,7 +329,7 @@ async function sdkFixture(t, spec, handler = success, options = {}) {
 }
 
 for (const id of [0, "", 1, "0"]) {
-  test(`actual SDK cancellation reaches prepared worker for exact ID ${JSON.stringify(id)} and reuse waits for disposal`, async (t) => {
+  test(`actual SDK cancellation reaches prepared worker for exact ID ${JSON.stringify(id)} and suppressed response reserves it`, async (t) => {
     const prepareGate = deferred(), disposeGate = deferred(); let operation, preparations = 0, disposals = 0, handlers = 0;
     const fixture = await sdkFixture(t, {
       async prepare(_args, current) { preparations++; operation = current; if (preparations === 1) await prepareGate.promise; return {}; },
@@ -347,9 +342,8 @@ for (const id of [0, "", 1, "0"]) {
     prepareGate.resolve(); await until(() => disposals === 1);
     assert.equal(handlers, 0); assert.equal(fixture.response(id), undefined);
     disposeGate.resolve(); await operation.settlement; await tick();
-    await fixture.peer.send(call(id)); await until(() => fixture.response(id));
-    assert.equal(fixture.response(id).result.isError, undefined);
-    assert.equal(preparations, 2); assert.equal(disposals, 2); assert.equal(handlers, 1); assert.equal(fixture.closes(), 0);
+    await fixture.peer.send(call(id)); await until(() => fixture.closes() === 1);
+    assert.equal(preparations, 1); assert.equal(disposals, 1); assert.equal(handlers, 0);
   });
 }
 

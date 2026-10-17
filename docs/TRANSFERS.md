@@ -89,8 +89,9 @@ attributes, timestamps, hard-link relationships or special permission bits.
 
 Readback verification adds network traffic and latency. A successful transfer
 verifies one complete file's content; it is not a performance optimization or a
-site transaction. There is no durable transfer journal, automatic rollback or
-retry of an uncertain mutation.
+site transaction. The legacy single-transfer path has no durable journal,
+automatic rollback or retry of an uncertain mutation. The separately configured
+durable deployment workflow journals its own plan/apply/rollback state.
 
 Cancellation and deadlines stop later stages and close the transport. They do
 not undo a promotion already accepted by the server, and an interrupted rename

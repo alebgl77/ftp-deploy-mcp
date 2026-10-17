@@ -6,11 +6,13 @@ import { StateError, fail, encode, decode, exact, id } from './codec.mjs';
 const samePath = (a, b) => (process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b);
 function contains(root, child) { const rel = path.relative(root, child); return rel === '' || (!rel.startsWith(`..${path.sep}`) && rel !== '..' && !path.isAbsolute(rel)); }
 export const identity = (stat) => `${stat.dev}:${stat.ino}`;
+export const snapshotIdentity = (stat) => `${identity(stat)}:${stat.size}:${stat.mtimeMs}`;
 export function checkSignal(signal) { if (signal?.aborted) fail('STATE_BUSY', 'cancelled'); }
 export function safeFailure(error, stage) { return error instanceof StateError ? error : new StateError('STATE_IO', stage); }
 
-export async function createIO({ stateDir, localRoots, signal, fault, limits, create = true }) {
+export async function createIO({ stateDir, localRoots, signal, fault, limits, create = true, readOnly = false }) {
   if (stateDir === undefined || stateDir === null || stateDir === '') fail('STATE_DISABLED', 'state_dir');
+  if (typeof readOnly !== 'boolean' || (readOnly && create !== false)) fail('STATE_INVALID', 'read_only');
   if (typeof stateDir !== 'string' || !path.isAbsolute(stateDir) || path.resolve(stateDir) !== stateDir || !Array.isArray(localRoots)) fail('STATE_INVALID', 'state_dir');
   const roots = [];
   for (const root of localRoots) {
@@ -115,14 +117,18 @@ export async function createIO({ stateDir, localRoots, signal, fault, limits, cr
         if (total > max) fail('STATE_LIMIT', 'file_bytes');
         chunks.push(buffer.subarray(0, bytesRead));
       }
-      if (identity(await fs.lstat(file)) !== identity(stat)) fail('STATE_CORRUPT', 'file_identity');
+      const finalHandle = await handle.stat(), finalPath = await fs.lstat(file);
+      if (readOnly && (snapshotIdentity(finalHandle) !== snapshotIdentity(stat) || snapshotIdentity(finalPath) !== snapshotIdentity(stat))) {
+        fail('STATE_BUSY', 'snapshot_changed');
+      }
+      if (identity(finalPath) !== identity(stat)) fail('STATE_CORRUPT', 'file_identity');
       value = Buffer.concat(chunks, total);
     } catch (failure) { error = failure; }
     try { await close(handle); } catch (failure) { error ??= failure; }
     if (error) throw error;
     return value;
   }
-  async function publish(file, bytes, { replace = false, stage = 'record' } = {}) {
+  async function publish(file, bytes, { replace = false, stage = 'record', onPublished } = {}) {
     const temp = path.join(path.dirname(file), `.publish-${randomUUID()}.tmp`);
     const handle = await open(temp, 'wx', `${stage}_open`); let error;
     try { await write(handle, bytes, 0, `${stage}_write`); await sync(handle, `${stage}_sync`); }
@@ -130,7 +136,11 @@ export async function createIO({ stateDir, localRoots, signal, fault, limits, cr
     try { await close(handle, `${stage}_close`); } catch (failure) { error ??= failure; }
     if (error) throw error; // An orphan is evidence: do not silently remove it.
     await guard(file);
-    await act(`${stage}_publish`, () => replace ? fs.rename(temp, file) : fs.link(temp, file));
+    await act(`${stage}_publish`, async () => {
+      const result = await (replace ? fs.rename(temp, file) : fs.link(temp, file));
+      onPublished?.();
+      return result;
+    });
     if (!replace) await act(`${stage}_unlink_temp`, () => fs.unlink(temp));
     await syncDirectory(path.dirname(file));
   }

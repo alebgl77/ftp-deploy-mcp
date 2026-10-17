@@ -1,8 +1,11 @@
-# Modèle pur de workflow durable, v1
+# Modèle de workflow durable, v2
 
 [English](./WORKFLOW-MODEL.md)
 
-Cette bibliothèque interne couvre la première phase pure de la conception de déploiement durable. Elle n'active aucune configuration d'état, n'expose aucun outil MCP, ne se connecte à aucun serveur et ne crée aucun répertoire d'état. Les modules de workflow importent uniquement les modules de codec et de records de la bibliothèque de stockage existante. Aucun workflow de déploiement exécutable n'est livré par cette phase.
+Ces modules purs définissent le plan fermé, le réducteur d'événements et le
+budget exact utilisés par les quatre outils durables publics lorsque `stateDir`
+est activé. Ils n'effectuent aucune E/S eux-mêmes ; le moteur durable fournit
+stockage, transport et confirmation.
 
 ## Interfaces internes prises en charge
 
@@ -21,7 +24,7 @@ Les autres exports sont des helpers privés partagés entre ces modules ou utili
 
 ## Représentation du plan et de la politique
 
-Les clés du plan sont exactement `{v,createdAt,expiresAt,serverAlias,target,policyHash,files}`. Celles de la cible sont exactement `{protocol,host,port,user,root,localRoot,canonicalRoot}`. Chaque fichier contient exactement `{index,localPath,remotePath,bytes,sha256,before,parent,desiredMode}`. Les indices sont consécutifs à partir de zéro et les fichiers sont triés par `remotePath` selon une comparaison binaire UTF-16 indépendante de la locale. Les chemins locaux et distants sont uniques, relatifs aux racines liées et normalisés avec des barres obliques. Un fichier distant planifié ne peut pas aussi être le parent d'un autre fichier planifié.
+Les clés du plan sont exactement `{v,createdAt,expiresAt,serverAlias,source,target,policyHash,files}` avec `v:2`. La source est exactement `{localRootHash}` ; la cible exactement `{protocol,host,port,user,root,canonicalRoot}` et ne contient aucun chemin local. Chaque fichier contient exactement `{index,localPath,remotePath,bytes,sha256,before,parent,desiredMode}`. Les indices sont consécutifs à partir de zéro et les fichiers sont triés par `remotePath` selon une comparaison binaire UTF-16 indépendante de la locale. Les chemins locaux et distants sont uniques, relatifs aux racines liées et normalisés avec des barres obliques. Un fichier distant planifié ne peut pas aussi être le parent d'un autre fichier planifié.
 
 La racine distante configurée est une syntaxe POSIX absolue normalisée. La racine locale est une syntaxe native absolue canonique ; la couche pure ne peut pas observer l'identité du système de fichiers. Le parent canonique SFTP enregistré doit être contenu dans `canonicalRoot` et peut différer du parent lexical. Le parent FTP/FTPS doit être égal au parent lexical normalisé. Les chemins relatifs refusent les préfixes de lecteur ; les deux-points hors préfixe sont conservés dans les noms POSIX. L'interprétation réelle des chemins natifs, le confinement, l'identité des parents, l'observation des fichiers ordinaires et la revalidation des sources relèvent de l'intégration ultérieure.
 

@@ -7,7 +7,7 @@ limite ses dépendances ; lisez les principes ci-dessous avant d'ouvrir une PR.
 
 Le runtime MCP prend en charge Node.js >=22. L'outillage de publication exige **Node.js 24.20.0 exactement** : création et inspection des archives, inventaires source, contrôles du graphe installé, vérification du registre et `npm run test:release` refusent les autres versions avant ces opérations. Utilisez la distribution Node qualifiée, avec son npm fourni, et consignez les versions Node/libuv/npm/tar avec `node scripts/release-toolchain.mjs`. La qualification du consommateur peut toujours exécuter le serveur MCP avec Node 22 et appeler séparément les outils externes de publication avec Node 24.20.0.
 
-La CI conserve les six jobs runtime (Node 22/24 sur Linux, macOS et Windows). La suite complète de publication s'exécute séparément sur les trois systèmes avec Node 24.20.0. macOS comporte trois passes complètes prédéfinies ; tout échec fait échouer le job. Ces passes de qualification sont fixes, sans relance après échec, cas ignoré ni augmentation des limites d'archive. Les workflows supply-chain et de publication npm/MCP utilisent la même version Node exacte.
+La CI conserve les neuf jobs runtime (Node 22/24/26 sur Linux, macOS et Windows). La suite complète de publication s'exécute séparément sur les trois systèmes avec Node 24.20.0. macOS comporte trois passes complètes prédéfinies ; tout échec fait échouer le job. Ces passes de qualification sont fixes, sans relance après échec, cas ignoré ni augmentation des limites d'archive. Les workflows supply-chain et de publication npm/MCP utilisent la même version Node exacte.
 
 ## Environnement de développement
 
@@ -43,7 +43,7 @@ dépendances et les contrôles de l'archive exacte et du consommateur isolé du
 [guide de publication](./docs/RELEASE.fr.md). Présentez ensemble les modifications
 des sources, du manifeste et du verrouillage source pour la revue.
 
-La distribution d'installation source contient 82 fichiers, dont ce verrouillage. Le paquet npm distinct contient 81 fichiers sans verrouillage et reste non qualifié après dix dérives observées dans une installation réelle. Les contrôles du graphe installé comparent aussi les dépendances transitives et les peers à l'inventaire source original ; tout écart bloque la publication npm/MCP.
+La distribution d'installation source contient 90 fichiers, dont ce verrouillage. Le paquet npm distinct contient 89 fichiers sans verrouillage et reste non qualifié après dix dérives observées dans une installation réelle. Les contrôles du graphe installé comparent aussi les dépendances transitives et les peers à l'inventaire source original ; tout écart bloque la publication npm/MCP.
 
 ## Principes
 

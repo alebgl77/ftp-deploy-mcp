@@ -5,11 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { z } from "zod";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { McpServer, InMemoryTransport } from "@modelcontextprotocol/server";
+import { Client } from "@modelcontextprotocol/client";
+import { CallToolResultSchema } from "@modelcontextprotocol/core";
 import { createI18n, CATALOGS } from "../src/i18n.js";
 import { ERROR_CODES, appError, renderError, nativeError } from "../src/errors.js";
 import { registerTools } from "../src/tools.js";
@@ -86,6 +85,7 @@ for (const locale of ["en", "fr"]) {
         assert.equal(tool.outputSchema.oneOf[1].properties.error.additionalProperties, false);
       }
       const success = await client.callTool({ name: tool.name, arguments: cases[tool.name] });
+      assert.ok(CallToolResultSchema.safeParse(success).success);
       assert.notEqual(success.isError, true, tool.name + ": " + asText(success));
       assert.ok(registry.validate(tool.name, success));
       if (tool.name === "ftp_read") assert.equal(success.structuredContent, undefined);
@@ -105,7 +105,7 @@ for (const locale of ["en", "fr"]) {
     await assert.rejects(client.callTool({ name: SECRET.repeat(10000), arguments: {} }), (error) => {
       assert.equal(error.code, -32602); assert.ok(error.message.length < 300); assert.ok(!error.message.includes(SECRET)); return true;
     });
-    await assert.rejects(client.request({ method: "tools/call", params: { name: 99 } }, CallToolResultSchema), (error) => [-32602, -32603].includes(error.code));
+    await assert.rejects(client.request({ method: "tools/call", params: { name: 99 } }), (error) => [-32602, -32603].includes(error.code));
   });
 
   test(`real stdio localizes metadata, policy errors and unchanged codes (${locale})`, async (t) => {
@@ -156,6 +156,16 @@ test("classification is branded, locale independent, and cannot be selected by r
   assert.equal(nativeError(typed, "sftp"), typed);
 });
 
+test("an unreadable SFTP privateKeyPath returns an alias-only MCP error", async (t) => {
+  const root = scratch(t);
+  const marker = path.join(root, "private-key-path-must-not-leak");
+  const loaded = config(root, { password: undefined, privateKeyPath: marker });
+  const result = await registerTools(null, loaded).call("ftp_test", {});
+  const error = validError(result, "CONFIG_INVALID");
+  assert.match(error.message, /server "test"/i);
+  assert.doesNotMatch(JSON.stringify(result), /private-key-path-must-not-leak|ENOENT|no such file/i);
+});
+
 test("caller UUIDs and marker-like remote content never become trusted render metadata", async (t) => {
   const root = scratch(t);
   const supplied = "c2ea6d13-02f8-4a9d-bc8e-65d1539d3c86";
@@ -201,7 +211,7 @@ test("OUTPUT_LIMIT fallback preserves minted ID, confirmed effects and actual co
   let minted;
   const fields = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`field${index}`, z.string()]));
   const registry = createToolRegistry({ redactor: createRedactor({ password: SECRET }) });
-  registry.registerTool("ftp_test", { inputSchema: {}, outputSchema: z.object(fields).strict(), annotations: {} }, async (_args, operation) => {
+  registry.registerTool("ftp_test", { inputSchema: z.object({}), outputSchema: z.object(fields).strict(), annotations: {} }, async (_args, operation) => {
     minted = operation.id;
     operation.trackFiles(2);
     operation.confirmFile(117);

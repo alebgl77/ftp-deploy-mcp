@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { openStateStore } from '../../src/state/store.mjs';
@@ -36,6 +37,23 @@ test('plans are exclusive, bounded digest envelopes and detached verified payloa
   const file=f.file('plans',`${id}.json`), original=await fs.readFile(file,'utf8');
   await fs.writeFile(file,original.replace('"files":[]','"files":[0]'));
   await assert.rejects(f.store.readPlan(id),stateError('STATE_CORRUPT','record_digest'));
+});
+test('plan publication callbacks follow validation and the final-link boundary',async t=>{
+  let armed=false;const events=[];
+  const f=await fixture(t,{limits:{...limits,maxPlans:1},fault:stage=>{if(armed&&stage==='plan_publish_after')events.push(stage);}});
+  const id=planId(),bytes=Buffer.from('{}\n'),final=f.file('plans',`${id}.json`);armed=true;
+  await f.store.publishPlan(id,bytes,{
+    onDispatch:()=>events.push('dispatch'),
+    onPublished:()=>{assert.equal(existsSync(final),true);events.push('published');},
+  });
+  assert.ok(events.indexOf('dispatch')<events.indexOf('published'));
+  assert.ok(events.indexOf('published')<events.indexOf('plan_publish_after'));
+  const callbacks=events.filter(value=>['dispatch','published'].includes(value)).length;
+  await assert.rejects(f.store.publishPlan(id,bytes,{onDispatch:()=>events.push('dispatch'),onPublished:()=>events.push('published')}),
+    stateError('STATE_CONFLICT','plan_exists'));
+  await assert.rejects(f.store.publishPlan(planId(),bytes,{onDispatch:()=>events.push('dispatch'),onPublished:()=>events.push('published')}),
+    stateError('STATE_LIMIT','plan_capacity'));
+  assert.equal(events.filter(value=>['dispatch','published'].includes(value)).length,callbacks);
 });
 test('claim authority is immutable; duplicate association returns without writes; missing references never reconstruct', async t => {
   let writes=0; const f=await fixture(t,{fault:stage=>{if(stage.endsWith('_write_before')&&!stage.startsWith('lock'))writes++;}});

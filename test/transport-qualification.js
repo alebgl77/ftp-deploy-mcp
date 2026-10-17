@@ -106,6 +106,19 @@ async function startFtpsServer(root, { disconnectOnRead = false } = {}) {
         const port = await listen(passive);
         return reply(`229 Entering Extended Passive Mode (|||${port}|)`);
       }
+      if (verb === "LIST") {
+        if (!protectedData || !dataReady) return reply("425 No protected data connection");
+        if (arg && arg !== "/") return reply("550 Flat fixture root only");
+        reply("150 Opening protected data connection");
+        const data = await dataReady;
+        dataReady = undefined;
+        const listing = fs.readdirSync(root, { withFileTypes: true }).map((entry) => {
+          const stat = fs.statSync(path.join(root, entry.name));
+          return `${entry.isDirectory() ? "d" : "-"}rw-r--r-- 1 fixture fixture ${stat.size} Jan 01 2020 ${entry.name}\r\n`;
+        }).join("");
+        data.end(listing, () => reply("226 Transfer complete"));
+        return;
+      }
       if (verb === "STOR" || verb === "RETR") {
         if (!protectedData || !dataReady) return reply("425 No protected data connection");
         const target = file(arg);
@@ -157,6 +170,47 @@ async function startFtpsServer(root, { disconnectOnRead = false } = {}) {
       await Promise.all(closed);
     },
   };
+}
+
+function ftpIdentityChild(server, dir) {
+  const env = { ...process.env, NODE_EXTRA_CA_CERTS: certPath };
+  delete env.NODE_TLS_REJECT_UNAUTHORIZED;
+  delete env.NODE_OPTIONS;
+  const remote = path.join(dir, "remote");
+  const config = { protocol: "ftps", host: "127.0.0.1", port: server.port, user: "fixture",
+    password: "test-only-password", root: "/" };
+  const code = `
+    import fs from "node:fs";
+    import path from "node:path";
+    import { connect } from ${JSON.stringify(new URL("../src/adapters/ftp.js", import.meta.url).href)};
+    const remote = ${JSON.stringify(remote)};
+    let adapter;
+    try {
+      adapter = await connect(${JSON.stringify(config)});
+      const stage = "/stage.tmp";
+      const target = "/target.txt";
+      fs.writeFileSync(path.join(remote, "stage.tmp"), "original");
+      fs.writeFileSync(path.join(remote, "target.txt"), "preserve");
+      const renameIdentity = await adapter.inspectFile(stage, { maxBytes: 8 });
+      fs.writeFileSync(path.join(remote, "stage.tmp"), "intruder");
+      const renameError = await adapter.rename(stage, target, { staged: true, createParents: false,
+        identity: renameIdentity.identity }).then(() => null, (error) => error);
+      fs.writeFileSync(path.join(remote, "stage.tmp"), "original");
+      const deleteIdentity = await adapter.inspectFile(stage, { maxBytes: 8 });
+      fs.writeFileSync(path.join(remote, "stage.tmp"), "intruder");
+      const deleteError = await adapter.deleteFile(stage, { identity: deleteIdentity.identity })
+        .then(() => null, (error) => error);
+      console.log(JSON.stringify({ renameCode: renameError?.code, deleteCode: deleteError?.code,
+        target: fs.readFileSync(path.join(remote, "target.txt"), "utf8"),
+        stage: fs.readFileSync(path.join(remote, "stage.tmp"), "utf8") }));
+    } finally { await adapter?.close(); }
+  `;
+  return new Promise((resolve, reject) => {
+    execFile(process.execPath, ["--input-type=module", "-e", code], { env, timeout: 15000 }, (err, stdout, stderr) => {
+      if (err) return reject(new Error(`${err.message}\n${stderr}`));
+      try { resolve(JSON.parse(stdout)); } catch (parseError) { reject(parseError); }
+    });
+  });
 }
 
 async function exercise(adapter, dir) {
@@ -245,6 +299,18 @@ for (const mode of ["trusted", "untrusted", "disconnect"]) {
     } finally { await server.close(); }
   });
 }
+
+test("FTPS durable mutations revalidate hashed identity immediately before RNFR or DELE", { timeout: 20000 }, async (t) => {
+  const dir = scratch(t);
+  const server = await startFtpsServer(path.join(dir, "remote"));
+  try {
+    const result = await ftpIdentityChild(server, dir);
+    assert.deepEqual(result, { renameCode: "TARGET_CHANGED", deleteCode: "TARGET_CHANGED",
+      target: "preserve", stage: "intruder" });
+    assert.equal(server.stats.commands.filter((command) => command === "RNFR").length, 0);
+    assert.equal(server.stats.commands.filter((command) => command === "DELE").length, 0);
+  } finally { await server.close(); }
+});
 
 function clientKey(dir, name) {
   const { privateKey } = crypto.generateKeyPairSync("rsa", {

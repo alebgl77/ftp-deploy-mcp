@@ -7,12 +7,25 @@ Toutes les modifications notables de ce projet sont consignées dans ce fichier.
 Le format s'inspire de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 et le projet suit le [versionnement sémantique](https://semver.org/lang/fr/spec/v2.0.0.html).
 
-## [0.2.1] - 2026-09-14
+## [0.3.0] - 2026-10-17
 
-Ce correctif utilise le canal distinct des releases de sources
+Cette version mineure utilise le canal distinct des releases de sources
 GitHub ; le tag et la release v0.2.0 publiés restent inchangés.
 La publication sur npm et le registre MCP officiel reste en attente. Installez
 depuis les sources ; aucune disponibilité npm, `npx` ou registre n'est annoncée.
+
+### Ajouts
+
+- Déploiement durable facultatif avec `stateDir` : `ftp_plan_deploy`,
+  `ftp_apply_deploy`, `ftp_deploy_status` et `ftp_rollback_deploy`. Le workflow
+  utilise la confirmation MCP officielle `input_required`, des journaux scellés,
+  des sauvegardes vérifiées et bornées, une reprise explicite et une
+  réconciliation prudente. Sa garantie est `observable_state_reconciled`, pas
+  l'atomicité multi-fichiers ni l'exécution exactement une fois.
+- Le format d'état v2 protège la vie privée : hash de racine locale salé par
+  domaine et chemins sources relatifs stricts, jamais la racine absolue. Apply
+  revalide l'identité locale avant connexion ; rollback reste utilisable après
+  dérive de racine. L'état v1 exige une réinitialisation hors ligne.
 
 ### Corrections
 
@@ -44,11 +57,17 @@ depuis les sources ; aucune disponibilité npm, `npx` ou registre n'est annoncé
 
 ### Changements
 
-- Les six dépendances directes de production sont épinglées exactement ; le seul
-  `package-lock.json` conserve les 112 entrées non racine revues (110 de production
-  et deux de développement). Aucun shrinkwrap n'est livré.
-- Le builder produit une archive d'installation source de 82 fichiers avec le
-  verrouillage, distincte du paquet npm de 81 fichiers sans verrouillage. Les
+- Le runtime MCP utilise désormais le SDK TypeScript modulaire stable v2.3.1 :
+  `@modelcontextprotocol/server` est la dépendance de production épinglée, tandis
+  que le client et le paquet core de protocole brut, eux aussi épinglés, restent
+  réservés au développement. L'entrée stdio utilise la factory `serveStdio`,
+  négocie la révision `2026-07-28` et conserve le chemin des anciens clients,
+  y compris la révision `2024-11-05`.
+- Les cinq dépendances directes de production sont épinglées exactement ; le seul
+  `package-lock.json` conserve 35 entrées non racine revues (22 de production
+  et 13 de développement). Aucun shrinkwrap n'est livré.
+- Le builder produit une archive d'installation source de 90 fichiers avec le
+  verrouillage, distincte du paquet npm de 89 fichiers sans verrouillage. Les
   preuves lient explicitement la distribution, les sources et l'intégrité.
 - L'installation source utilise `npm ci --omit=dev --ignore-scripts` ; celle des
   contributeurs utilise `npm ci --ignore-scripts`. Les octets des archives peuvent
@@ -62,10 +81,8 @@ depuis les sources ; aucune disponibilité npm, `npx` ou registre n'est annoncé
   les releases de sources GitHub de la disponibilité sur npm et le registre
   MCP officiel.
 
-Les composants internes de préparation, d'état et de workflow n'exposent ni
-plan/apply/status public, ni journal, reprise ou retour arrière. Les tests
-scriptés ne sont pas un benchmark de LLM et ce correctif ne revendique aucune
-certification pour un usage en entreprise.
+Les tests scriptés ne sont pas un benchmark de LLM et cette version mineure ne revendique
+aucune certification pour un usage en entreprise.
 
 ## [0.2.0] - 2026-09-09
 

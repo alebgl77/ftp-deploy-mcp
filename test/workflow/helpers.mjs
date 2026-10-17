@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { sha256, validateStateLimits } from '../../src/state/codec.mjs';
 import { encodePlan } from '../../src/workflow/model.mjs';
 import { createWorkflowPolicy } from '../../src/workflow/events.mjs';
@@ -9,9 +8,9 @@ export function limits(overrides = {}, state = {}) {
   return { stateLimits: validateStateLimits(state), maxTransferBytes: 1099511627776, maxDeployBytes: 1099511627776, maxDeployFiles: 100000, ...overrides };
 }
 export function plan(kinds = ['C'], protocol = 'sftp') {
-  return { v: 1, createdAt: 1, expiresAt: 900001, serverAlias: 'Prod', policyHash: 'a'.repeat(64),
+  return { v: 2, createdAt: 1, expiresAt: 900001, serverAlias: 'Prod', source: { localRootHash: 'b'.repeat(64) }, policyHash: 'a'.repeat(64), securityWarning: null,
     target: { protocol, host: 'example.test', port: protocol === 'sftp' ? 22 : 21, user: 'Deploy',
-      root: '/root', localRoot: path.resolve('fixture-source'), canonicalRoot: protocol === 'sftp' ? '/canonical' : null },
+      root: '/root', canonicalRoot: protocol === 'sftp' ? '/canonical' : null },
     files: kinds.map((kind, index) => ({ index, localPath: `file-${String(index).padStart(5, '0')}`, remotePath: `file-${String(index).padStart(5, '0')}`,
       bytes: 3, sha256: NEW, before: kind === 'A' ? { kind: 'absent' } : { kind: 'file', bytes: 3, sha256: kind === 'U' ? NEW : OLD, mode: protocol === 'sftp' ? 420 : null },
       parent: protocol === 'sftp' ? '/canonical' : '/root', desiredMode: protocol === 'sftp' ? 420 : null })) };

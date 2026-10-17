@@ -44,8 +44,8 @@ try {
   if (!scenario || !["en", "fr"].includes(locale) || !fs.statSync(caseRoot).isDirectory()) throw new PreconditionFailure("RUN_ARGUMENTS");
   const require = createRequire(path.join(repo, "package.json"));
   const sdkImport = (specifier) => import(pathToFileURL(require.resolve(specifier)).href);
-  const [{ McpServer }, { Client }, { InMemoryTransport }, { registerTools }, { loadConfig }, primitives, { createI18n, CATALOGS }] = await Promise.all([
-    sdkImport("@modelcontextprotocol/sdk/server/mcp.js"), sdkImport("@modelcontextprotocol/sdk/client/index.js"), sdkImport("@modelcontextprotocol/sdk/inMemory.js"),
+  const [{ McpServer, InMemoryTransport }, { Client }, { registerTools }, { loadConfig }, primitives, { createI18n, CATALOGS }] = await Promise.all([
+    sdkImport("@modelcontextprotocol/server"), sdkImport("@modelcontextprotocol/client"),
     import(pathToFileURL(path.join(repo, "src/tools.js")).href), import(pathToFileURL(path.join(repo, "src/config.js")).href),
     import(pathToFileURL(path.join(repo, "src/transfers.js")).href), import(pathToFileURL(path.join(repo, "src/i18n.js")).href),
   ]);

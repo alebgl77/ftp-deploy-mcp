@@ -16,8 +16,10 @@ import { SCAN_LIMITS } from "./scanner.js";
 import { appError, isAppError, messageList, messageSpec, renderError, renderMessage, protectError } from "./errors.js";
 import { createI18n } from "./i18n.js";
 import { createRedactor } from "./redact.js";
+import { validateStateLimits } from "./state/index.mjs";
 
 const PROTOCOLS = new Set(["ftp", "ftps", "sftp"]);
+const ENVELOPE_KEYS = new Set(["servers", "defaultServer", "stateDir", "requirePlan", "stateLimits"]);
 const loadedRedactors = new WeakMap();
 
 // Credentials from rejected entries must still protect their diagnostics.
@@ -177,6 +179,10 @@ function validateEnvelope(parsed) {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     return appError("CONFIG_INVALID", "runtime.config.envelope.object");
   }
+  if (Object.keys(parsed).some((key) => !ENVELOPE_KEYS.has(key))) {
+    // Never echo an unknown key: rejected object keys are credential material.
+    return appError("CONFIG_INVALID", "runtime.config.envelope.unknown");
+  }
   const servers = parsed.servers;
   if (!servers || typeof servers !== "object" || Array.isArray(servers)) {
     return appError("CONFIG_INVALID", "runtime.config.envelope.servers");
@@ -193,7 +199,85 @@ function validateEnvelope(parsed) {
       return appError("CONFIG_INVALID", "runtime.config.envelope.defaultUnknown", { name: parsed.defaultServer, available: names.join(", ") });
     }
   }
+  if (parsed.stateDir === undefined && (parsed.requirePlan !== undefined || parsed.stateLimits !== undefined)) {
+    return appError("CONFIG_INVALID", "runtime.config.envelope.stateRequiresDirectory");
+  }
+  if (parsed.requirePlan !== undefined && typeof parsed.requirePlan !== "boolean") {
+    return appError("CONFIG_INVALID", "runtime.config.envelope.requirePlan");
+  }
   return null;
+}
+
+function sameLocalPath(left, right) {
+  return process.platform === "win32" ? left.toLowerCase() === right.toLowerCase() : left === right;
+}
+
+function containsLocalPath(root, candidate) {
+  const rel = path.relative(root, candidate);
+  return rel === "" || (rel !== ".." && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel));
+}
+
+function canonicalFuturePath(input) {
+  let ancestor = input;
+  while (!fs.existsSync(ancestor)) {
+    const parent = path.dirname(ancestor);
+    if (parent === ancestor) throw appError("CONFIG_INVALID", "runtime.config.envelope.statePath");
+    ancestor = parent;
+  }
+  let stat;
+  let real;
+  try {
+    stat = fs.lstatSync(ancestor);
+    real = fs.realpathSync(ancestor);
+  } catch {
+    throw appError("CONFIG_INVALID", "runtime.config.envelope.statePath");
+  }
+  if (!stat.isDirectory() || stat.isSymbolicLink() || !sameLocalPath(ancestor, real)) {
+    throw appError("CONFIG_INVALID", "runtime.config.envelope.statePath");
+  }
+  return path.resolve(real, path.relative(ancestor, input));
+}
+
+function normalizeDurableSettings(parsed, validServers) {
+  if (parsed.stateDir === undefined) {
+    return Object.freeze({ stateDir: undefined, requirePlan: undefined, stateLimits: undefined });
+  }
+  if (!nonEmptyString(parsed.stateDir)) {
+    throw appError("CONFIG_INVALID", "runtime.config.envelope.statePath");
+  }
+  const stateDir = expandHome(parsed.stateDir);
+  if (!path.isAbsolute(stateDir) || path.normalize(stateDir) !== stateDir || path.resolve(stateDir) !== stateDir) {
+    throw appError("CONFIG_INVALID", "runtime.config.envelope.statePath");
+  }
+  const canonicalStateDir = canonicalFuturePath(stateDir);
+  if (!sameLocalPath(stateDir, canonicalStateDir)) {
+    throw appError("CONFIG_INVALID", "runtime.config.envelope.statePath");
+  }
+  for (const server of Object.values(validServers)) {
+    if (!nonEmptyString(server.localRoot)) continue;
+    const configuredRoot = expandHome(server.localRoot);
+    if (!path.isAbsolute(configuredRoot)) {
+      throw appError("CONFIG_INVALID", "runtime.config.envelope.stateLocalRoot");
+    }
+    let canonicalRoot;
+    try {
+      const stat = fs.statSync(configuredRoot);
+      canonicalRoot = fs.realpathSync(configuredRoot);
+      if (!stat.isDirectory()) throw new Error("not-directory");
+    } catch {
+      throw appError("CONFIG_INVALID", "runtime.config.envelope.stateLocalRoot");
+    }
+    if (containsLocalPath(canonicalRoot, canonicalStateDir) || containsLocalPath(canonicalStateDir, canonicalRoot)) {
+      throw appError("CONFIG_INVALID", "runtime.config.envelope.stateOverlap");
+    }
+  }
+  let stateLimits;
+  try {
+    stateLimits = validateStateLimits(parsed.stateLimits);
+  } catch {
+    throw appError("CONFIG_INVALID", "runtime.config.envelope.stateLimits");
+  }
+  return Object.freeze({ stateDir, requirePlan: parsed.requirePlan ?? true, stateLimits });
 }
 
 // Normalize a server entry into what adapters expect (default ports, expanded
@@ -406,9 +490,18 @@ function loadConfigWithRedactor(configFlag, redactor) {
   if (serverNames.length === 0) {
     return errorResult(filePath, searched, joinConfigFailures(invalidServerNames.map((name) => serverFailures[name])), serverFailures);
   }
+  let durable;
+  try {
+    durable = normalizeDurableSettings(substituted, substituted.servers);
+  } catch (error) {
+    return errorResult(filePath, searched, error, serverFailures);
+  }
   const config = {
     defaultServer: substituted.defaultServer ?? null,
     servers: validServers,
+    stateDir: durable.stateDir,
+    requirePlan: durable.requirePlan,
+    stateLimits: durable.stateLimits,
   };
 
   return {
@@ -424,6 +517,17 @@ function loadConfigWithRedactor(configFlag, redactor) {
     serverFailures,
     defaultServer: config.defaultServer,
   };
+}
+
+// Resolve the effective durable policy without enabling or gating any legacy
+// mutator. Callers must explicitly opt into the durable workflow modules.
+export function resolveDurableConfig(loaded) {
+  const config = loaded?.config ?? loaded;
+  if (!config || config.stateDir === undefined) {
+    return Object.freeze({ enabled: false, stateDir: undefined, requirePlan: undefined, stateLimits: undefined });
+  }
+  return Object.freeze({ enabled: true, stateDir: config.stateDir,
+    requirePlan: config.requirePlan, stateLimits: config.stateLimits });
 }
 
 function joinConfigFailures(failures) {

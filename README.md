@@ -10,6 +10,10 @@ Give Claude Code, Claude Desktop, Cursor, Windsurf, Trae, Antigravity, or any
 MCP client a focused way to list, read, upload, download, and deploy files on
 your own FTP, FTPS, and SFTP servers.
 
+The stdio server implements MCP revision `2026-07-28` through the stable
+modular TypeScript SDK v2 and retains the SDK's legacy negotiation path for
+older MCP clients.
+
 *Version française → [README.fr.md](./README.fr.md)*
 
 CLI and MCP language: English by default; use `--lang fr` or `FTP_MCP_LANG=fr`.
@@ -35,7 +39,7 @@ runs against local FTP and SFTP servers. There is no telemetry.
 > installation is not offered here. GitHub source releases are
 > separate from npm and Official MCP Registry publication. Existing Glama and
 > MCP Index pages are discovery listings, not proof of an installable package.
-> This checkout has version 0.2.1. Find published source versions on
+> This checkout has version 0.3.0. Find published source versions on
 > [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest);
 > the published GitHub release v0.2.0 remains unchanged.
 
@@ -56,8 +60,8 @@ runs against local FTP and SFTP servers. There is no telemetry.
 | MCP error contract | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |
 | Verified staged transfers | [Guide](./docs/TRANSFERS.md) | [Guide](./docs/TRANSFERS.fr.md) |
 | Scan and admission limits | [Limits](./docs/RESOURCE-BOUNDS.md) | [Limites](./docs/RESOURCE-BOUNDS.fr.md) |
-| State storage primitives (internal library, no MCP tool) | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
-| Durable workflow model (internal library, no MCP tool) | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
+| Durable state storage | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
+| Durable workflow model | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
 | MIT license | [Canonical text](./LICENSE) | [Informative translation](./LICENSE.fr.md) |
 
 ## Architecture and scenarios
@@ -75,7 +79,7 @@ document their illustrative role; they are not a certification.
 
 ## First source install
 
-1. Install a supported Node.js LTS version: 22 or 24 (minimum: 22).
+1. Install a supported Node.js version: 22, 24 or 26 (minimum: 22).
 2. Run `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, then
    `cd ftp-deploy-mcp`.
 3. Run `npm ci --omit=dev --ignore-scripts`.
@@ -98,12 +102,12 @@ the sole authoritative `package-lock.json`, with six exact direct pins and the
 reviewed graph. Keep it with the sources. `--ignore-scripts` disables automatic
 dependency lifecycle scripts; setup is a separate, explicit action.
 
-The v0.2.1 source installation asset is named
-`ftp-deploy-mcp-0.2.1-source.tar.gz`: 82 files, including that lockfile. Once its
+The v0.3.0 source installation asset is named
+`ftp-deploy-mcp-0.3.0-source.tar.gz`: 90 files, including that lockfile. Once its
 publication and checksums are verified, extract it in a fresh directory:
 
 ```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.2.1-source.tar.gz
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.0-source.tar.gz
 cd package
 npm ci --omit=dev --ignore-scripts
 node src/index.js setup
@@ -111,7 +115,7 @@ node src/index.js setup
 
 This installation archive excludes repository tests and maintainer scripts;
 GitHub's automatic source ZIP/tar contains the complete repository. The separate
-npm `.tgz` contains 81 files without a lockfile and remains unqualified: an actual
+npm `.tgz` contains 89 files without a lockfile and remains unqualified: an actual
 npm consumer changed ten production dependencies. It provides no locked-install
 guarantee. See the [release guide](./docs/RELEASE.md) for verification and limits.
 
@@ -161,6 +165,8 @@ must be strict JSON; start from
 ```jsonc
 {
   "defaultServer": "prod",
+  "stateDir": "/home/alice/.local/state/ftp-deploy-mcp",
+  "requirePlan": true,
   "servers": {
     "prod": {
       "protocol": "sftp",
@@ -196,6 +202,9 @@ entry is exactly `SHA256:` plus 43 characters of unpadded base64.
 
 | Field | Applies to | Meaning |
 |---|---|---|
+| `stateDir` | top level | Optional absolute, normalized durable-state directory, canonically disjoint from every `localRoot`. Enabling it advertises the four durable workflow tools. |
+| `requirePlan` | top level | With `stateDir`, defaults to `true`. Blocks legacy remote mutators except `ftp_deploy` dry runs; `false` retains them under the same persistent alias lock. |
+| `stateLimits` | top level | Optional strict durable quotas for state, backups, plans, operations, plan files/bytes, journal bytes/events, and backup files. |
 | `protocol` | all | Required: `ftp`, `ftps`, or `sftp`. |
 | `host` / `port` / `user` | all | Connection endpoint and account. Default ports are 21, 990 for implicit FTPS, and 22 for SFTP. |
 | `password` | all | Password or `${ENV:NAME}` placeholder. |
@@ -256,6 +265,34 @@ exists.
 | `ftp_mkdir` | `server?`, `path` | Create a remote directory recursively. |
 | `ftp_rename` | `server?`, `from_path`, `to_path` | Rename or move. |
 | `ftp_delete` | `server?`, `path`, `recursive?` | Delete a file or, with explicit recursion, a directory. |
+| `ftp_plan_deploy` | `server?`, `local_dir`, `remote_dir?`, `include?`, `exclude?`, `ttl_seconds?` | Publish an immutable, expiring durable plan. Available only with `stateDir`. |
+| `ftp_apply_deploy` | `plan_id`, `idempotency_key`, `resume?` | Confirm, associate, and explicitly resume a durable apply. |
+| `ftp_deploy_status` | exactly one of `plan_id` / `operation_id`, `offset?`, `limit?`, `if_journal_seq?` | Read a lock-free, paginated durable snapshot without network access or state writes. |
+| `ftp_rollback_deploy` | `operation_id`, `resume?` | Confirm and explicitly resume conservative rollback of durably acknowledged files. |
+
+### Durable workflow guarantees
+
+The durable tools require the official MCP `input_required` confirmation flow;
+there is no boolean fallback. Signed request state binds the session, method,
+plan digest, operation, idempotency-key hash, resume choice, journal sequence,
+and expiry. Declined, invalid, expired, or unsupported interaction has no remote
+effect. Association alone is status-only; any nonterminal remote mutation
+requires `resume:true`.
+
+The guarantee level is `observable_state_reconciled`: per-file replacement is
+server-dependent, multi-file atomicity and exactly-once execution are false,
+and rollback covers only durably acknowledged files. SFTP supports replacement
+plus new files under existing canonical parents; FTP/FTPS supports replacement
+of existing regular files only. Durable execution never creates parents, purges
+remote extras, automatically rolls back, or rolls back `SATISFIED_UNOWNED`.
+
+Cooperating processes sharing one canonical `stateDir` serialize the exact
+server alias before adapter construction. This is not a distributed remote lock
+and does not coordinate different aliases or state directories. Overlapping
+writable aliases, alias renames, mixed-binary upgrades, and a process killed
+while holding a persistent lock require operator care: quiesce upgrades and
+recover stale locks offline. External writers and ABA changes remain outside
+the observable identity guarantee.
 
 ### Verified staged promotion
 
@@ -270,8 +307,8 @@ appeared meanwhile; filesystems without hard-link support fail closed.
 Local and SFTP replacements preserve an existing regular target's permission
 bits (0777); FTP/FTPS cannot portably preserve permissions, so account creation
 defaults, umask and ACL policy need to suit the destination. Rename behavior
-depends on the server and filesystem. This does not promise universal atomic
-replacement, a site transaction, or rollback. Readback adds network traffic.
+depends on the server and filesystem. Legacy upload/deploy does not promise
+universal atomic replacement, a site transaction, or rollback. Readback adds network traffic.
 See [transfer guarantees, limits and cleanup](./docs/TRANSFERS.md).
 
 ### Execution, cancellation, and contention
@@ -286,14 +323,15 @@ deploy files. Errors identify `CANCELLED` or `TIMEOUT`; `TARGET_BUSY` indicates
 waiting for another operation. A timed-out call can return before an underlying
 operation settles, but its lock remains owned until settlement and cleanup.
 No uncertain mutation is retried automatically. Inspect partial remote/local
-state before retrying; this is not transactional deployment or rollback.
+state before retrying; legacy mutation calls are not transactional deployment
+and provide no rollback.
 
 Internal preparation is single-use and limited to 10 seconds without extending
 the overall operation deadline. Admission remains held until the actual work
 and cleanup settle. A prepared context is released once, including when it
 arrives after cancellation; the handler is not called after preparation is
-cancelled or expires. Preparation callbacks themselves may act. This adds no
-public MCP tool or durable deployment workflow. See the
+cancelled or expires. Preparation callbacks themselves may act. Durable tools
+use the same settlement discipline. See the
 [resource limits](./docs/RESOURCE-BOUNDS.md).
 
 Progress notifications are sent only when the caller supplies a progress
@@ -399,7 +437,7 @@ printing passwords.
 
 ## Migrating from v0.1 to v0.2
 
-GitHub v0.2.0 is published. This source checkout has version 0.2.1. The npm
+GitHub v0.2.0 is published. This source checkout has version 0.3.0. The npm
 package remains unpublished, and the project still lists Official MCP Registry
 publication as pending. The steps below apply to the source installation and
 do not announce an npm release.

@@ -8,12 +8,14 @@
 
 import { Client } from "basic-ftp";
 import { Writable } from "node:stream";
+import { finished } from "node:stream/promises";
 import path from "node:path";
 import fs from "node:fs";
 import { checkedMethods } from "../operations.js";
 import { appError, isAppError, nativeError, messageSpec } from "../errors.js";
 import { normalizeRoot } from "../remote-path.js";
-import { TRANSFER_LIMITS, hashRemoteStream, sendLocalStream, receiveLocalStream } from "../transfers.js";
+import { TRANSFER_LIMITS, checkTransferSize, hashRemoteStream, sendReadableStream,
+  receiveLocalStream, receiveRemoteStream } from "../transfers.js";
 
 import {
   insecureTransport,
@@ -71,6 +73,7 @@ export async function connect(serverCfg, operation) {
   }
 
   const ctx = { host: serverCfg.host, port: serverCfg.port, user: serverCfg.user };
+  const canonicalRoot = normalizeRoot(serverCfg.root);
   const transport = new Client(30000);
   const client = checkedMethods(transport, operation, [
     "access", "list", "ensureDir", "uploadFrom", "downloadTo", "remove", "removeDir", "rename",
@@ -113,6 +116,95 @@ export async function connect(serverCfg, operation) {
     await client.ensureDir(dir);
   }
 
+  async function listedFile(remotePath, { allowAbsent = false } = {}) {
+    const parent = posix.dirname(remotePath);
+    const base = posix.basename(remotePath);
+    const entries = await client.list(parent);
+    const found = entries.find((entry) => entry.name === base);
+    if (!found && allowAbsent) return { parent, found: null };
+    if (!found) throw appError("NOT_FOUND", "runtime.ftp.notFound", { where: `: ${remotePath}`, error: "550 not found" }, { origin: "ftp" });
+    if (entryType(found) !== "file") throw appError("PATH_REJECTED", "error.PATH_REJECTED");
+    return { parent, found };
+  }
+
+  function identityFor(remotePath, parent, details = {}) {
+    return Object.freeze({ root: canonicalRoot, canonicalRoot, path: remotePath, parent, ...details });
+  }
+
+  function assertIdentity(remotePath, parent, found, identity) {
+    if (!identity) return;
+    const root = identity.canonicalRoot ?? identity.root;
+    if ((root !== undefined && root !== canonicalRoot) ||
+        (identity.path !== undefined && identity.path !== remotePath) ||
+        (identity.parent !== undefined && identity.parent !== parent) ||
+        (identity.bytes !== undefined && identity.bytes !== found.size)) {
+      throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    }
+  }
+
+  function assertObservedIdentity(observation, identity) {
+    if (!identity || observation?.type !== "file") {
+      throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    }
+    const root = identity.canonicalRoot ?? identity.root;
+    if ((root !== undefined && root !== observation.canonicalRoot) ||
+        (identity.path !== undefined && identity.path !== observation.path) ||
+        (identity.parent !== undefined && identity.parent !== observation.parent) ||
+        (identity.bytes !== undefined && identity.bytes !== observation.bytes) ||
+        (identity.sha256 !== undefined && identity.sha256 !== observation.sha256)) {
+      throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    }
+  }
+
+  async function inspectRemoteFile(remotePath, maxBytes = maxTransferBytes) {
+    const before = await listedFile(remotePath, { allowAbsent: true });
+    if (!before.found) return { type: "absent", path: remotePath, parent: before.parent, canonicalRoot };
+    checkTransferSize(before.found.size, Math.min(maxBytes, maxTransferBytes));
+    const actual = await hashRemoteStream((output) => client.downloadTo(output, remotePath),
+      Math.min(maxBytes, maxTransferBytes), operation);
+    const after = await listedFile(remotePath);
+    if (before.found.size !== after.found.size || actual.bytes !== after.found.size) {
+      throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    }
+    const identity = identityFor(remotePath, before.parent, actual);
+    return { type: "file", path: remotePath, parent: before.parent, canonicalRoot,
+      bytes: actual.bytes, sha256: actual.sha256, identity };
+  }
+
+  async function uploadReadable(readable, remotePath, expected, options = {}) {
+    checkTransferSize(expected?.bytes, Math.min(expected?.bytes, maxTransferBytes));
+    const parent = posix.dirname(remotePath);
+    if (options.createParents === false) await client.list(parent);
+    else await ensureDirAbsolute(parent);
+    if (options.staged && options.checkExisting !== false) {
+      const prior = await listedFile(remotePath, { allowAbsent: true });
+      if (prior.found) throw appError("ALREADY_EXISTS", "error.exists", { path: remotePath });
+    }
+    options.onCreating?.();
+    // FTP has no exclusive STOR. The unpredictable validated staging name is
+    // the ownership boundary; callers still verify bytes before promotion.
+    const identity = identityFor(remotePath, parent);
+    options.onOwned?.(identity);
+    await sendReadableStream(readable, Math.min(expected.bytes, maxTransferBytes), operation,
+      (input) => client.uploadFrom(input, remotePath));
+    return {};
+  }
+
+  async function downloadReadable(remotePath, writable, maxBytes, options = {}) {
+    const before = await listedFile(remotePath);
+    assertIdentity(remotePath, before.parent, before.found, options.identity);
+    checkTransferSize(before.found.size, Math.min(maxBytes, maxTransferBytes));
+    const actual = await receiveRemoteStream(writable, Math.min(maxBytes, maxTransferBytes), operation,
+      (output) => client.downloadTo(output, remotePath), { sha256: typeof options.identity?.sha256 === "string" });
+    const after = await listedFile(remotePath);
+    assertIdentity(remotePath, after.parent, after.found, options.identity);
+    if (before.found.size !== after.found.size || actual.bytes !== after.found.size ||
+        (options.identity?.sha256 !== undefined && options.identity.sha256 !== actual.sha256)) {
+      throw appError("TARGET_CHANGED", "runtime.sftp.temporaryIdentityChanged", {});
+    }
+    return actual;
+  }
+
   return {
     async list(dir) {
       try {
@@ -153,13 +245,23 @@ export async function connect(serverCfg, operation) {
     },
 
     async uploadFile(localPath, remotePath, maxBytes = maxTransferBytes, options = {}) {
+      const readable = fs.createReadStream(localPath);
+      const settled = finished(readable).catch(() => {});
       try {
-        await ensureDirAbsolute(posix.dirname(remotePath));
-        // Portable FTP has no exclusive STOR. Ownership uses the unpredictable
-        // name selected by the caller; no existing final target is removed.
-        options.onOwned?.();
-        await sendLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
-          (input) => client.uploadFrom(input, remotePath));
+        const bytes = Math.min(maxBytes, maxTransferBytes);
+        return await uploadReadable(readable, remotePath, { bytes },
+          { createParents: true, ...options, checkExisting: false });
+      } catch (err) {
+        throw friendlyError(err, { ...ctx, path: remotePath });
+      } finally {
+        readable.destroy();
+        await settled;
+      }
+    },
+
+    async uploadStream(readable, remotePath, expected, options = {}) {
+      try {
+        return await uploadReadable(readable, remotePath, expected, options);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: remotePath });
       }
@@ -171,6 +273,22 @@ export async function connect(serverCfg, operation) {
         fs.mkdirSync(path.dirname(localPath), { recursive: true });
         await receiveLocalStream(localPath, Math.min(maxBytes, maxTransferBytes), operation,
           (output) => client.downloadTo(output, remotePath));
+      } catch (err) {
+        throw friendlyError(err, { ...ctx, path: remotePath });
+      }
+    },
+
+    async downloadStream(remotePath, writable, maxBytes = maxTransferBytes, options = {}) {
+      try {
+        return await downloadReadable(remotePath, writable, maxBytes, options);
+      } catch (err) {
+        throw friendlyError(err, { ...ctx, path: remotePath });
+      }
+    },
+
+    async inspectFile(remotePath, { maxBytes = maxTransferBytes } = {}) {
+      try {
+        return await inspectRemoteFile(remotePath, maxBytes);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: remotePath });
       }
@@ -235,8 +353,12 @@ export async function connect(serverCfg, operation) {
       }
     },
 
-    async deleteFile(p) {
+    async deleteFile(p, options = {}) {
       try {
+        if (typeof options.identity?.sha256 === "string") {
+          const observed = await inspectRemoteFile(p, options.identity.bytes ?? maxTransferBytes);
+          assertObservedIdentity(observed, options.identity);
+        }
         await client.remove(p);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: p });
@@ -251,9 +373,14 @@ export async function connect(serverCfg, operation) {
       }
     },
 
-    async rename(from, to) {
+    async rename(from, to, options = {}) {
       try {
-        await ensureDirAbsolute(posix.dirname(to));
+        if (options.createParents === false) await client.list(posix.dirname(to));
+        else await ensureDirAbsolute(posix.dirname(to));
+        if (typeof options.identity?.sha256 === "string") {
+          const observed = await inspectRemoteFile(from, options.identity.bytes ?? maxTransferBytes);
+          assertObservedIdentity(observed, options.identity);
+        }
         await client.rename(from, to);
       } catch (err) {
         throw friendlyError(err, { ...ctx, path: from });

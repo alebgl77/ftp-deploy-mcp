@@ -10,8 +10,11 @@ export const MCP_NAME = "io.github.alebgl77/ftp-deploy-mcp";
 export const SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
 
 export const PRODUCTION_PINS = Object.freeze({
-  "@modelcontextprotocol/sdk": "1.29.0", "basic-ftp": "6.0.1", "picomatch": "4.0.5",
-  "ssh2-sftp-client": "12.1.1", "zod": "3.25.76", "zod-to-json-schema": "3.25.2",
+  "@modelcontextprotocol/server": "2.3.1", "basic-ftp": "6.2.3", "picomatch": "4.0.5",
+  "ssh2-sftp-client": "12.1.1", "zod": "4.6.7",
+});
+export const MCP_DEVELOPMENT_PINS = Object.freeze({
+  "@modelcontextprotocol/client": "2.3.1", "@modelcontextprotocol/core": "2.3.1",
 });
 export function validateDependencies(pkg, lock) {
   assert.equal(lock.lockfileVersion, 3, "package-lock.json must use lockfile version 3");
@@ -30,6 +33,10 @@ export function validateDependencies(pkg, lock) {
   assert.deepEqual(root.devDependencies, pkg.devDependencies, "Package lock root development dependency mismatch");
   for (const [name, version] of Object.entries(pkg.dependencies)) {
     assert.equal(lock.packages[`node_modules/${name}`]?.version, version, `Locked production dependency mismatch: ${name}`);
+  }
+  for (const [name, version] of Object.entries(MCP_DEVELOPMENT_PINS)) {
+    assert.equal(pkg.devDependencies?.[name], version, `Development dependency must use the reviewed exact pin: ${name}`);
+    assert.equal(lock.packages[`node_modules/${name}`]?.version, version, `Locked development dependency mismatch: ${name}`);
   }
   for (const [name, record] of Object.entries(lock.packages)) {
     if (!name) continue;

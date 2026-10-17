@@ -2,7 +2,8 @@
 
 [Français](./ERROR-CONTRACT.fr.md)
 
-The ten tool names and success field shapes remain stable. Nine tools publish
+The ten legacy tool names and success field shapes remain stable. When
+`stateDir` is enabled, four durable tools are additionally advertised. Nine legacy tools publish
 a JSON Schema draft-07 `oneOf` with two strict alternatives: the existing
 success object and `{error}`. `ftp_read` retains text-only success and no
 output schema; its errors still use the internally validated envelope.
@@ -29,7 +30,9 @@ the localized human text.
 
 `request_id` is a fresh server-generated UUID for one call. It is unrelated to
 the JSON-RPC correlation ID and is not a durable operation identifier. No
-`operation_id`, journal, recovery command or rollback is provided.
+`operation_id`. Durable errors additionally carry nullable `plan_id` and
+`operation_id`, a phase, and durable partial counters. Those identifiers refer
+only to the sealed journal workflow and are never JSON-RPC correlation IDs.
 
 ## Stable decisions and effect observations
 
@@ -42,15 +45,29 @@ The accepted `code` values are:
 `DEPLOY_PARTIAL`, `TRANSPORT_ERROR`, `OUTPUT_LIMIT`, `INTERNAL_ERROR`,
 `SCAN_LIMIT`, `CAPACITY_LIMIT`.
 
+Durable tools also use `DURABLE_STATE_DISABLED`, `DURABLE_STATE_BUSY`,
+`DURABLE_STATE_LIMIT`, `DURABLE_STATE_CORRUPT`, `DURABLE_STATE_IO`,
+`DURABLE_STATE_UNSUPPORTED`, `PLAN_NOT_FOUND`, `PLAN_EXPIRED`, `PLAN_STALE`,
+`PLAN_CONSUMED`, `IDEMPOTENCY_CONFLICT`, `CONFIRMATION_DECLINED`,
+`CONFIRMATION_INVALID`, `CLIENT_INTERACTION_UNSUPPORTED`, `STATUS_CHANGED`,
+`RECONCILIATION_REQUIRED`, `ROLLBACK_CONFLICT`, and `WORKFLOW_UNSUPPORTED`.
+State v1 is rejected before plan decoding and requires offline reinitialization.
+
 `SCAN_LIMIT` refuses the complete local selection before connecting, with
 `effects:none` and `next_action:fix_input`. `CAPACITY_LIMIT` refuses admission
 before preparation, with `effects:none` and `next_action:retry`. Both keep
 `retryable:false`; see [resource limits](./RESOURCE-BOUNDS.md).
 
-The accepted `next_action` values are `fix_input`, `fix_config`,
+The accepted legacy `next_action` values are `fix_input`, `fix_config`,
 `select_server`, `inspect_target`, `retry`, `contact_operator`, and `none`.
-This release conservatively returns `retryable: false` for every error.
-It never retries an uncertain mutation automatically.
+Durable errors can additionally direct `status`, `resume_apply`,
+`resume_rollback`, `offline_recovery`, or `upgrade_client`.
+Legacy-tool errors conservatively return `retryable:false`. Durable errors set
+`retryable:true` only for `DURABLE_STATE_BUSY`, `DURABLE_STATE_IO`,
+`STATUS_CHANGED`, and mapped `TIMEOUT` or `TRANSPORT_ERROR` failures; all other
+durable errors return `false`. The flag is guidance for the caller and never
+authorizes an automatic retry: follow `next_action`, especially after any
+`possible` or `confirmed` effect.
 
 | `effects` | Meaning |
 | --- | --- |
@@ -82,13 +99,18 @@ protocol frames retain the SDK's protocol-error handling.
 
 MCP peer cancellation aborts the operation, and the SDK suppresses its result;
 clients must not expect a delivered `CANCELLED` envelope. Internal deadlines
-are distinct and may return `TIMEOUT`. The public transport decorator corrects
-the installed SDK's cancellation gap for numeric `0` and the empty string
-`""` using two independent slots. Other IDs, including the string `"0"`, keep
-native SDK behavior. A duplicate active correlation ID in either corrected
-slot closes the connection. Slots and mutation locks remain owned until the
-actual worker settles, even after an early response. A response whose send
-already started cannot be recalled. Cancellation does not undo effects.
+are distinct and may return `TIMEOUT`. SDK v2 cancellation handles every valid
+request ID natively, including numeric `0` and the empty string `""`. An
+entry-owned wire guard reserves every inbound JSON-RPC request ID, across all
+methods, before SDK dispatch. A duplicate active ID closes the connection before
+a second handler runs, including a cross-method duplicate. A tool-call ID is
+released only after both its terminal response send settles or fails and its
+all registered handler-turn workers, preparation and disposal settle, including
+all legacy input-required rounds. If peer cancellation suppresses
+the response, the ID remains reserved until the connection closes. Concurrent
+different IDs, including `0`, `""`, `1` and `"0"`, remain independent. A
+response whose send already started cannot be recalled. Cancellation does not
+undo effects.
 
 Known tool results are redacted, bounded and validated once at the boundary.
 The 25,000-byte limit covers UTF-8 `JSON.stringify` of the complete result,

@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { zodToJsonSchema } from "zod-to-json-schema";
-import { CallToolRequestSchema, ListToolsRequestSchema, McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
+import { acceptedContent, inputResponse, isInputRequiredResult, ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
 import { createI18n } from "./i18n.js";
 import { createOperation, DEFAULT_OPERATION_TIMEOUT_MS } from "./operations.js";
 import { acquireAdmission } from "./admission.js";
 import { ERROR_CODES, NEXT_ACTIONS, appError, messageSpec, normalizeError, renderError } from "./errors.js";
+import { DURABLE_ERROR_CODES, Guarantees } from "./durable/schemas.js";
 
 export const MAX_RESULT_BYTES = 25000;
+const observeSettlement = Symbol("observeSettlement");
+const trustedInputContext = Symbol("trustedInputContext");
+const requestLifecycleByProtocol = new WeakMap();
 const counter = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 export const ERROR_SCHEMA = z.object({ error: z.object({
   schema_version: z.literal(1), code: z.enum(ERROR_CODES), message: z.string(), retryable: z.boolean(),
@@ -43,6 +46,123 @@ export function truncateUtf8(value, maxBytes, marker = "\n… [output truncated]
   return text.slice(0, low) + marker;
 }
 
+function isRequest(message) {
+  return message?.jsonrpc === "2.0" && typeof message.method === "string" &&
+    (typeof message.id === "string" || typeof message.id === "number");
+}
+
+function isResponse(message) {
+  return message?.jsonrpc === "2.0" && !Object.hasOwn(message, "method") &&
+    (typeof message.id === "string" || typeof message.id === "number") &&
+    (Object.hasOwn(message, "result") || Object.hasOwn(message, "error"));
+}
+
+/**
+ * Wrap the entry-owned stdio wire before passing it to serveStdio. Request IDs
+ * are reserved before the SDK sees any method and remain reserved until the
+ * terminal response write and any tool worker have both actually settled.
+ */
+export function createRequestLifecycleTransport(transport) {
+  if (!transport || typeof transport.start !== "function" || typeof transport.send !== "function" ||
+    typeof transport.close !== "function") throw new TypeError("Invalid MCP transport");
+  const active = new Map();
+  let started = false, closed = false, closeNotified = false, closePromise;
+
+  const notifyClose = () => {
+    if (closeNotified) return;
+    closeNotified = true;
+    closed = true;
+    active.clear();
+    boundary.onclose?.();
+  };
+  const reportError = (error) => boundary.onerror?.(error instanceof Error ? error : new Error(String(error)));
+  const maybeRelease = (id, slot) => {
+    if (active.get(id) !== slot || !slot.responseSettled || slot.pendingApplications.size !== 0) return;
+    active.delete(id);
+  };
+  const failClosed = () => {
+    void boundary.close().catch(reportError);
+  };
+
+  const boundary = {
+    onclose: undefined,
+    onerror: undefined,
+    onmessage: undefined,
+    async start() {
+      if (started) throw new Error("Request lifecycle transport already started");
+      started = true;
+      transport.onmessage = (message, extra) => {
+        if (closed) return;
+        if (isRequest(message)) {
+          if (active.has(message.id)) {
+            failClosed();
+            return;
+          }
+          active.set(message.id, {
+            method: message.method,
+            responseSettled: false,
+            pendingApplications: new Set(),
+          });
+        }
+        try {
+          boundary.onmessage?.(message, extra);
+        } catch (error) {
+          reportError(error);
+          failClosed();
+        }
+      };
+      transport.onerror = reportError;
+      transport.onclose = notifyClose;
+      await transport.start();
+    },
+    async send(message, options) {
+      const slot = isResponse(message) ? active.get(message.id) : undefined;
+      try {
+        return await transport.send(message, options);
+      } finally {
+        if (slot) {
+          slot.responseSettled = true;
+          maybeRelease(message.id, slot);
+        }
+      }
+    },
+    async close() {
+      if (closePromise) return closePromise;
+      closed = true;
+      active.clear();
+      closePromise = Promise.resolve().then(() => transport.close()).finally(notifyClose);
+      return closePromise;
+    },
+    setProtocolVersion(version) {
+      return transport.setProtocolVersion?.(version);
+    },
+    observeApplicationSettlement(id, settlement) {
+      const slot = active.get(id);
+      if (!slot || slot.method !== "tools/call") return false;
+      const tracked = Promise.resolve(settlement);
+      slot.pendingApplications.add(tracked);
+      void tracked.then(() => {
+        slot.pendingApplications.delete(tracked);
+        maybeRelease(id, slot);
+      }, () => {
+        slot.pendingApplications.delete(tracked);
+        maybeRelease(id, slot);
+      });
+      return true;
+    },
+  };
+  return boundary;
+}
+
+export function bindRequestLifecycle(server, lifecycle) {
+  const protocol = server?.server ?? server;
+  if (!protocol || (typeof protocol !== "object" && typeof protocol !== "function") ||
+    typeof lifecycle?.observeApplicationSettlement !== "function") {
+    throw new TypeError("Invalid MCP request lifecycle binding");
+  }
+  requestLifecycleByProtocol.set(protocol, lifecycle);
+}
+
 // Exact schema-specific public constants; no generic key or UUID exemptions.
 const publicEnums = {
   ftp_list_servers: { status: ["configured", "missing", "invalid"], "servers.*.protocol": ["ftp", "ftps", "sftp"], "servers.*.auth": ["key", "password"] },
@@ -50,6 +170,38 @@ const publicEnums = {
   ftp_list: { "entries.*.type": ["dir", "file", "link"] },
   ftp_deploy: { mode: ["dry_run", "deploy"] },
   ftp_delete: { entry_type: ["file", "directory"] },
+};
+const durableGuarantees = {
+  "guarantees.level": [Guarantees.level],
+  "guarantees.per_file_atomicity": [Guarantees.per_file_atomicity],
+  "guarantees.rollback_scope": [Guarantees.rollback_scope],
+  "guarantees.process_crash_recovery": [Guarantees.process_crash_recovery],
+  "guarantees.power_loss_durability": [Guarantees.power_loss_durability],
+};
+const durableErrors = {
+  "error.code": DURABLE_ERROR_CODES,
+  "error.next_action": ["fix_input", "fix_config", "inspect_target", "retry", "status", "resume_apply", "resume_rollback", "offline_recovery", "upgrade_client", "none"],
+  "error.effects": ["none", "possible", "confirmed"],
+  "error.phase": ["planned", "applying", "completed", "completed_with_warnings", "rolling_back", "rolled_back", "rollback_with_warnings"],
+};
+publicEnums.ftp_plan_deploy = { phase: ["planned"], protocol: ["ftp", "ftps", "sftp"], ...durableGuarantees, ...durableErrors };
+publicEnums.ftp_apply_deploy = {
+  outcome: ["completed", "completed_with_warnings", "already_terminal", "status_only"],
+  phase: ["applying", "completed", "completed_with_warnings", "rolling_back", "rolled_back", "rollback_with_warnings"],
+  ...durableGuarantees, ...durableErrors,
+};
+publicEnums.ftp_deploy_status = {
+  lookup: ["plan", "operation"],
+  phase: ["planned", "applying", "completed", "completed_with_warnings", "rolling_back", "rolled_back", "rollback_with_warnings"],
+  "files.*.before_kind": ["absent", "file"],
+  "files.*.state": ["pending", "skipped", "applied", "satisfied_unowned", "rolled_back"],
+  "files.*.backup": ["none", "intent", "ready"],
+  ...durableGuarantees, ...durableErrors,
+};
+publicEnums.ftp_rollback_deploy = {
+  outcome: ["rolled_back", "rolled_back_with_warnings", "already_terminal", "status_only"],
+  phase: ["applying", "completed", "completed_with_warnings", "rolling_back", "rolled_back", "rollback_with_warnings"],
+  ...durableGuarantees, ...durableErrors,
 };
 
 function redactStructured(value, redactor, tool, i18n, location = "") {
@@ -97,12 +249,36 @@ function nextAction(code, effects) {
 }
 
 function schemaJSON(schema) {
-  const { $schema: _schema, ...body } = zodToJsonSchema(schema, { target: "jsonSchema7", $refStrategy: "none" });
+  const { $schema: _schema, ...body } = z.toJSONSchema(schema, { target: "draft-07", reused: "inline" });
   return body;
 }
 
+function operationContext(ctx, mintRequestState) {
+  const responses = ctx.mcpReq.inputResponses === undefined
+    ? undefined
+    : Object.freeze({ ...ctx.mcpReq.inputResponses });
+  return {
+    requestId: ctx.mcpReq.id,
+    signal: ctx.mcpReq.signal,
+    _meta: ctx.mcpReq._meta,
+    sendNotification: ctx.mcpReq.notify,
+    sendRequest: ctx.mcpReq.send,
+    sessionId: ctx.sessionId,
+    authInfo: ctx.http?.authInfo,
+    [trustedInputContext]: Object.freeze({
+      inputResponses: responses,
+      inputResponse: (key) => inputResponse(responses, key),
+      acceptedInputResponse: (key, schema) => acceptedContent(responses, key, schema),
+      requestState: ctx.mcpReq.requestState(),
+      ...(typeof mintRequestState === "function"
+        ? { mintRequestState: (payload) => mintRequestState(payload, ctx) }
+        : {}),
+    }),
+  };
+}
+
 export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor = () => undefined,
-  preparedTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, errorNotices = () => [], transportContext }) {
+  preparedTimeoutMs = DEFAULT_OPERATION_TIMEOUT_MS, errorNotices = () => [], mintRequestState } = {}) {
   if (!Number.isSafeInteger(preparedTimeoutMs) || preparedTimeoutMs <= 0 || preparedTimeoutMs > 3600000) {
     throw new TypeError("Invalid prepared operation timeout");
   }
@@ -131,8 +307,20 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
 
   function finish(raw, entry, id, operation) {
     const state = operation.snapshot();
+    if (isInputRequiredResult(raw)) {
+      return entry.inputRequired ? raw : failure(appError("INTERNAL_ERROR", "error.INTERNAL_ERROR"), id, state);
+    }
     const metadata = raw && renderMetadata.get(raw) || {};
-    if (!raw || raw.isError || !Array.isArray(raw.content)) return failure(appError("INTERNAL_ERROR", "error.INTERNAL_ERROR"), id, state);
+    if (!raw || !Array.isArray(raw.content)) return failure(appError("INTERNAL_ERROR", "error.INTERNAL_ERROR"), id, state);
+    if (raw.isError) {
+      if (!entry.error || !entry.error.safeParse(raw.structuredContent).success) {
+        return failure(appError("INTERNAL_ERROR", "error.INTERNAL_ERROR"), id, state);
+      }
+      const structuredContent = redactStructured(raw.structuredContent, redactor, entry.name, i18n);
+      if (!entry.error.safeParse(structuredContent).success) return failure(appError("INTERNAL_ERROR", "error.INTERNAL_ERROR"), id, state);
+      const result = { isError: true, content: raw.content.map((item) => ({ type: "text", text: clean(item.text, 4096) })), structuredContent };
+      return utf8Size(result) <= MAX_RESULT_BYTES ? result : failure(appError("OUTPUT_LIMIT", "error.OUTPUT_LIMIT"), id, state);
+    }
     const structured = raw.structuredContent === undefined ? undefined : redactStructured(raw.structuredContent, redactor, entry.name, i18n);
     const notices = (metadata.notices || []).map((text) => ({ type: "text", text: clean(text) }));
     let body = raw.content.map((item) => ({ type: "text", text: redactor.strictText(item.text ?? "") }));
@@ -170,8 +358,14 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
       if (hasPreparation && (typeof spec.prepare !== "function" || typeof spec.disposePrepared !== "function")) {
         throw new TypeError("Preparation and disposal must be paired functions");
       }
-      const input = z.object(spec.inputSchema);
+      if (spec.inputRequired !== undefined && spec.inputRequired !== true) {
+        throw new TypeError("inputRequired must be true when specified");
+      }
+      // Keep the registry's historical raw-shape API while also accepting a
+      // Standard Schema object, as expected by the modular v2 SDK ecosystem.
+      const input = spec.inputSchema?.["~standard"] ? spec.inputSchema : z.object(spec.inputSchema);
       const output = spec.outputSchema;
+      const error = spec.errorSchema;
       const inputJSON = schemaJSON(input);
       for (const [field, property] of Object.entries(inputJSON.properties || {})) {
         property.description = i18n.t(field === "server" ? "mcp.common.input.server.description" : `mcp.${name}.input.${field}.description`,
@@ -180,15 +374,15 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
       const descriptor = { name, title: i18n.t(`mcp.${name}.title`), description: i18n.t(`mcp.${name}.description`),
         inputSchema: { $schema: "http://json-schema.org/draft-07/schema#", ...inputJSON }, annotations: spec.annotations,
         ...(output ? { outputSchema: { $schema: "http://json-schema.org/draft-07/schema#", type: "object",
-          oneOf: [schemaJSON(output), schemaJSON(ERROR_SCHEMA)] } } : {}) };
-      entries.set(name, { name, input, output, descriptor, handler,
+          oneOf: [schemaJSON(output), schemaJSON(error ?? ERROR_SCHEMA)] } } : {}) };
+      entries.set(name, { name, input, output, error, descriptor, handler, inputRequired: spec.inputRequired === true,
         ...(hasPreparation ? { prepare: spec.prepare, disposePrepared: spec.disposePrepared } : {}) });
     },
     list() { return { tools: [...entries.values()].map((entry) => entry.descriptor) }; },
     async call(name, args, extra = {}) {
       const entry = entries.get(name);
       // Protocol fault: deliberately outside the tool execution catch.
-      if (!entry) throw new McpError(ErrorCode.InvalidParams, clean(i18n.t("error.unknownTool")));
+      if (!entry) throw new ProtocolError(ProtocolErrorCode.InvalidParams, clean(i18n.t("error.unknownTool")));
       const id = randomUUID();
       let operation;
       let release;
@@ -202,9 +396,14 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
         checkParent();
         release = acquireAdmission();
         if (!release) return failure(appError("CAPACITY_LIMIT", "error.CAPACITY_LIMIT"), id);
-        const timeout = entry.prepare ? preparedTimeoutMs : await timeoutFor(parsed.data);
+        const timeout = entry.prepare ? preparedTimeoutMs : await timeoutFor(parsed.data, name);
         checkParent();
         operation = createOperation(extra, timeout, { requestId: id, i18n });
+        if (entry.inputRequired) Object.defineProperties(operation, Object.fromEntries(
+          Object.entries(extra[trustedInputContext] || {}).map(([key, value]) => [key, {
+            value, enumerable: true, writable: false, configurable: false,
+          }])));
+        extra[observeSettlement]?.(operation.settlement);
         const worker = operation.run(async () => {
           if (!entry.prepare) return entry.handler(parsed.data, operation);
           let prepared, ready = false, failed = false;
@@ -228,8 +427,8 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
           }
         });
         workerStarted = true;
-        // Keep the transport's private worker observer intact. Settlement is
-        // independent of both response rendering and the outward abort race.
+        // Settlement is independent of both response rendering and the
+        // outward abort race.
         void operation.settlement.then(release);
         const raw = await worker;
         return finish(raw, entry, id, operation);
@@ -243,14 +442,21 @@ export function createToolRegistry({ redactor, i18n = createI18n(), timeoutFor =
     install(server) {
       const protocol = server.server ?? server;
       protocol.registerCapabilities({ tools: { listChanged: false } });
-      protocol.setRequestHandler(ListToolsRequestSchema, () => registry.list());
-      protocol.setRequestHandler(CallToolRequestSchema, (request, extra) => registry.call(request.params.name, request.params.arguments,
-        transportContext ? transportContext.scope(extra) : extra));
+      protocol.setRequestHandler("tools/list", () => registry.list());
+      protocol.setRequestHandler("tools/call", async (request, ctx) => {
+        const requestId = ctx.mcpReq.id;
+        return registry.call(request.params.name, request.params.arguments, {
+          ...operationContext(ctx, mintRequestState),
+          [observeSettlement](settlement) {
+            requestLifecycleByProtocol.get(protocol)?.observeApplicationSettlement(requestId, settlement);
+          },
+        });
+      });
       return registry;
     },
     validate(name, result) {
       const entry = entries.get(name);
-      return result.isError ? ERROR_SCHEMA.safeParse(result.structuredContent).success :
+      return result.isError ? (entry.error ?? ERROR_SCHEMA).safeParse(result.structuredContent).success :
         entry.output ? entry.output.safeParse(result.structuredContent).success : result.structuredContent === undefined;
     },
   };

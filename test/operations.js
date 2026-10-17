@@ -2,10 +2,9 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { createOperation, remoteLockKey, localLockKey } from "../src/operations.js";
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { Client } from "@modelcontextprotocol/client";
+import { checkedMethods, createOperation, remoteLockKey, localLockKey } from "../src/operations.js";
 import { loadConfig, normalizeServer } from "../src/config.js";
 import { registerTools } from "../src/tools.js";
 import * as ftp from "../src/adapters/ftp.js";
@@ -66,6 +65,23 @@ export async function runOperationTests({ root, ok }) {
   }
   ok(normalizeServer("test", { ...fixture, operationTimeoutMs: undefined }).operationTimeoutMs === 120000,
     "operations: timeout defaults to 120 seconds");
+  const partialDownload = createOperation();
+  let downloaded = "";
+  const partialFailure = await partialDownload.run(() => checkedMethods({
+    async downloadStream(_remote, sink) {
+      sink.write("partial");
+      throw new Error("injected partial download");
+    },
+  }, partialDownload, ["downloadStream"]).downloadStream("/remote", {
+    write(chunk) { downloaded += chunk; },
+  })).catch((error) => error);
+  ok(partialFailure instanceof Error && downloaded === "partial" && partialDownload.snapshot().effects === "possible",
+    "operations: failed downloadStream reports possible effects after a partial durable sink write");
+  const completeDownload = createOperation();
+  await completeDownload.run(() => checkedMethods({ async downloadStream() {} }, completeDownload,
+    ["downloadStream"]).downloadStream("/remote", { write() {} }));
+  ok(completeDownload.snapshot().effects === "confirmed",
+    "operations: successful downloadStream confirms its durable sink effect");
   const one = createOperation();
   const two = createOperation();
   await one.run(() => {});
@@ -443,13 +459,13 @@ async function sdkTests(root, ok) {
     await client.callTool({ name: "ftp_test", arguments: {} });
     ok(progress.length === 0, "operations SDK: no progress without caller opt-in");
     const observed = [];
-    await client.callTool({ name: "ftp_test", arguments: {} }, undefined, { onprogress: (value) => observed.push(value) });
+    await client.callTool({ name: "ftp_test", arguments: {} }, { onprogress: (value) => observed.push(value) });
     await tick();
     ok(observed.length > 0 && observed.every((value, index) => index === 0 || value.progress > observed[index - 1].progress) &&
       progress.every((value) => Object.keys(value).sort().join(",") === "progress,progressToken"),
     "operations SDK: opt-in progress is monotonic and contains no paths, credentials or free-form text");
     const controller = new AbortController();
-    const request = client.callTool({ name: "ftp_deploy", arguments: { local_dir: "deploy" } }, undefined,
+    const request = client.callTool({ name: "ftp_deploy", arguments: { local_dir: "deploy" } },
       { signal: controller.signal, onprogress: () => {} }).then(() => null, (error) => error);
     await until(() => uploads === 1);
     controller.abort();

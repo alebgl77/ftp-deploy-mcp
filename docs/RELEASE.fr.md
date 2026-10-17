@@ -3,7 +3,7 @@
 [English](./RELEASE.md) | **Français**
 
 Voici la liste de contrôle des mainteneurs pour la release de sources GitHub
-v0.2.1 et, séparément, une future première publication sur npm et le registre
+v0.3.0 et, séparément, une future première publication sur npm et le registre
 MCP officiel. Une release GitHub ne rend disponibles ni l'identifiant npm, ni
 la commande `npx`, ni l'entrée du registre. Le tag et la release GitHub v0.2.0
 publiés restent immuables.
@@ -14,7 +14,18 @@ Consultez les fichiers sources disponibles sur
 
 Le runtime MCP prend en charge Node.js >=22. L'outillage de publication exige **Node.js 24.20.0 exactement** : création et inspection des archives, inventaires source, contrôles du graphe installé, vérification du registre et `npm run test:release` refusent les autres versions avant ces opérations. Utilisez la distribution Node qualifiée, avec son npm fourni, et consignez les versions Node/libuv/npm/tar avec `node scripts/release-toolchain.mjs`. La qualification du consommateur peut toujours exécuter le serveur MCP avec Node 22 et appeler séparément les outils externes de publication avec Node 24.20.0.
 
-La CI conserve les six jobs runtime (Node 22/24 sur Linux, macOS et Windows). La suite complète de publication s'exécute séparément sur les trois systèmes avec Node 24.20.0. macOS comporte trois passes complètes prédéfinies ; tout échec fait échouer le job. Ces passes de qualification sont fixes, sans relance après échec, cas ignoré ni augmentation des limites d'archive. Les workflows supply-chain et de publication npm/MCP utilisent la même version Node exacte.
+La CI conserve les neuf jobs runtime (Node 22/24/26 sur Linux, macOS et Windows). La suite complète de publication s'exécute séparément sur les trois systèmes avec Node 24.20.0. macOS comporte trois passes complètes prédéfinies ; tout échec fait échouer le job. Ces passes de qualification sont fixes, sans relance après échec, cas ignoré ni augmentation des limites d'archive. Les workflows supply-chain et de publication npm/MCP utilisent la même version Node exacte.
+
+Les pull requests exécutent aussi la revue des dépendances et refusent les
+vulnérabilités élevées ou critiques nouvellement introduites. CodeQL analyse
+JavaScript/TypeScript lors des pushs, des pull requests et chaque semaine. Le
+job supply-chain dépose son SBOM CycloneDX 1.5 de production uniquement comme
+artefact CI conservé 14 jours, après égalité de son ensemble complet
+d'identités de paquets avec `npm ls --omit=dev --all` ; il n'est ajouté ni aux
+paquets npm ni aux artefacts de publication. Le contrôle SBOM compare les
+identités plutôt que la disposition des arêtes CycloneDX, car npm peut aplatir
+ou dédupliquer les chemins ; le contrôle release-graph séparé valide le graphe
+de production installé par rapport au lockfile faisant autorité.
 
 ## Prérequis manuels
 
@@ -55,20 +66,20 @@ de sources GitHub est prête.
 
 ## Contrôle des versions et du journal des modifications
 
-Pour la release GitHub v0.2.1 :
+Pour la release GitHub v0.3.0 :
 
 1. Réglez `version` dans [package.json](../package.json), les métadonnées racine
    et du paquet racine de `package-lock.json`, ainsi que `server.json`, sur
-   `0.2.1`. Le verrouillage source est l'unique fichier de verrouillage de référence ;
+   `0.3.0`. Le verrouillage source est l'unique fichier de verrouillage de référence ;
    ne conservez pas de `npm-shrinkwrap.json` parallèle.
 2. Réglez la version annoncée par le serveur MCP sur la même valeur. Recherchez
    les versions obsolètes dans les sources et les métadonnées générées ;
    les références historiques attendues du journal sont exclues.
-3. Utilisez le titre apparié `## [0.2.1] - 2026-09-14` dans
+3. Utilisez le titre apparié `## [0.3.0] - 2026-10-17` dans
    [CHANGELOG.md](../CHANGELOG.md) et [CHANGELOG.fr.md](../CHANGELOG.fr.md).
    Confirmez la validité calendaire de la date effective, modifiez-la uniquement
    si le jour réel de publication change et conservez tout l'historique 0.2.0.
-4. Confirmez que chaque changement du correctif visible par l'utilisateur est documenté
+4. Confirmez que chaque changement de la version mineure visible par l'utilisateur est documenté
    dans [README.md](../README.md) et [README.fr.md](../README.fr.md).
 5. Vérifiez que la version inclut le remplacement atomique des nouvelles
    configurations sensibles et teste son chemin d'échec. C'est une condition
@@ -108,14 +119,14 @@ Ce vérificateur n'importe aucun code de dépendance.
 
 ## Qualifier l'archive d'installation source
 
-Deux distributions sont définies. `ftp-deploy-mcp-0.2.1-source.tar.gz` contient
-82 fichiers ordinaires sous `package/`, dont le verrouillage source. C'est une
+Deux distributions sont définies. `ftp-deploy-mcp-0.3.0-source.tar.gz` contient
+90 fichiers ordinaires sous `package/`, dont le verrouillage source. C'est une
 archive d'installation, pas le dépôt complet : tests, scripts de maintenance et
 guide HTML restent dans le dépôt. Le ZIP/tar automatique de GitHub contient le
-dépôt complet. L'archive npm distincte `ftp-deploy-mcp-0.2.1.tgz` contient
-81 fichiers, sans fichier de verrouillage.
+dépôt complet. L'archive npm distincte `ftp-deploy-mcp-0.3.0.tgz` contient
+89 fichiers, sans fichier de verrouillage.
 
-Capturez les 82 fichiers sources revus avant installation, tests ou création
+Capturez les 90 fichiers sources revus avant installation, tests ou création
 d'archive. Conservez l'inventaire portable hors du checkout et gardez son SHA256
 d'origine indépendamment de toute preuve générée. Le mode source seul qualifie
 un candidat avant tag ; la publication exige le vrai checkout propre et suivi
@@ -177,14 +188,14 @@ de production. Le candidat refusé et ses rapports sont conservés, sans devenir
 preuves de la release source ni fichiers joints qualifiés. Un éventuel graphe npm
 conforme ne vaudrait que pour l'environnement et la date testés, sans garantir
 les futures installations npm. Pour inspecter un candidat npm distinct avec
-l'inventaire source original de 82 fichiers :
+l'inventaire source original de 90 fichiers :
 
 ```bash
 npm pack --ignore-scripts --json --pack-destination "$release_tmp" > "$release_tmp/npm-pack.json"
 node scripts/release-artifact.mjs preflight "$release_tmp/npm-pack.json" --source-root "$source_root" --inventory "$inventory" --inventory-sha256 "$inventory_sha256" --distribution npm
 ```
 
-L'inspection compare les 81 fichiers npm aux sources ; le verrouillage source
+L'inspection compare les 89 fichiers npm aux sources ; le verrouillage source
 reste une référence externe. Installez ce candidat npm exact dans un préfixe
 isolé avec les scripts désactivés, puis lancez `release-graph.mjs` avec
 `--product-root` vers `<prefix>/node_modules/ftp-deploy-mcp` et `--install-root`
@@ -230,7 +241,7 @@ confiance, pas un runner totalement compromis.
 Identité du commit Git, inventaire des octets du checkout et empreinte de l'archive
 sont distincts. La conversion CRLF/LF peut produire des inventaires valides
 mais différents selon les systèmes. La qualification lie le fichier construit
-sous Windows aux octets de son checkout ; les six jobs CI OS/Node qualifient leurs
+sous Windows aux octets de son checkout ; les neuf jobs CI OS/Node qualifient leurs
 propres checkouts, pas cette archive Windows sur chaque OS. Après le commit final,
 établissez un inventaire portant ce commit et réinspectez les mêmes octets gelés
 avant publication. Conservez les preuves avant commit comme historique, sans les
@@ -283,7 +294,7 @@ ni `npm ci`/`npm install`, ni tests du projet, smoke checks du consommateur ou
 npm publish. Le workflow MCP suit la même séparation. Son job non privilégié
 capture d'abord l'inventaire, puis `fetch-npm` vérifie l'identité et l'intégrité
 SHA512 du registre, exige l'URL HTTPS officielle fixe, télécharge sous bornes de
-8 MiB et de temps et inspecte les 81 fichiers. Il installe le vrai téléchargement
+8 MiB et de temps et inspecte les 89 fichiers. Il installe le vrai téléchargement
 sans scripts, vérifie le graphe et exécute les contrôles du consommateur. La sortie
 du job conserve l'intégrité originale de cette archive qualifiée. Le job privilégié
 reçoit cette valeur et la redemande au registre avant toute authentification :
@@ -299,8 +310,8 @@ fraîche épinglée à l'événement fournit le `server.json` publié.
 ## Release GitHub et fichiers joints
 
 Après qualification indépendante et revue, utilisez le commit final vérifié,
-attendez la CI publique complète sur ce commit, puis créez v0.2.1. Conservez les
-octets exacts de `ftp-deploy-mcp-0.2.1-source.tar.gz` validés. Préparez
+attendez la CI publique complète sur ce commit, puis créez v0.3.0. Conservez les
+octets exacts de `ftp-deploy-mcp-0.3.0-source.tar.gz` validés. Préparez
 `SHA256SUMS` pour cette archive, le guide HTML bilingue autonome et les preuves
 finales/SBOM ; déposez seulement ces fichiers vérifiés. Publiez des notes EN/FR
 fidèles au périmètre source, puis retéléchargez et vérifiez les empreintes.
@@ -316,14 +327,14 @@ ne rend disponibles ni npm, ni `npx`, ni le registre MCP officiel.
 1. Examinez le workflow préparé et confirmez que son déclencheur correspond
    à la politique de tags prévue.
 2. Créez un tag annoté dont le nom correspond exactement à la version :
-   `git tag -a v0.2.1 -m "v0.2.1"`. Si la release de sources GitHub a déjà créé
+   `git tag -a v0.3.0 -m "v0.3.0"`. Si la release de sources GitHub a déjà créé
    ce tag, vérifiez et réutilisez sa cible inchangée ; ne le recréez pas.
 3. Après approbation du mainteneur et préparation des identifiants, poussez le
    commit et le tag. Vérifiez que le workflow figure dans la branche par
    défaut, puis déclenchez-le explicitement sur le tag :
 
    ```bash
-   gh workflow run release.yml --ref v0.2.1
+   gh workflow run release.yml --ref v0.3.0
    ```
 4. Exigez la réussite des tests, des contrôles de cohérence des versions, de
    l'inspection de l'archive et de la génération de provenance avant l'étape
@@ -344,9 +355,9 @@ ne rend disponibles ni npm, ni `npx`, ni le registre MCP officiel.
 7. Vérifiez indépendamment l'artefact public :
 
 ```bash
-npm view ftp-deploy-mcp@0.2.1 name version mcpName dist.integrity
-npm view ftp-deploy-mcp@0.2.1 dist.tarball
-npx -y ftp-deploy-mcp@0.2.1 --version
+npm view ftp-deploy-mcp@0.3.0 name version mcpName dist.integrity
+npm view ftp-deploy-mcp@0.3.0 dist.tarball
+npx -y ftp-deploy-mcp@0.3.0 --version
 ```
 
 Comparez l'intégrité et la version du registre avec l'archive validée et le
@@ -366,7 +377,7 @@ Cette étape reste en attente. Ne publiez qu'après qualification distincte de n
 2. Déclenchez le workflow distinct sur exactement le même tag :
 
    ```bash
-   gh workflow run publish-mcp.yml --ref v0.2.1
+   gh workflow run publish-mcp.yml --ref v0.3.0
    ```
 
 3. Le job non privilégié qualifie l'archive npm réellement téléchargée et son

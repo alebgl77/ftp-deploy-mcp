@@ -2,10 +2,8 @@ import fs from "node:fs";
 import { virtualTransferAdapter } from "./transfers.js";
 import path from "node:path";
 
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-
+import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
+import { Client } from "@modelcontextprotocol/client";
 import { registerTools } from "../src/tools.js";
 
 const PIN = `SHA256:${Buffer.alloc(32, 11).toString("base64").replace(/=+$/, "")}`;

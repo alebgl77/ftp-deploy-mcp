@@ -41,7 +41,7 @@ test('unknown backup indices, missing claim and supported-layout version failure
   const blob=f.file('operations',claim.operationId,'backups','9.blob');await fs.writeFile(blob,'');
   await assert.rejects(f.store.inventory(),stateError('STATE_CORRUPT','backup_index'));await fs.unlink(blob);
   await fs.unlink(f.file('claims',`${id}.json`));await assert.rejects(f.open(),stateError('STATE_CORRUPT','operation_reference'));
-  const domain=f.file('domain.json'),bytes=seal({v:2,domainId:f.store.metadata.domainId},validateStateLimits(limits));await fs.writeFile(domain,bytes);
+  const domain=f.file('domain.json'),bytes=seal({v:3,domainId:f.store.metadata.domainId},validateStateLimits(limits));await fs.writeFile(domain,bytes);
   await assert.rejects(f.open(),stateError('STATE_CORRUPT','domain_version'));
 });
 test('unsupported no-clobber leaves existing ID intact; orphan publication artifacts are never deleted',async t=>{

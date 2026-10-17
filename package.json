@@ -1,6 +1,6 @@
 {
   "name": "ftp-deploy-mcp",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "mcpName": "io.github.alebgl77/ftp-deploy-mcp",
   "description": "Deploy, inspect and transfer files over FTP/FTPS/SFTP with local confinement and verified staging. / Déployer, inspecter et transférer des fichiers FTP/FTPS/SFTP avec confinement local et promotion vérifiée.",
   "type": "module",
@@ -22,16 +22,17 @@
   },
   "scripts": {
     "start": "node src/index.js",
-    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js && node --test test/error-contract.js test/zero-cancellation.js && node --test test/resource-bounds.js && node --test test/state/*.test.mjs && node --test test/workflow/*.test.mjs && node --test test/prepared-lifecycle.js && node --test test/redaction-performance.test.mjs test/agent-performance.test.mjs",
+    "test": "node test/smoke.test.js && node --test test/transport-qualification.js && node --test test/cli-i18n.js test/mcp-protocol-v2.js && node --test test/error-contract.js test/zero-cancellation.js && node --test test/resource-bounds.js test/basic-ftp-security.test.mjs && node --test test/state/*.test.mjs && node --test test/workflow/*.test.mjs && node --test test/durable/*.test.mjs && node --test test/prepared-lifecycle.js && node --test test/redaction-performance.test.mjs test/agent-performance.test.mjs",
     "test:transports": "node --test test/transport-qualification.js",
     "setup": "node src/index.js setup",
     "doctor": "node src/index.js doctor",
-    "test:contract": "node --test test/error-contract.js test/zero-cancellation.js",
+    "test:contract": "node --test test/error-contract.js test/zero-cancellation.js test/mcp-protocol-v2.js",
     "eval:scripted": "node scripts/evaluation/run.mjs --repo . --locale both --verify-runtime-locale true --ci true",
     "test:eval-runner": "node --test test/evaluation-runner.mjs",
     "test:bounds": "node --test test/resource-bounds.js",
     "test:state": "node --test test/state/*.test.mjs",
     "test:workflow": "node --test test/workflow/*.test.mjs",
+    "test:durable": "node --test test/durable/*.test.mjs",
     "test:prepared": "node --test test/prepared-lifecycle.js",
     "test:performance": "node --test test/redaction-performance.test.mjs test/agent-performance.test.mjs",
     "benchmark:agents": "node scripts/benchmark-agent-performance.mjs",
@@ -70,15 +71,17 @@
     "windsurf"
   ],
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.29.0",
-    "basic-ftp": "6.0.1",
+    "@modelcontextprotocol/server": "2.3.1",
+    "basic-ftp": "6.2.3",
     "picomatch": "4.0.5",
     "ssh2-sftp-client": "12.1.1",
-    "zod": "3.25.76",
-    "zod-to-json-schema": "3.25.2"
+    "zod": "4.6.7"
   },
   "devDependencies": {
+    "@cyclonedx/cyclonedx-npm": "6.0.1",
     "@electerm/ftp-srv": "^1.0.5",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/core": "2.3.1",
     "ssh2": "^1.17.0"
   },
   "publishConfig": {

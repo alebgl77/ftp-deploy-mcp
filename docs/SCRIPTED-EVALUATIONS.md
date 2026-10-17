@@ -17,7 +17,7 @@ from a passing run.
 
 ## Run from a source checkout
 
-Install the repository dependencies with `npm ci` on Node 22 or 24, then run:
+Install the repository dependencies with `npm ci` on Node 22, 24 or 26, then run:
 
 ```sh
 npm run test:eval-runner

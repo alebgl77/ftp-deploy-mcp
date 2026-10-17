@@ -7,19 +7,19 @@
 // Subcommand `import-filezilla`: import FileZilla sites into ftp-servers.json.
 
 import { readFileSync } from "node:fs";
+import { randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-
+import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { createRequestStateCodec, McpServer } from "@modelcontextprotocol/server";
 import { loadConfig, normalizeServer, insecureTransport, configRedactor } from "./config.js";
 import { registerTools } from "./tools.js";
 import { runImport } from "./filezilla.js";
 import { createRedactor } from "./redact.js";
 import { createI18n, extractLanguage } from "./i18n.js";
 import { isAppError, renderError } from "./errors.js";
-import { withZeroCancellation } from "./zero-cancellation.js";
+import { bindRequestLifecycle, createRequestLifecycleTransport } from "./tool-registry.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
@@ -79,16 +79,30 @@ async function startServer(configFlag, i18n) {
     }
   }
 
-  const server = new McpServer({ name: "ftp-deploy-mcp", version: VERSION });
-  const transport = withZeroCancellation(new StdioServerTransport());
-  registerTools(server, loaded, { i18n, transportContext: transport });
+  const requestLifecycle = createRequestLifecycleTransport(new StdioServerTransport());
+  const handle = serveStdio(() => {
+    // requestState is readable by the client, so future workflows store only
+    // non-secret claims in it. Integrity, expiry, method and stdio-session
+    // binding are owned by the official SDK codec.
+    const sessionBinding = randomUUID();
+    const requestState = createRequestStateCodec({
+      key: randomBytes(32),
+      bind: (ctx) => `${ctx.mcpReq.method}\0${ctx.sessionId ?? sessionBinding}`,
+    });
+    const server = new McpServer({ name: "ftp-deploy-mcp", version: VERSION }, {
+      requestState: { verify: requestState.verify },
+    });
+    bindRequestLifecycle(server, requestLifecycle);
+    registerTools(server, loaded, { i18n, mintRequestState: (payload, ctx) => requestState.mint(payload, ctx) });
+    return server;
+  }, { transport: requestLifecycle, onerror: (error) => E(error?.stack || error) });
 
   let closing = false;
   const shutdown = async (code) => {
     if (closing) return;
     closing = true;
     try {
-      await server.close();
+      await handle.close();
     } catch {
       /* ignore */
     }
@@ -100,7 +114,6 @@ async function startServer(configFlag, i18n) {
   // When the client closes stdin, the session is over.
   process.stdin.on("close", () => shutdown(0));
 
-  await server.connect(transport);
 }
 
 async function run(argv, i18n) {

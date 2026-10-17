@@ -65,13 +65,13 @@ malicious server. These limits are documented in the
 ## Dependency and release integrity
 
 The six direct production dependencies use exact versions.
-`package-lock.json` is the sole source graph authority, shipped in the 82-file
+`package-lock.json` is the sole source graph authority, shipped in the 90-file
 source installation archive. Use `npm ci --omit=dev --ignore-scripts` after
 extraction and retain this file. Changes require review of the complete graph,
 its URLs and integrity values, then the checks in the
 [release guide](./docs/RELEASE.md).
 
-The 81-file npm package contains no lockfile and remains unqualified. A real
+The 89-file npm package contains no lockfile and remains unqualified. A real
 installation changed ten production dependencies. Workflows reject installed
 graph drift before npm or MCP publication; a source proof cannot authorize npm.
 A future matching npm graph is evidence only for the tested environment and date,

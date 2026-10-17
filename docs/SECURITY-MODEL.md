@@ -113,7 +113,7 @@ MCP server. Prefer credentials that are also read-only at the remote service.
 Recursive deletion requires an explicit argument, and deletion of the
 configured root is refused.
 
-A deploy is not a transaction. If any transfer fails, `ftp_deploy` returns an
+A legacy deploy is not a transaction. If any transfer fails, `ftp_deploy` returns an
 MCP error and a partial-deployment summary. Files promoted earlier in the
 same call remain on the server. Operators should inspect and reconcile remote
 state before retrying.
@@ -127,6 +127,11 @@ exclusive local temporary and synchronize it before promotion. The default
 `overwrite:false` uses a no-clobber hard-link creation and fails closed if that
 primitive is unsupported. Cleanup targets only the owned temporary and can
 leave it behind; a known SFTP canonical-root change refuses rebased cleanup.
+Private durable transfer seams require strict inspection support. A hashed
+identity is re-read and compared inside the FTP/SFTP adapter immediately before
+rename or delete; a mismatch prevents the mutation. If a failed staging write
+cannot be attributed by a fully verified identity, cleanup is refused and the
+temporary is left behind with a warning.
 
 Local and SFTP replacement preserves an existing regular target's permission
 bits (0777), subject to native filesystem semantics. SFTP verifies mode 0600 on
@@ -147,15 +152,28 @@ a filesystem deadline a hard wall-clock limit or bounds the underlying remote
 including explicit `include` matches. See [TRANSFERS.md](./TRANSFERS.md) for
 configuration bounds, cleanup behavior and transport-specific guarantees.
 Readback adds traffic. Server-dependent rename does not provide universal
-atomic replacement or multi-file atomicity; no durable journal or rollback
-is implemented.
+atomic replacement or multi-file atomicity. With `stateDir`, durable tools
+journal observed state and conservatively roll back only durably acknowledged
+files. Their guarantee is `observable_state_reconciled`, never atomic or exactly
+once; uncertain promotion becomes `SATISFIED_UNOWNED` and is not rolled back.
 
 Within one Node process, remote mutations share a FIFO lock by normalized
 protocol, hostname, port, and username, regardless of server alias or root.
 Downloads instead lock the canonical local destination and recheck overwrite
 permission under that lock. Read-only remote calls do not acquire endpoint
-mutation locks. Other processes, DNS aliases, different accounts, hard-linked
-local files, and external writers are outside this coordination boundary.
+mutation locks. With durable state, cooperating processes sharing one canonical
+`stateDir` also acquire a persistent exact-alias lock before adapter construction.
+Post-connect remote target and policy identity remains the authority. Different
+aliases or state directories, DNS aliases and external writers are not coordinated.
+Alias rename, overlapping writable aliases, mixed-binary upgrades and crash-held
+locks require quiescence or offline recovery; persistent locks are never TTL-stolen.
+
+Durable plans persist only a domain-salted hash of the canonical local root and
+strict relative source paths. Absolute roots, credentials and raw idempotency
+keys are not stored. Apply re-pins and re-hashes the root and every source before
+adapter construction and immediately before mutation. Rollback ignores local-root
+drift and relies on sealed state, remote identity, backups and preconditions.
+State format v1 is rejected before plan decoding and must be reinitialized offline.
 
 The per-server `operationTimeoutMs` deadline defaults to 120000 ms and accepts
 integers from 100 to 3600000, including queue and connection time. MCP request
@@ -176,17 +194,23 @@ artifact before release.
 ## Structured errors and cancellation
 
 Known-tool errors use a strict envelope with a stable code, fresh request UUID,
-conservative effect observations and no automatic retry permission. The nine
+conservative effect observations and no automatic retry behavior. A durable
+`retryable:true` only identifies a condition a caller may retry after following
+`next_action`; it never authorizes replay of an uncertain mutation. The nine
 structured tools publish strict success/error schema alternatives. The complete
 result is limited to 25,000 UTF-8 JSON bytes after masking; security notices and
 pagination are rendered from trusted internal metadata. See the
 [error contract](./ERROR-CONTRACT.md) for exact fields and codes.
 
 Peer cancellation normally suppresses the MCP result, whereas an internal
-deadline may return `TIMEOUT`. A public transport decorator corrects the
-installed SDK's numeric `0` and empty-string cancellation gaps with two
-independent slots. Slots and mutation locks remain held through actual worker
-settlement. Duplicate active IDs in those slots close the connection, and an
+deadline may return `TIMEOUT`. SDK v2 cancellation handles all valid request IDs,
+including numeric `0` and the empty string. The entry-owned wire guard reserves
+every inbound request ID across all methods before SDK dispatch. Any duplicate
+active ID closes the connection before a second handler runs. Tool-call IDs and
+mutation locks remain held until both the terminal response send settles or
+fails and every registered handler-turn worker, preparation and disposal settle,
+including all turns driven by the legacy input-required shim. A cancellation
+whose response is suppressed keeps its ID reserved until connection close. An
 already-started response send cannot be recalled. None of these mechanisms
 provides rollback or proof that an uncertain write had no effects.
 

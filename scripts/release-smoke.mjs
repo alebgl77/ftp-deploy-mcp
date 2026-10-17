@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createRequire } from "node:module";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { readRelease } from "./release-gate.mjs";
 
 // The installation directory is created by the workflow, outside the checkout.
@@ -17,10 +17,8 @@ for (const key of ["name", "version", "mcpName"]) assert.equal(installed[key], r
 assert.equal(execFileSync(process.execPath, [entry, "--version"], { cwd: root, encoding: "utf8", timeout: 15000 }).trim(), release.version);
 assert.match(execFileSync(process.execPath, [entry, "--help"], { cwd: root, encoding: "utf8", timeout: 15000 }), /Usage:/);
 
-// Resolve the client from the installation too: no dependency on checkout files.
-const requireInstalled = createRequire(path.join(packageRoot, "package.json"));
-const { Client } = await import(pathToFileURL(requireInstalled.resolve("@modelcontextprotocol/sdk/client/index.js")));
-const { StdioClientTransport } = await import(pathToFileURL(requireInstalled.resolve("@modelcontextprotocol/sdk/client/stdio.js")));
+// The client is a qualification-only development dependency; the installed
+// artifact itself carries only the modular server runtime.
 const fixtureRoot = path.join(root, "fixture");
 mkdirSync(fixtureRoot);
 writeFileSync(path.join(fixtureRoot, "smoke.txt"), "isolated release smoke\n", { flag: "wx" });
@@ -36,18 +34,22 @@ writeFileSync(config, JSON.stringify({
   },
 }), { flag: "wx", mode: 0o600 });
 
-const client = new Client({ name: "release-smoke", version: "1.0.0" });
+const client = new Client({ name: "release-smoke", version: "1.0.0" }, {
+  versionNegotiation: { mode: { pin: "2026-07-28" } },
+});
 const transport = new StdioClientTransport({ command: process.execPath, args: [entry, "--config", config], cwd: root, stderr: "pipe" });
 // Drain diagnostics without ever printing potential configuration content.
 transport.stderr?.resume();
 try {
   await client.connect(transport, { timeout: 15000 });
+  assert.equal(client.getProtocolEra(), "modern", "Installed MCP runtime did not negotiate the modern era");
+  assert.equal(client.getNegotiatedProtocolVersion(), "2026-07-28", "Installed MCP protocol revision mismatch");
   assert.equal(client.getServerVersion()?.version, release.version, "MCP runtime version mismatch");
   const tools = await client.listTools({}, { timeout: 15000 });
   assert.ok(tools.tools.some((tool) => tool.name === "ftp_deploy"));
-  const servers = await client.callTool({ name: "ftp_list_servers", arguments: {} }, undefined, { timeout: 15000 });
+  const servers = await client.callTool({ name: "ftp_list_servers", arguments: {} }, { timeout: 15000 });
   assert.notEqual(servers.isError, true, "Installed list-servers failed");
-  const dryRun = await client.callTool({ name: "ftp_deploy", arguments: { local_dir: ".", dry_run: true } }, undefined, { timeout: 15000 });
+  const dryRun = await client.callTool({ name: "ftp_deploy", arguments: { local_dir: ".", dry_run: true } }, { timeout: 15000 });
   assert.notEqual(dryRun.isError, true, "Installed dry-run failed");
   assert.equal(dryRun.structuredContent?.mode, "dry_run");
   console.log(`Installed artifact smoke passed: ${release.name}@${release.version} (no remote connection)`);

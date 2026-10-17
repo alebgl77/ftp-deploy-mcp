@@ -7,11 +7,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - 2026-09-14
+## [0.3.0] - 2026-10-17
 
-This patch uses the separate GitHub source release channel; the published v0.2.0 tag and
+This minor release uses the separate GitHub source release channel; the published v0.2.0 tag and
 release remain unchanged. npm and Official MCP Registry publication remain
 pending. Install from source; no npm, `npx` or registry availability is claimed.
+
+### Added
+
+- Optional durable deployment with `stateDir`: `ftp_plan_deploy`,
+  `ftp_apply_deploy`, `ftp_deploy_status`, and `ftp_rollback_deploy`. The
+  workflow uses official MCP `input_required` confirmation, sealed journals,
+  bounded verified backups, explicit resume, and conservative reconciliation.
+  Its guarantee is `observable_state_reconciled`, not multi-file atomicity or
+  exactly-once execution.
+- Privacy-safe state format v2 stores a domain-salted local-root hash and strict
+  relative source paths, never the absolute local root. Apply revalidates local
+  identity before connection; rollback remains usable after local-root drift.
+  State v1 requires offline reinitialization.
 
 ### Fixed
 
@@ -39,11 +52,16 @@ pending. Install from source; no npm, `npx` or registry availability is claimed.
 
 ### Changed
 
-- The six direct production dependencies are pinned exactly; the sole
-  `package-lock.json` retains the 112 reviewed non-root records (110 production
-  and two development). No shrinkwrap is shipped.
-- The builder produces an 82-file source installation archive with its lockfile,
-  distinct from the 81-file npm package without a lockfile. Proofs explicitly
+- The MCP runtime now uses the stable modular TypeScript SDK v2.3.1:
+  `@modelcontextprotocol/server` is the exact production pin, while the exact
+  client and raw-wire core packages remain development-only. The stdio entry
+  uses the SDK's `serveStdio` factory, negotiates revision `2026-07-28`, and
+  retains the legacy client path, including revision `2024-11-05`.
+- The five direct production dependencies are pinned exactly; the sole
+  `package-lock.json` retains 35 reviewed non-root records (22 production and
+  13 development). No shrinkwrap is shipped.
+- The builder produces a 90-file source installation archive with its lockfile,
+  distinct from the 89-file npm package without a lockfile. Proofs explicitly
   bind the distribution, sources and integrity.
 - Source installation uses `npm ci --omit=dev --ignore-scripts`; contributor
   setup uses `npm ci --ignore-scripts`. Archive bytes may vary across systems.
@@ -56,9 +74,8 @@ pending. Install from source; no npm, `npx` or registry availability is claimed.
 - English/French installation and release documentation distinguishes GitHub
   source releases from npm and Official MCP Registry availability.
 
-Preparation, state and workflow internals expose no public plan/apply/status,
-journal, resumption or rollback. Scripted tests are not an LLM benchmark, and
-this patch makes no enterprise-certification claim.
+Scripted tests are not an LLM benchmark, and this minor release makes no
+enterprise-certification claim.
 
 ## [0.2.0] - 2026-09-09
 

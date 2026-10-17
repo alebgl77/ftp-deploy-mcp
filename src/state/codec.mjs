@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export const CODES = Object.freeze(['STATE_DISABLED', 'STATE_INVALID', 'STATE_BUSY', 'STATE_LIMIT', 'STATE_CORRUPT', 'STATE_IO', 'STATE_CONFLICT']);
+export const CODES = Object.freeze(['STATE_DISABLED', 'STATE_INVALID', 'STATE_BUSY', 'STATE_LIMIT', 'STATE_CORRUPT', 'STATE_IO', 'STATE_CONFLICT', 'STATE_UNSUPPORTED']);
 export class StateError extends Error {
   constructor(code, stage) {
     if (!CODES.includes(code) || !/^[a-z][a-z0-9_]{0,63}$/.test(stage)) throw new TypeError('Invalid state error');

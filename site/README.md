@@ -6,7 +6,7 @@ This single HTML guide documents the architecture, flows, evidence and roadmap o
 
 ## Build and open
 
-From the repository root, using Node 22 or 24:
+From the repository root, using Node 22, 24 or 26:
 
 ```sh
 node scripts/build-guide.mjs

@@ -58,19 +58,40 @@ Each admitted call retains its slot through preparation, worker execution and
 cleanup, including a delayed noncooperative I/O result after cancellation or
 timeout. Existing endpoint FIFO locks are unchanged; their waiters also occupy
 admission slots. Correlation IDs, including numeric `0`, `""`, numeric `1` and
-string `"0"`, retain their transport behavior.
+string `"0"`, are distinct at the entry-owned wire guard. The guard reserves
+every inbound request ID across all methods before SDK dispatch and closes the
+connection on any active duplicate.
 
 These limits do not coordinate separate processes, isolates or hosts. They do
 not bound transport input buffers or parsing of rejected requests. Local scan
 limits do not bound the underlying remote `list()` buffer; paginated MCP output
 still follows the existing remote listing implementation.
 
+## Durable state and status bounds
+
+`stateLimits` strictly bounds state bytes, backup bytes/files, plans,
+operations, plan files/bytes and journal bytes/events. Plan publication proves
+its complete reservation before writing. Apply and rollback call the budget
+guard before every durable intent and terminal event; streams run outside the
+short admission lock but inside the persistent exact-alias endpoint lock.
+
+`ftp_deploy_status` is read-only and lock-free: it writes no lock or record,
+replays one integrity-checked journal prefix, then confirms the plan, claim,
+journal and head identities are unchanged. Concurrent change returns
+`STATUS_CHANGED` or `DURABLE_STATE_BUSY`, never a mixed page. A page accepts at
+most 100 rows and stops before its complete structured result exceeds 18 KiB;
+`next_offset` is always `offset + count` when another row remains.
+
+Backups and journals are sensitive state. Keep `stateDir` private, outside all
+`localRoot` trees, and do not copy a v1 state tree into this format: v1 is
+rejected before plan decoding and requires offline reinitialization.
+
 ## Internal prepared-tool lifecycle
 
-The registry has an internal integration seam; existing tools still use their
-ordinary `timeoutFor` resolver. No recovery tool, persistent request ID or new
-configuration field is activated by this seam, and public descriptors/results
-are unchanged.
+The registry has an internal integration seam; tools that do not opt into it
+still use their ordinary `timeoutFor` resolver. The seam itself activates no
+recovery behavior or persistent request ID and does not alter descriptors or
+results for non-opting tools.
 
 A registration can supply the paired private callbacks `prepare(args,
 operation)` and `disposePrepared(prepared, operation)`. Both must be functions.
@@ -84,11 +105,15 @@ bounded tool error.
 
 Preparation, handling and disposal run inside the admitted worker observed by
 the transport. Cancellation or timeout can produce an early outward response,
-but the admission slot and affected falsy correlation ID remain occupied until
-actual settlement, including late preparation and disposal. Disposal runs even
-after abort and must not be wrapped in `operation.step`, whose cancelled check
-would prevent cleanup. Noncooperative work can therefore retain capacity
-indefinitely; the deadline does not terminate arbitrary JavaScript or I/O.
+but the admission slot remains occupied until actual settlement, including late
+preparation and disposal. The wire request ID remains reserved until both the
+terminal response send settles or fails and every registered handler-turn worker
+settles, including all legacy input-required rounds. If peer cancellation
+suppresses the response, the ID remains reserved until the
+connection closes. Disposal runs even after abort and must not be wrapped in
+`operation.step`, whose cancelled check would prevent cleanup. Noncooperative
+work can therefore retain capacity indefinitely; the deadline does not terminate
+arbitrary JavaScript or I/O.
 
 The registry's private `preparedTimeoutMs` defaults to 120000 and accepts a
 positive safe integer up to 3600000. Prepared tools bypass `timeoutFor` entirely.

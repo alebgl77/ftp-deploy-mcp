@@ -114,9 +114,9 @@ try {
   let commit = snapshot?.commit ?? null;
   if (!commit) { try { commit = execFileSync("git", ["-C", options.repo, "rev-parse", "HEAD"], { windowsHide: true, encoding: "utf8" }).trim(); } catch {} }
   const require = createRequire(path.join(options.repo, "package.json"));
-  const sdkPath = require.resolve("@modelcontextprotocol/sdk/server/mcp.js");
-  let sdkRoot = path.dirname(sdkPath);
-  while (!fs.existsSync(path.join(sdkRoot, "package.json")) || JSON.parse(fs.readFileSync(path.join(sdkRoot, "package.json"))).name !== "@modelcontextprotocol/sdk") {
+  const serverPath = require.resolve("@modelcontextprotocol/server");
+  let sdkRoot = path.dirname(serverPath);
+  while (!fs.existsSync(path.join(sdkRoot, "package.json")) || JSON.parse(fs.readFileSync(path.join(sdkRoot, "package.json"))).name !== "@modelcontextprotocol/server") {
     const parent = path.dirname(sdkRoot); if (parent === sdkRoot) throw new Error("SDK_PACKAGE_MISSING"); sdkRoot = parent;
   }
   const sdkPackage = JSON.parse(fs.readFileSync(path.join(sdkRoot, "package.json")));

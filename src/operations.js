@@ -4,6 +4,7 @@ import { createI18n } from "./i18n.js";
 import { appError, messageSpec, nativeError } from "./errors.js";
 
 export const DEFAULT_OPERATION_TIMEOUT_MS = 120000;
+export const MAX_OPERATION_TIMEOUT_MS = 3600000;
 const locks = new Map();
 const workerObservers = new WeakMap();
 
@@ -47,7 +48,7 @@ export function createOperation(extra = {}, timeoutMs = DEFAULT_OPERATION_TIMEOU
     settlement,
     signal: controller.signal,
     shortenTimeout(timeoutMs) {
-      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 3600000) {
+      if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_OPERATION_TIMEOUT_MS) {
         throw new TypeError("Invalid operation timeout");
       }
       if (finished || controller.signal.aborted) return;
@@ -247,7 +248,7 @@ export function checkedMethods(target, operation, methods, origin) {
   });
 }
 
-const MUTATION_METHODS = new Set(["uploadFile", "uploadFrom", "put", "downloadFile", "mkdirp", "ensureDir", "mkdir",
+const MUTATION_METHODS = new Set(["uploadFile", "uploadStream", "uploadFrom", "put", "downloadFile", "downloadStream", "mkdirp", "ensureDir", "mkdir",
   "deleteFile", "deleteDir", "remove", "removeDir", "delete", "rmdir", "rename", "chmod"]);
 
 export async function connectOperation(connectAdapter, server, operation) {
@@ -268,7 +269,8 @@ export async function connectOperation(connectAdapter, server, operation) {
     operation.check();
   }
   const checked = checkedMethods(adapter, operation, [
-    "list", "stat", "uploadFile", "downloadFile", "readFile", "hashFile", "mkdirp", "deleteFile", "deleteDir", "rename",
+    "list", "stat", "inspectFile", "uploadFile", "uploadStream", "downloadFile", "downloadStream", "readFile", "hashFile",
+    "mkdirp", "deleteFile", "deleteDir", "rename",
   ], "transport");
   return new Proxy(checked, { get(target, key) { return key === "close" ? close : Reflect.get(target, key); } });
 }

@@ -4,7 +4,8 @@ import { encode, decode, exact, integer, hash, id, sha256, fail, validateStateLi
 const TRANSIENT = Object.freeze({ maxPlanFiles: 1024 });
 const TRANSIENT_BYTES = 262144;
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
-const TARGET_KEYS = ['protocol', 'host', 'port', 'user', 'root', 'localRoot', 'canonicalRoot'];
+const WARNING_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
+const TARGET_KEYS = ['protocol', 'host', 'port', 'user', 'root', 'canonicalRoot'];
 const FLAGS = ['readOnly', 'insecureTLS', 'implicitTLS', 'allowInsecure', 'allowUnknownHostKey', 'allowUnsafeRemoteRoot'];
 const SERVER_BOUNDS = { operationTimeoutMs: [100, 3600000], maxTransferBytes: [1, 1099511627776],
   maxDeployBytes: [1, 1099511627776], maxDeployFiles: [1, 100000], maxScanEntries: [1, 1000000], maxScanDepth: [1, 256] };
@@ -37,11 +38,6 @@ function relative(value, code) {
   if (value.includes('\\') || /^[a-zA-Z]:/.test(value) || value.startsWith('/') || path.posix.normalize(value) !== value ||
       value.split('/').some(s => !s || s === '.' || s === '..' || s.startsWith('.ftp-mcp-'))) fail(code, 'plan_path');
 }
-function localAbsolute(value, code) {
-  text(value, code);
-  if (!path.isAbsolute(value) || path.normalize(value) !== value ||
-      (process.platform === 'win32' && !/^(?:[a-zA-Z]:\\|\\\\[^\\]+\\[^\\]+(?:\\|$))/.test(value))) fail(code, 'plan_local_root');
-}
 export function insideRemote(root, candidate) { return candidate === root || candidate.startsWith(root === '/' ? '/' : `${root}/`); }
 function validateTarget(target, code) {
   exact(target, TARGET_KEYS, code);
@@ -49,7 +45,7 @@ function validateTarget(target, code) {
   text(target.host, code); text(target.user, code);
   if (target.host !== target.host.trim().toLowerCase().replace(/\.$/, '')) fail(code, 'plan_host');
   integer(target.port, 65535, code, 1);
-  remoteAbsolute(target.root, code); localAbsolute(target.localRoot, code);
+  remoteAbsolute(target.root, code);
   if (target.protocol === 'sftp') remoteAbsolute(target.canonicalRoot, code);
   else if (target.canonicalRoot !== null) fail(code, 'plan_canonical_root');
 }
@@ -57,11 +53,16 @@ export function unchanged(file) {
   return file.before.kind === 'file' && file.bytes === file.before.bytes && file.sha256 === file.before.sha256 && file.desiredMode === file.before.mode;
 }
 function validatePlan(plan, limits, code) {
-  exact(plan, ['v', 'createdAt', 'expiresAt', 'serverAlias', 'target', 'policyHash', 'files'], code);
-  if (plan.v !== 1) fail(code, 'plan_version');
+  exact(plan, ['v', 'createdAt', 'expiresAt', 'serverAlias', 'source', 'target', 'policyHash', 'securityWarning', 'files'], code);
+  if (plan.v !== 2) fail(code, 'plan_version');
   integer(plan.createdAt, Number.MAX_SAFE_INTEGER, code); integer(plan.expiresAt, Number.MAX_SAFE_INTEGER, code);
   if (plan.expiresAt <= plan.createdAt || plan.expiresAt - plan.createdAt > 900000) fail(code, 'plan_lifetime');
-  text(plan.serverAlias, code); validateTarget(plan.target, code); hash(plan.policyHash, code);
+  text(plan.serverAlias, code);
+  exact(plan.source, ['localRootHash'], code); hash(plan.source.localRootHash, code);
+  validateTarget(plan.target, code); hash(plan.policyHash, code);
+  if (plan.securityWarning !== null && (typeof plan.securityWarning !== 'string' || plan.securityWarning.length > 4096 || WARNING_CONTROL.test(plan.securityWarning))) {
+    fail(code, 'plan_security_warning');
+  }
   if (!Array.isArray(plan.files) || !plan.files.length || plan.files.length > Math.min(limits.stateLimits.maxPlanFiles, limits.maxDeployFiles)) fail(code, 'plan_files');
   const localPaths = new Set(), remotePaths = new Set();
   let planned = 0, recovery = 0;
@@ -133,7 +134,7 @@ export function policyFingerprint(input) {
     const requirePlan = data(input, 'requirePlan');
     if (typeof requirePlan !== 'boolean') fail('STATE_INVALID', 'policy_boolean');
     const stateLimits = validateStateLimits(decode(encode(data(input, 'stateLimits'), TRANSIENT, TRANSIENT_BYTES), TRANSIENT, TRANSIENT_BYTES));
-    const projection = { v: 1, target, requirePlan, stateLimits };
+    const projection = { v: 2, target, requirePlan, stateLimits };
     for (const [key, [minimum, maximum]] of Object.entries(SERVER_BOUNDS)) projection[key] = integer(data(server, key), maximum, 'STATE_INVALID', minimum);
     for (const key of FLAGS) {
       projection[key] = data(server, key);

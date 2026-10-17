@@ -65,19 +65,42 @@ nettoyage, y compris lorsqu’une entrée-sortie non coopérative se termine apr
 une annulation ou un dépassement de délai. Les verrous FIFO existants par cible
 sont inchangés ; leurs appels en attente occupent aussi une place d’admission.
 Les identifiants de corrélation, dont `0` numérique, `""`, `1` numérique et `"0"`
-texte, conservent leur comportement de transport.
+texte, restent distincts dans la garde du canal possédée par le point d’entrée.
+Cette garde réserve chaque identifiant de requête entrant, toutes méthodes
+confondues, avant sa remise au SDK et ferme la connexion sur tout doublon actif.
 
 Ces limites ne coordonnent pas les processus, isolates ou hôtes distincts. Elles
 ne bornent ni les tampons d’entrée du transport ni l’analyse des requêtes refusées.
 Les limites du parcours local ne bornent pas le tampon distant sous-jacent de
 `list()` ; la sortie MCP paginée conserve l’implémentation de liste existante.
 
+## Bornes de l'état durable et du statut
+
+`stateLimits` borne strictement les octets d'état, octets/fichiers de sauvegarde,
+plans, opérations, fichiers/octets de plan et octets/événements de journal. La
+publication d'un plan prouve toute sa réservation avant écriture. Apply et
+rollback consultent le budget avant chaque intention durable et événement
+terminal ; les flux s'exécutent hors du court verrou d'admission mais sous le
+verrou persistant de l'alias exact.
+
+`ftp_deploy_status` est sans écriture ni verrou : il rejoue un préfixe de journal
+dont l'intégrité est vérifiée, puis confirme que plan, association, journal et
+tête n'ont pas changé. Une concurrence renvoie `STATUS_CHANGED` ou
+`DURABLE_STATE_BUSY`, jamais une page mélangée. Une page accepte au plus 100
+lignes et s'arrête avant que le résultat structuré complet dépasse 18 Kio ;
+`next_offset` vaut toujours `offset + count` lorsqu'une ligne reste.
+
+Sauvegardes et journaux sont sensibles. Gardez `stateDir` privé et hors de toute
+arborescence `localRoot`. Ne copiez pas un état v1 : il est refusé avant décodage
+des plans et exige une réinitialisation hors ligne.
+
 ## Cycle de vie interne des outils préparés
 
-Le registre expose une interface d’intégration interne ; les outils existants
-utilisent toujours leur résolveur `timeoutFor` ordinaire. Cette interface
-n’active aucun outil de reprise, identifiant de requête persistant ou nouveau
-champ de configuration. Les descripteurs et résultats publics sont inchangés.
+Le registre expose une interface d’intégration interne ; les outils qui ne
+l’activent pas utilisent toujours leur résolveur `timeoutFor` ordinaire.
+L’interface elle-même n’active aucune reprise ni identifiant de requête
+persistant et ne modifie ni les descripteurs ni les résultats des outils qui ne
+l’utilisent pas.
 
 Une inscription peut fournir les callbacks privés appariés `prepare(args,
 operation)` et `disposePrepared(prepared, operation)`, tous deux obligatoirement
@@ -91,12 +114,16 @@ de libération après un handler réussi devient une erreur d’outil bornée or
 
 Préparation, traitement et libération s’exécutent dans le worker admis observé
 par le transport. Une annulation ou un dépassement de délai peut produire une
-réponse anticipée, mais le slot d’admission et l’identifiant de corrélation falsy
-concerné restent occupés jusqu’à la terminaison réelle, préparation tardive et
-libération comprises. La libération s’exécute même après l’annulation et ne doit
-pas passer par `operation.step`, dont le contrôle d’annulation empêcherait le
-nettoyage. Un travail non coopératif peut donc retenir la capacité indéfiniment ;
-le délai n’interrompt pas du JavaScript ou des entrées-sorties arbitraires.
+réponse anticipée, mais le slot d’admission reste occupé jusqu’à la terminaison
+réelle, préparation tardive et libération comprises. L’identifiant de requête du
+canal reste réservé jusqu’au règlement ou à l’échec de l’envoi de la réponse
+terminale et jusqu’à la terminaison réelle de tous les tours de handler enregistrés,
+y compris tous les tours legacy d’entrée requise. Si l’annulation du client
+supprime la réponse, l’identifiant reste réservé jusqu’à la fermeture de la
+connexion. La libération s’exécute même après l’annulation et ne doit pas passer
+par `operation.step`, dont le contrôle d’annulation empêcherait le nettoyage. Un
+travail non coopératif peut donc retenir la capacité indéfiniment ; le délai
+n’interrompt pas du JavaScript ou des entrées-sorties arbitraires.
 
 L’option privée `preparedTimeoutMs` du registre vaut 120000 par défaut et accepte
 un entier sûr positif jusqu’à 3600000. Les outils préparés ne consultent jamais

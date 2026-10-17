@@ -1,8 +1,10 @@
-# Pure durable workflow model, v1
+# Durable workflow model, v2
 
 [Français](./WORKFLOW-MODEL.fr.md)
 
-This internal library contains the first pure phase of the durable deployment design. It does not activate state configuration, expose MCP tools, connect to a server or create a state directory. The workflow modules import only the codec and record modules of the existing storage library. This phase does not deliver an executable deployment workflow.
+These pure model modules define the closed plan, event reducer and exact budget
+used by the four public durable tools when `stateDir` is enabled. They perform no
+I/O themselves; the durable engine supplies state, transport and confirmation.
 
 ## Supported internal interfaces
 
@@ -21,7 +23,7 @@ Other exports are private helpers shared by these modules or used to inspect res
 
 ## Plan and policy representation
 
-Plan keys are exactly `{v,createdAt,expiresAt,serverAlias,target,policyHash,files}`. Target keys are exactly `{protocol,host,port,user,root,localRoot,canonicalRoot}`. Each file has exactly `{index,localPath,remotePath,bytes,sha256,before,parent,desiredMode}`. Indices are consecutive from zero and files are ordered by `remotePath` using binary UTF-16 comparison, independent of locale. Local and remote paths are unique, normalized slash-separated relative paths under the bound roots. Planned remote files cannot also serve as another planned file's parent.
+Plan keys are exactly `{v,createdAt,expiresAt,serverAlias,source,target,policyHash,files}` with `v:2`. Source is exactly `{localRootHash}`; target is exactly `{protocol,host,port,user,root,canonicalRoot}` and contains no local path. Each file has exactly `{index,localPath,remotePath,bytes,sha256,before,parent,desiredMode}`. Indices are consecutive from zero and files are ordered by `remotePath` using binary UTF-16 comparison, independent of locale. Local and remote paths are unique, normalized slash-separated relative paths under the bound roots. Planned remote files cannot also serve as another planned file's parent.
 
 The configured remote root is normalized absolute POSIX syntax. The local root is canonical absolute native syntax; the pure layer cannot observe filesystem identity. SFTP's recorded canonical parent must be contained in `canonicalRoot`, and can differ from the lexical parent. FTP/FTPS's parent must equal the normalized lexical parent. Relative paths reject drive prefixes; non-prefix colons are preserved as POSIX names. Actual native-path interpretation, containment, parent identity, regular-file observations and source revalidation belong to later integration.
 

@@ -2,12 +2,15 @@
 
 [Français](./STATE-STORAGE.fr.md)
 
-This dependency-free internal library implements storage primitives only. It is
-not connected to MCP tools, configuration, deployment, rollback or production
-servers. The application must supply a closed plan schema and a pure event
+This dependency-free internal library implements the storage primitives used by
+the durable MCP engine. It does not itself connect to a production server or
+decide deployment policy. The application supplies a closed plan schema and a pure event
 validator/reducer. Storage never decides that a remote effect belongs to an
-operation. A request UUID is not a persistent operation ID. No deployment
-workflow is delivered by these primitives.
+operation. A request UUID is not a persistent operation ID.
+
+The domain marker is v2. A v1 marker is rejected before plan scanning or
+decoding and requires offline state-directory reinitialization; there is no
+automatic migration or dual reader.
 
 Run the isolated suite from the source checkout root:
 

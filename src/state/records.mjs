@@ -25,7 +25,8 @@ export function reservation(value, limits, code = 'STATE_INVALID') {
 }
 export function readDomain(bytes, limits) {
   const record = unseal(bytes, ['v', 'domainId'], limits);
-  if (record.v !== 1) fail('STATE_CORRUPT', 'domain_version');
+  if (record.v === 1) fail('STATE_UNSUPPORTED', 'domain_v1');
+  if (record.v !== 2) fail('STATE_CORRUPT', 'domain_version');
   id(record.domainId, 'domain', 'STATE_CORRUPT'); return record;
 }
 export function readPlanRecord(bytes, planId, domainId, limits) {

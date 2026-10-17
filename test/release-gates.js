@@ -4,8 +4,9 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
-import { MCP_NAME, PACKAGE_NAME, SCHEMA, PRODUCTION_PINS, validateChangelog, validateDependencies, validateMetadata, validateSourceMetadata } from "../scripts/release-gate.mjs";
+import { MCP_DEVELOPMENT_PINS, MCP_NAME, PACKAGE_NAME, SCHEMA, PRODUCTION_PINS, validateChangelog, validateDependencies, validateMetadata, validateSourceMetadata } from "../scripts/release-gate.mjs";
 import { PACKAGE_FILES, MAX_ARCHIVE_BYTES, checkArtifact, downloadRegistryArchive, integrity, validateFiles, validatePack, validatePublished, verifyPublished } from "../scripts/release-artifact.mjs";
+import { assertProductionSbom, productionClosure } from "./sbom-contract.mjs";
 
 
 assertReleaseToolchain();
@@ -13,9 +14,10 @@ const release = { name: PACKAGE_NAME, version: "0.2.0", mcpName: MCP_NAME };
 const ref = "refs/tags/v0.2.0";
 const digest = integrity(Buffer.from("reviewed tarball"));
 function fixture() {
+  const lockedPins = { ...PRODUCTION_PINS, ...MCP_DEVELOPMENT_PINS };
   return {
-    pkg: { ...release, bin: { [PACKAGE_NAME]: "src/index.js" }, dependencies: { ...PRODUCTION_PINS } },
-    lock: { name: PACKAGE_NAME, version: release.version, lockfileVersion: 3, packages: { "": { name: PACKAGE_NAME, version: release.version, dependencies: { ...PRODUCTION_PINS } }, ...Object.fromEntries(Object.entries(PRODUCTION_PINS).map(([name, version]) => [`node_modules/${name}`, { version, resolved: `https://registry.npmjs.org/${name}/-/fixture-${version}.tgz`, integrity: digest }])) } },
+    pkg: { ...release, bin: { [PACKAGE_NAME]: "src/index.js" }, dependencies: { ...PRODUCTION_PINS }, devDependencies: { ...MCP_DEVELOPMENT_PINS } },
+    lock: { name: PACKAGE_NAME, version: release.version, lockfileVersion: 3, packages: { "": { name: PACKAGE_NAME, version: release.version, dependencies: { ...PRODUCTION_PINS }, devDependencies: { ...MCP_DEVELOPMENT_PINS } }, ...Object.fromEntries(Object.entries(lockedPins).map(([name, version]) => [`node_modules/${name}`, { version, resolved: `https://registry.npmjs.org/${name}/-/fixture-${version}.tgz`, integrity: digest }])) } },
     server: { $schema: SCHEMA, name: MCP_NAME, version: release.version, description: "Release fixture", packages: [{
       registryType: "npm", registryBaseUrl: "https://registry.npmjs.org", identifier: PACKAGE_NAME,
       version: release.version, transport: { type: "stdio" },
@@ -64,7 +66,7 @@ for (const resolved of ["http://registry.npmjs.org/a.tgz", "https://other.invali
     assert.throws(() => validateDependencies(pkg, lock));
   });
 }
-for (const [key, value] of [["integrity", null], ["integrity", "sha1-invalid"], ["integrity", "sha512-invalid"], ["version", "^6.0.1"], ["link", false]]) {
+for (const [key, value] of [["integrity", null], ["integrity", "sha1-invalid"], ["integrity", "sha512-invalid"], ["version", "^6.2.3"], ["link", false]]) {
   test(`lock policy rejects invalid ${key}=${value}`, () => {
     const { pkg, lock } = fixture();
     lock.packages["node_modules/basic-ftp"][key] = value;
@@ -126,9 +128,11 @@ for (const runtime of ["0.1.0", "", "0.2.0\nextra"]) {
 
 test("archive allowlist accepts exactly the reviewed files", () => validateFiles(PACKAGE_FILES));
 test("scripted evaluation and pure workflow files ship without tests, tooling or results", () => {
-  assert.equal(PACKAGE_FILES.length, 83);
+  assert.equal(PACKAGE_FILES.length, 89);
   for (const file of ["docs/SCRIPTED-EVALUATIONS.md", "docs/SCRIPTED-EVALUATIONS.fr.md", "docs/WORKFLOW-MODEL.md", "docs/WORKFLOW-MODEL.fr.md",
-    "src/workflow/model.mjs", "src/workflow/events.mjs", "src/workflow/budget.mjs"]) assert.ok(PACKAGE_FILES.includes(file));
+    "src/workflow/model.mjs", "src/workflow/events.mjs", "src/workflow/budget.mjs",
+    "src/durable/schemas.js", "src/durable/state.js", "src/durable/plan.js", "src/durable/status.js",
+    "src/durable/confirmation.js", "src/durable/engine.js", "src/durable-tools.js"]) assert.ok(PACKAGE_FILES.includes(file));
   for (const file of ["scripts/evaluation/run.mjs", "test/fixtures/evaluation/corpus.spec.json", ".tmp/evaluations/reports/latest.json",
     "test/workflow/model.test.mjs", "test/workflow/events.test.mjs", "test/workflow/budget.test.mjs", "test/workflow/helpers.mjs", "review-inventory.json"]) {
     assert.throws(() => validateFiles([...PACKAGE_FILES, file]));
@@ -297,6 +301,126 @@ test("CI shares pack normalization and installs only the authoritative source lo
   assert.match(ci, /npm run test:release/);
 });
 
+test("CI dependency review and production SBOM are bounded and least privileged", () => {
+  const root = new URL("../.github/workflows/", import.meta.url);
+  const ci = readFileSync(new URL("ci.yml", root), "utf8");
+  const dependencyReview = ci.split(/^  dependency-review:\s*$/m)[1].split(/^  test:\s*$/m)[0];
+  assert.match(ci, /^  pull_request:\s*$/m);
+  assert.doesNotMatch(ci, /pull_request_target/);
+  assert.match(dependencyReview, /if: github\.event_name == 'pull_request'/);
+  assert.match(dependencyReview, /permissions:\r?\n      contents: read\r?\n    runs-on:/);
+  assert.doesNotMatch(dependencyReview, /\b(?:security-events|id-token|issues|pull-requests):|\bwrite\b|secrets\./);
+  assert.match(dependencyReview, /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\.0\.1\r?\n        with:\r?\n          persist-credentials: false/);
+  assert.match(dependencyReview, /actions\/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5\.0\.0/);
+  assert.match(dependencyReview, /fail-on-severity: high/);
+
+  const supply = ci.split(/^  supply-chain:\s*$/m)[1];
+  assert.match(supply, /node-version: '24\.20\.0'/);
+  assert.match(supply, /node node_modules\/@cyclonedx\/cyclonedx-npm\/bin\/cyclonedx-npm-cli\.js/);
+  assert.match(supply, /--omit dev/);
+  assert.match(supply, /--spec-version 1\.5/);
+  assert.match(supply, /--output-reproducible/);
+  assert.match(supply, /--validate/);
+  assert.match(supply, /npm ls --omit=dev --all --json > "\$RUNNER_TEMP\/npm-production-tree\.json"/);
+  assert.match(supply, /node test\/sbom-contract\.mjs "\$SBOM_PATH" "\$NPM_TREE_PATH"/);
+  assert.doesNotMatch(supply, /npm sbom|\bnpx\b/);
+  assert.match(supply, /name: production-sbom/);
+  assert.match(supply, /if-no-files-found: error/);
+  assert.match(supply, /retention-days: 14/);
+  assert.match(supply, /actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7\.0\.1/);
+  for (const use of ci.matchAll(/uses: ([^\s]+)/g)) assert.match(use[1], /@[a-f0-9]{40}$/);
+
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const lock = JSON.parse(readFileSync(new URL("../package-lock.json", import.meta.url), "utf8"));
+  assert.equal(pkg.devDependencies["@cyclonedx/cyclonedx-npm"], "6.0.1");
+  assert.equal(pkg.dependencies["@cyclonedx/cyclonedx-npm"], undefined);
+  assert.equal(lock.packages[""].devDependencies["@cyclonedx/cyclonedx-npm"], "6.0.1");
+  assert.deepEqual(
+    { version: lock.packages["node_modules/@cyclonedx/cyclonedx-npm"].version, integrity: lock.packages["node_modules/@cyclonedx/cyclonedx-npm"].integrity, dev: lock.packages["node_modules/@cyclonedx/cyclonedx-npm"].dev },
+    { version: "6.0.1", integrity: "sha512-/aU3bBC6qP6cV/qQ5SfUSygE/+2hQhwgg6sJML31/gZ96NyMvIUuwdk637H4z+LS/NryRT2kjR2wtD0qBEVVHQ==", dev: true },
+  );
+
+  assert.ok(PACKAGE_FILES.every((file) => !/(?:sbom|\.cdx\.json)/i.test(file)));
+  for (const file of ["release.yml", "publish-mcp.yml"]) {
+    const publication = readFileSync(new URL(file, root), "utf8");
+    assert.doesNotMatch(publication, /npm sbom|production-sbom|\.cdx\.json/i);
+  }
+});
+
+test("CodeQL analyzes JavaScript on push, pull request and a weekly schedule with scoped permissions", () => {
+  const codeql = readFileSync(new URL("../.github/workflows/codeql.yml", import.meta.url), "utf8");
+  const triggers = codeql.split(/^permissions: \{\}\s*$/m)[0];
+  assert.match(triggers, /^  push:\s*$/m);
+  assert.match(triggers, /^  pull_request:\s*$/m);
+  assert.match(triggers, /^  schedule:\s*$/m);
+  assert.match(triggers, /cron: '17 4 \* \* 2'/);
+  assert.doesNotMatch(codeql, /pull_request_target/);
+  assert.match(codeql, /^permissions: \{\}\s*$/m);
+  assert.match(codeql, /permissions:\r?\n      contents: read\r?\n      security-events: write\r?\n    runs-on:/);
+  assert.equal((codeql.match(/security-events: write/g) || []).length, 1);
+  assert.match(codeql, /actions\/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7\.0\.1\r?\n        with:\r?\n          persist-credentials: false/);
+  assert.match(codeql, /github\/codeql-action\/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4\.39\.0/);
+  assert.match(codeql, /github\/codeql-action\/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4\.39\.0/);
+  assert.match(codeql, /languages: javascript-typescript/);
+  assert.match(codeql, /build-mode: none/);
+  assert.doesNotMatch(codeql, /\brun:/);
+  for (const use of codeql.matchAll(/uses: ([^\s]+)/g)) assert.match(use[1], /@[a-f0-9]{40}$/);
+});
+
+function sbomFixture(identities, specVersion = "1.5") {
+  return {
+    bomFormat: "CycloneDX",
+    specVersion,
+    version: 1,
+    metadata: { component: { name: "fixture-root", version: "1.0.0" } },
+    components: identities.map((identity) => {
+      const separator = identity.lastIndexOf("@");
+      const name = identity.slice(0, separator);
+      const version = identity.slice(separator + 1);
+      const slash = name.indexOf("/");
+      const group = name.startsWith("@") ? name.slice(0, slash) : undefined;
+      const componentName = group ? name.slice(slash + 1) : name;
+      const purlName = name.split("/").map(encodeURIComponent).join("/");
+      return { type: "library", ...(group ? { group } : {}), name: componentName, version, purl: `pkg:npm/${purlName}@${encodeURIComponent(version)}` };
+    }),
+    dependencies: [],
+  };
+}
+
+test("SBOM closure keeps a dev-declared package reached through production and fails closed on tampering", () => {
+  const npmTree = {
+    name: "fixture-root",
+    version: "1.0.0",
+    devDependencies: { shared: "1.2.3" },
+    dependencies: { runtime: { version: "2.0.0", dependencies: { shared: { version: "1.2.3" } } } },
+  };
+  assert.deepEqual([...productionClosure(npmTree)].sort(), ["runtime@2.0.0", "shared@1.2.3"]);
+  assert.deepEqual(assertProductionSbom(sbomFixture(["runtime@2.0.0", "shared@1.2.3"]), npmTree), { componentCount: 2 });
+  assert.throws(() => assertProductionSbom(sbomFixture(["runtime@2.0.0"]), npmTree), /missing production components: shared@1\.2\.3/);
+  assert.throws(() => assertProductionSbom(sbomFixture(["runtime@2.0.0", "shared@1.2.3", "rogue@9.9.9"]), npmTree), /extraneous components: rogue@9\.9\.9/);
+  assert.throws(() => assertProductionSbom(sbomFixture(["runtime@2.0.0", "shared@1.2.3"], "1.6"), npmTree), /specVersion must be exactly 1\.5/);
+});
+
+test("pinned CycloneDX generator emits the complete installed production closure", { timeout: 30000 }, () => {
+  const root = fileURLToPath(new URL("../", import.meta.url));
+  const generator = fileURLToPath(new URL("../node_modules/@cyclonedx/cyclonedx-npm/bin/cyclonedx-npm-cli.js", import.meta.url));
+  const generated = spawnSync(process.execPath, [generator, "--omit", "dev", "--spec-version", "1.5", "--output-reproducible", "--output-format", "JSON", "--output-file", "-", "--validate"], { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024, timeout: 30000, windowsHide: true });
+  assert.equal(generated.error, undefined, generated.error?.message);
+  assert.equal(generated.status, 0, generated.stderr);
+
+  assert.ok(process.env.npm_execpath, "npm_execpath is required for the qualified npm ls closure");
+  const listed = spawnSync(process.execPath, [process.env.npm_execpath, "ls", "--omit=dev", "--all", "--json"], { cwd: root, encoding: "utf8", maxBuffer: 8 * 1024 * 1024, timeout: 30000, windowsHide: true });
+  assert.equal(listed.error, undefined, listed.error?.message);
+  assert.equal(listed.status, 0, listed.stderr);
+
+  const bom = JSON.parse(generated.stdout);
+  const npmTree = JSON.parse(listed.stdout);
+  const result = assertProductionSbom(bom, npmTree);
+  const identities = productionClosure(npmTree);
+  assert.ok(result.componentCount > 0);
+  for (const identity of ["zod@4.6.7", "@modelcontextprotocol/core@2.3.1", "ssh2@1.17.0"]) assert.ok(identities.has(identity), identity);
+});
+
 test("release toolchain accepts only the exact qualified Node version", () => {
   assert.equal(RELEASE_NODE_VERSION, "24.20.0");
   assert.doesNotThrow(() => assertReleaseToolchain(RELEASE_NODE_VERSION));
@@ -314,7 +438,7 @@ test("all release I/O APIs refuse Node 22 before filesystem, process or network 
     const graph = await import(${JSON.stringify(new URL("../scripts/release-graph.mjs", import.meta.url).href)});
     const toolchain = await import(${JSON.stringify(new URL("../scripts/release-toolchain.mjs", import.meta.url).href)});
     assert.equal(gate.PACKAGE_NAME, 'ftp-deploy-mcp');
-    assert.equal(artifact.PACKAGE_FILES.length, 83);
+    assert.equal(artifact.PACKAGE_FILES.length, 89);
     assert.equal(artifact.integrity(Buffer.from('pure metadata')).startsWith('sha512-'), true);
     let contacted = false;
     const fetchImpl = async () => { contacted = true; throw new Error('network must not run'); };
@@ -361,12 +485,12 @@ test("release toolchain records the actual Node, libuv, bundled npm and tar vers
   assert.match(versions.tar, /tar/i);
 });
 
-test("CI separates six runtime jobs from exact-toolchain release jobs with three fixed macOS passes", () => {
+test("CI separates nine runtime jobs from exact-toolchain release jobs with three fixed macOS passes", () => {
   const ci = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
   const runtime = ci.split(/^  test:\s*$/m)[1].split(/^  release:\s*$/m)[0];
   const qualification = ci.split(/^  release:\s*$/m)[1].split(/^  supply-chain:\s*$/m)[0];
   assert.match(runtime, /os: \[ubuntu-latest, windows-latest, macos-latest\]/);
-  assert.match(runtime, /node: \[22, 24\]/);
+  assert.match(runtime, /node: \[22, 24, 26\]/);
   assert.doesNotMatch(runtime, /test:release|release-toolchain/);
   assert.match(qualification, /os: \[ubuntu-latest, windows-latest, macos-latest\]/);
   assert.match(qualification, /node-version: '24\.20\.0'/);

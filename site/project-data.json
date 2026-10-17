@@ -10,9 +10,9 @@
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
       "head": "f8428238f1ded34597b529479aa2364f4ea05a17",
       "scope": "MCP stdio local · usage local supervisé",
-      "toolCount": 10,
-      "summary": "Contrôler, transférer, vérifier. Les garanties livrées sont explicites ; retrouver un état durable après incident reste la prochaine étape.",
-      "deliveryNote": "État poussé f842823 : staging vérifié, contrat d’erreur strict et textes EN/FR, annulation, verrous et admission bornée sont livrés. CI 34326855200 entièrement réussie. Le runner strict d9a50ab a sa CI 34304948804 réussie. Le stockage d’état interne borné (36977ba) et le modèle de workflow pur à budgets de reprise finis (f842823) sont poussés comme bibliothèques internes inertes : aucun outil MCP exposé. Plan/apply/status, journal, reprise, rollback, lecture par ranges et traces restent en préparation. Version 0.2.0 : aucun tag ni publication npm.",
+      "toolCount": 14,
+      "summary": "Planifier, confirmer, appliquer, consulter et restaurer avec un journal durable borné et des garanties explicites.",
+      "deliveryNote": "Avec stateDir, quatre outils durables complètent les dix outils historiques : plan immuable, confirmation MCP input_required signée, reprise explicite, statut paginé sans écriture et rollback conservateur. La garantie est observable_state_reconciled, jamais exactement une fois ni atomique sur plusieurs fichiers.",
       "metrics": [
         {
           "value": "672",
@@ -25,9 +25,9 @@
           "detail": "43 scénarios × 2 langues · aucune mesure LLM"
         },
         {
-          "value": "10",
+          "value": "14",
           "label": "outils MCP",
-          "detail": "Version 0.2.0 · paquet local de 81 fichiers"
+          "detail": "10 outils historiques + 4 outils durables avec stateDir"
         }
       ],
       "principles": [
@@ -129,8 +129,8 @@
           "y": 285,
           "w": 230,
           "h": 90,
-          "current": false,
-          "responsibility": "Vue cible : conserve un plan immuable, son identité de cible, les préconditions, la clé d’idempotence et l’état de chaque fichier. Permet la consultation après perte de réponse.",
+          "current": true,
+          "responsibility": "Conserve un plan immuable privacy-safe, l’identité distante, les préconditions, le hash de clé d’idempotence et l’état journalisé de chaque fichier. Permet statut, reprise et rollback conservateur.",
           "constraints": [
             "À persister hors de la racine web et sans contenu secret.",
             "Un crash entre écriture distante et journal impose une réconciliation.",
@@ -236,7 +236,7 @@
           "id": "stale",
           "name": "Plan périmé",
           "summary": "Parcours cible de refus avant écriture lorsque l’intention approuvée ne correspond plus à l’état observé.",
-          "currentFact": "État actuel : pas de plan persisté ni d’apply distinct. La dérive source et certains changements de cible sont contrôlés pendant les transferts, sans protocole de plan durable.",
+          "currentFact": "Livré avec stateDir : plan persistant, apply distinct, revalidation de la source et de la cible avant mutation, puis refus PLAN_STALE en cas de dérive.",
           "steps": [
             {
               "name": "Plan",
@@ -262,7 +262,7 @@
           "id": "disconnect",
           "name": "Coupure",
           "summary": "Parcours cible après réponse perdue ou arrêt au voisinage d’une écriture : l’état doit pouvoir rester explicitement inconnu.",
-          "currentFact": "Livré : erreurs structurées et effets none/possible/confirmed, compteurs partiels et état final explicite. Une promotion dont la réponse est perdue peut rester incertaine ; aucun statut durable ni reprise automatique. Les incidents du runner utilisent un adaptateur en mémoire.",
+          "currentFact": "Livré : état durable consultable, erreurs structurées et réconciliation conservatrice des réponses perdues. Une promotion non prouvée reste SATISFIED_UNOWNED et le rollback reste explicite, jamais automatique.",
           "steps": [
             {
               "name": "Plan",
@@ -324,7 +324,7 @@
           "id": "restore",
           "name": "Restauration",
           "summary": "Parcours cible de rollback conditionnel. Une modification tierce détectée bloque la restauration automatique.",
-          "currentFact": "État actuel : pas de reprise ni de rollback automatique. Le staging protège le contenu avant promotion mais ne conserve pas un historique restaurable. Une procédure de sauvegarde/restauration reste nécessaire.",
+          "currentFact": "Livré : rollback explicite des seuls fichiers APPLIED avec sauvegarde vérifiée et préconditions ; aucune restauration automatique ni écrasement d’une dérive tierce.",
           "steps": [
             {
               "name": "Journal",
@@ -970,9 +970,9 @@
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
       "head": "f8428238f1ded34597b529479aa2364f4ea05a17",
       "scope": "Local MCP stdio · supervised local use",
-      "toolCount": 10,
-      "summary": "Check, transfer, verify. Delivered guarantees are explicit; recovering durable state after an incident remains the next step.",
-      "deliveryNote": "Pushed state f842823: verified staging, strict error contract and EN/FR text, cancellation, locks and bounded admission are delivered. CI 34326855200 passed in full. Strict runner d9a50ab has passing CI 34304948804. Bounded internal state storage (36977ba) and the pure workflow model with finite recovery budgets (f842823) are pushed as inert internal libraries: no MCP tool exposed. Plan/apply/status, journal, recovery, rollback, range reads and traces remain in preparation. Version 0.2.0: no tag or npm publication.",
+      "toolCount": 14,
+      "summary": "Plan, confirm, apply, inspect and restore with a bounded durable journal and explicit guarantees.",
+      "deliveryNote": "With stateDir, four durable tools complement the ten legacy tools: immutable plan, signed MCP input_required confirmation, explicit resume, write-free paginated status and conservative rollback. The guarantee is observable_state_reconciled, never exactly-once or multi-file atomic.",
       "metrics": [
         {
           "value": "672",
@@ -985,9 +985,9 @@
           "detail": "43 scenarios × 2 languages · no LLM measurement"
         },
         {
-          "value": "10",
+          "value": "14",
           "label": "MCP tools",
-          "detail": "Version 0.2.0 · local 81-file package"
+          "detail": "10 legacy tools + 4 durable tools with stateDir"
         }
       ],
       "principles": [
@@ -1089,8 +1089,8 @@
           "y": 285,
           "w": 230,
           "h": 90,
-          "current": false,
-          "responsibility": "Target design: stores an immutable plan, target identity, preconditions, idempotency key and each file’s state. Makes status retrievable after a lost response.",
+          "current": true,
+          "responsibility": "Stores a privacy-safe immutable plan, remote identity, preconditions, idempotency-key hash and journaled file state. Supports status, explicit resume and conservative rollback.",
           "constraints": [
             "Persist outside the web root and without secret content.",
             "A crash between a remote write and the journal requires reconciliation.",
@@ -1196,7 +1196,7 @@
           "id": "stale",
           "name": "Stale plan",
           "summary": "The target refusal flow before writing when approved intent no longer matches the observed state.",
-          "currentFact": "Current state: no persisted plan or separate apply. Source drift and certain target changes are checked during transfers, without a durable plan protocol.",
+          "currentFact": "Delivered with stateDir: persisted plan, separate apply, source and target revalidation before mutation, and PLAN_STALE refusal on drift.",
           "steps": [
             {
               "name": "Plan",
@@ -1222,7 +1222,7 @@
           "id": "disconnect",
           "name": "Connection loss",
           "summary": "The target flow after a lost response or a stop near a write: the state must be allowed to remain explicitly unknown.",
-          "currentFact": "Delivered: structured errors and none/possible/confirmed effects, partial counts and an explicit final flag. A promotion with a lost response can remain uncertain; no durable status or automatic recovery. Runner incidents use an in-memory adapter.",
+          "currentFact": "Delivered: queryable durable status, structured errors and conservative lost-response reconciliation. An unproven promotion remains SATISFIED_UNOWNED and rollback stays explicit, never automatic.",
           "steps": [
             {
               "name": "Plan",
@@ -1284,7 +1284,7 @@
           "id": "restore",
           "name": "Restoration",
           "summary": "The target conditional rollback flow. A detected third-party modification blocks automatic restoration.",
-          "currentFact": "Current state: no automatic recovery or rollback. Staging protects content before promotion but does not retain restorable history. A backup/restore procedure remains necessary.",
+          "currentFact": "Delivered: explicit rollback of APPLIED files only, with verified backups and preconditions; no automatic restore or overwrite of third-party drift.",
           "steps": [
             {
               "name": "Journal",

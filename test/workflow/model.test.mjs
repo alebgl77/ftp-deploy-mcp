@@ -25,12 +25,14 @@ test('plan lifetime arithmetic remains exact next to the safe-integer maximum', 
   assert.throws(() => encodePlan(p, limits()));
 });
 const invalidPlans = {
-  unknown: p => { p.extra = true; }, version: p => { p.v = 2; }, empty: p => { p.files = []; },
+  unknown: p => { p.extra = true; }, version: p => { p.v = 1; }, empty: p => { p.files = []; },
   unsafeTime: p => { p.createdAt = Number.MAX_SAFE_INTEGER + 1; }, lifetime: p => { p.expiresAt++; },
   reversedTime: p => { p.expiresAt = p.createdAt; }, alias: p => { p.serverAlias = ''; },
+  securityWarningType: p => { p.securityWarning = false; }, securityWarningControl: p => { p.securityWarning = 'warning\u0000secret'; },
   targetExtra: p => { p.target.password = 'sentinel'; }, hostCase: p => { p.target.host = 'Example.test'; },
   trailingDot: p => { p.target.host += '.'; }, port: p => { p.target.port = 0; }, user: p => { p.target.user = ''; },
-  rootTraversal: p => { p.target.root = '/root/../root'; }, relativeRoot: p => { p.target.localRoot = 'relative'; },
+  rootTraversal: p => { p.target.root = '/root/../root'; }, targetLocalRoot: p => { p.target.localRoot = '/private/source'; },
+  sourceExtra: p => { p.source.extra = true; }, sourceHash: p => { p.source.localRootHash = 'z'.repeat(64); },
   parentOutside: p => { p.files[0].parent = '/canonical2'; }, beforeUnknown: p => { p.files[0].before.kind = 'unknown'; },
   beforeExtra: p => { p.files[0].before.error = 'secret'; }, badDigest: p => { p.files[0].sha256 = 'Z'.repeat(64); },
   mode: p => { p.files[0].desiredMode = 511; }, wrongIndex: p => { p.files[0].index = 1; },
@@ -45,7 +47,7 @@ for (const [name, mutate] of Object.entries(invalidPlans)) test(`closed plan rej
 });
 test('canonical decoding rejects duplicate fields, unknown version and lexical expansion before JSON.parse', () => {
   const p = plan(), l = limits({}, { maxPlanFiles: 1 }), valid = encodePlan(p, l);
-  assert.throws(() => decodePlan(Buffer.from(valid.toString().replace('"v":1', '"v":1,"v":1')), l));
+  assert.throws(() => decodePlan(Buffer.from(valid.toString().replace('"v":2', '"v":2,"v":2')), l));
   const original = JSON.parse; let calls = 0; JSON.parse = value => { calls++; return original(value); };
   try {
     // workflowLimits performs one small bounded capture before payload preflight.

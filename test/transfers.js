@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import { Readable } from "node:stream";
+import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { registerTools } from "../src/tools.js";
 import { loadConfig, normalizeServer } from "../src/config.js";
 import { connect as connectSftp } from "../src/adapters/sftp.js";
 import { startSftpServer } from "./sftp-server.js";
-import { checkTransferSize, hashLocalFile, hashRemoteStream, receiveLocalStream, sendLocalStream } from "../src/transfers.js";
+import { checkTransferSize, cleanupVerifiedStage, hashLocalFile, hashRemoteStream, promoteVerifiedStage,
+  receiveLocalStream, sendLocalStream, stageVerifiedSource, uploadVerified } from "../src/transfers.js";
 
 const digest = (buffer) => ({ sha256: createHash("sha256").update(buffer).digest("hex"), bytes: buffer.length });
 const temporaryName = /^\.ftp-mcp-[a-f0-9]{32}\.tmp$/;
@@ -83,12 +84,212 @@ function capture(config, openAdapter) {
 }
 function resultText(result) { return result.content.map((item) => item.text || "").join("\n"); }
 
+async function durableSeamTests(root, ok) {
+  const source = path.join(root, "durable-source.txt");
+  const payload = Buffer.from("durable-stage-bytes");
+  fs.writeFileSync(source, payload);
+  const expected = digest(payload);
+  const files = new Map([
+    ["/ready/directory", { type: "dir" }],
+    ["/ready/link", { type: "link" }],
+  ]);
+  let creates = 0, owns = 0, uploads = 0, removals = 0, renames = 0, lostAck = false;
+  const identity = (remote, record) => Object.freeze({ canonicalRoot: record.root ?? "/", path: remote,
+    parent: path.posix.dirname(remote), bytes: record.bytes.length, sha256: digest(record.bytes).sha256, mode: record.mode });
+  const adapter = {
+    async uploadStream(readable, remote, wanted, options) {
+      ok(options.staged === true && options.createParents === false,
+        "transfers: durable staging requests staged upload without creating parents");
+      if (path.posix.dirname(remote) !== "/ready") throw new Error("missing parent");
+      options.onCreating(); creates++;
+      if (files.has(remote)) throw new Error("collision");
+      const record = { type: "file", bytes: Buffer.alloc(0), mode: 0o600 };
+      files.set(remote, record);
+      const owned = Object.freeze({ canonicalRoot: "/", path: remote, parent: path.posix.dirname(remote) });
+      options.onOwned(owned); owns++;
+      const chunks = [];
+      for await (const chunk of readable) chunks.push(chunk);
+      record.bytes = Buffer.concat(chunks); uploads++;
+      checkTransferSize(record.bytes.length, wanted.bytes);
+      return { mode: 0o644 };
+    },
+    async inspectFile(remote, { maxBytes }) {
+      const record = files.get(remote);
+      if (!record) return { type: "absent", path: remote, parent: path.posix.dirname(remote), canonicalRoot: "/" };
+      if (record.type !== "file") throw new Error(`refused ${record.type}`);
+      checkTransferSize(record.bytes.length, maxBytes);
+      const actual = digest(record.bytes);
+      const current = identity(remote, record);
+      return { type: "file", path: remote, parent: path.posix.dirname(remote), canonicalRoot: record.root ?? "/",
+        bytes: actual.bytes, sha256: actual.sha256, mode: record.mode, identity: current };
+    },
+    async downloadStream(remote, writable, maxBytes, options = {}) {
+      const observed = await this.inspectFile(remote, { maxBytes });
+      if (options.identity?.sha256 !== undefined && options.identity.sha256 !== observed.sha256) throw new Error("identity changed");
+      await pipeline(Readable.from([files.get(remote).bytes]), writable);
+      return { bytes: observed.bytes };
+    },
+    async rename(from, to, options) {
+      ok(options.createParents === false && options.staged === true,
+        "transfers: durable promotion never creates parents");
+      renames++;
+      const record = files.get(from);
+      if (options.mode !== undefined) record.mode = options.mode;
+      files.set(to, record); files.delete(from);
+      if (lostAck) throw new Error("rename acknowledgement lost");
+    },
+    async deleteFile(remote) { removals++; files.delete(remote); },
+  };
+  const operation = { check() {}, async promote(_bytes, run) { return run(); }, confirmFile() {} };
+  const tokenA = "a".repeat(32), tokenB = "b".repeat(32);
+  const temporaryA = `/ready/.ftp-mcp-${tokenA}.tmp`;
+  const staged = await stageVerifiedSource({ adapter, source, temporary: temporaryA, expected, operation });
+  ok(staged.bytes === expected.bytes && staged.sha256 === expected.sha256 && staged.mode === 0o644 &&
+    creates === 1 && owns === 1 && uploads === 1,
+  "transfers: durable stage returns the verified observation and promotion mode");
+  const downloaded = [];
+  await adapter.downloadStream(temporaryA, new Writable({ write(chunk, _encoding, callback) { downloaded.push(chunk); callback(); } }),
+    expected.bytes, { identity: staged.identity });
+  ok(Buffer.concat(downloaded).equals(payload), "transfers: durable downloadStream preserves verified bytes and identity");
+  lostAck = true;
+  const promoted = await promoteVerifiedStage({ adapter, temporary: temporaryA, target: "/ready/final.txt",
+    mode: staged.mode, identity: staged, operation });
+  ok(promoted.bytes === payload.length && files.get("/ready/final.txt").bytes.equals(payload) && !files.has(temporaryA),
+    "transfers: lost promotion acknowledgement is recovered only from the observed postcondition");
+  lostAck = false;
+  const temporaryB = `/ready/.ftp-mcp-${tokenB}.tmp`;
+  const stagedForCleanup = await stageVerifiedSource({ adapter, source, temporary: temporaryB, expected, operation });
+  const cleaned = await cleanupVerifiedStage({ adapter, temporary: temporaryB, expected, identity: stagedForCleanup, operation });
+  ok(cleaned.removed === true && removals === 1 && !files.has(temporaryB),
+    "transfers: durable cleanup removes only the reverified owned stage");
+
+  const substitutions = [
+    { token: "d", mutate(record) { record.bytes = Buffer.alloc(payload.length, 0x78); }, label: "same-length digest" },
+    { token: "e", mutate(record) { record.mode = 0o601; }, label: "mode identity" },
+    { token: "f", mutate(record) { record.root = "/other"; }, label: "root identity" },
+  ];
+  for (const { token, mutate, label } of substitutions) {
+    const temporary = `/ready/.ftp-mcp-${token.repeat(32)}.tmp`;
+    const stage = await stageVerifiedSource({ adapter, source, temporary, expected, operation });
+    const target = `/ready/${token}-target.txt`;
+    const preserved = { type: "file", bytes: Buffer.from("preserved"), mode: 0o644 };
+    files.set(target, preserved);
+    mutate(files.get(temporary));
+    const beforeRenames = renames;
+    const failure = await promoteVerifiedStage({ adapter, temporary, target, mode: stage.mode,
+      identity: stage, operation }).catch((error) => error);
+    ok(failure instanceof Error && renames === beforeRenames && files.get(target) === preserved,
+      `transfers: durable ${label} drift rejects before rename and preserves the target`);
+    files.delete(temporary); files.delete(target);
+  }
+
+  const cleanupTemporary = `/ready/.ftp-mcp-${"7".repeat(32)}.tmp`;
+  const cleanupStage = await stageVerifiedSource({ adapter, source, temporary: cleanupTemporary, expected, operation });
+  files.get(cleanupTemporary).bytes = Buffer.alloc(payload.length, 0x79);
+  const cleanupRemovals = removals;
+  const cleanupFailure = await cleanupVerifiedStage({ adapter, temporary: cleanupTemporary, expected,
+    identity: cleanupStage, operation }).catch((error) => error);
+  ok(cleanupFailure instanceof Error && removals === cleanupRemovals && files.has(cleanupTemporary),
+    "transfers: durable cleanup rejects a same-length third-party substitution without deleting it");
+  files.delete(cleanupTemporary);
+
+  let unverifiedUploads = 0, unverifiedRenames = 0, unverifiedDeletes = 0;
+  const withoutInspection = {
+    async uploadStream() { unverifiedUploads++; },
+    async hashFile() { return expected; },
+    async rename() { unverifiedRenames++; },
+    async deleteFile() { unverifiedDeletes++; },
+  };
+  const unverifiedTemporary = `/ready/.ftp-mcp-${"8".repeat(32)}.tmp`;
+  const unverifiedIdentity = { canonicalRoot: "/", path: unverifiedTemporary, parent: "/ready", ...expected };
+  const refusedWithoutInspection = await Promise.all([
+    stageVerifiedSource({ adapter: withoutInspection, source, temporary: unverifiedTemporary, expected, operation })
+      .catch((error) => error),
+    promoteVerifiedStage({ adapter: withoutInspection, temporary: unverifiedTemporary, target: "/ready/no-inspect.txt",
+      mode: 0o600, identity: unverifiedIdentity, operation }).catch((error) => error),
+    cleanupVerifiedStage({ adapter: withoutInspection, temporary: unverifiedTemporary, expected,
+      identity: unverifiedIdentity, operation }).catch((error) => error),
+  ]);
+  ok(refusedWithoutInspection.every((error) => error instanceof Error) &&
+    unverifiedUploads === 0 && unverifiedRenames === 0 && unverifiedDeletes === 0,
+  "transfers: every durable seam requires strict inspectFile support before any mutation");
+
+  for (const preflight of ["missing parent", "collision"]) {
+    let readable;
+    const failure = await stageVerifiedSource({
+      adapter: {
+        async uploadStream(stream) { readable = stream; throw new Error(preflight); },
+        async inspectFile() { throw new Error("inspection must not run after rejected preflight"); },
+      },
+      source, temporary: `/ready/.ftp-mcp-${(preflight === "collision" ? "9" : "0").repeat(32)}.tmp`,
+      expected, operation,
+    }).catch((error) => error);
+    ok(failure instanceof Error && readable?.destroyed === true && readable?.closed === true,
+      `transfers: durable ${preflight} preflight closes the caller-owned source stream`);
+  }
+
+  let legacyHashes = 0, legacyInspections = 0;
+  const legacyFiles = new Map();
+  const legacyAdapter = {
+    async uploadFile(local, remote, maxBytes, options) {
+      const bytes = fs.readFileSync(local);
+      checkTransferSize(bytes.length, maxBytes);
+      legacyFiles.set(remote, bytes);
+      options.onOwned?.(Object.freeze({ path: remote }));
+      return { mode: 0o644 };
+    },
+    async hashFile(remote, maxBytes) {
+      legacyHashes++;
+      const bytes = legacyFiles.get(remote);
+      checkTransferSize(bytes.length, maxBytes);
+      return digest(bytes);
+    },
+    async inspectFile() { legacyInspections++; throw new Error("legacy upload must not inspect"); },
+    async rename(from, to) { legacyFiles.set(to, legacyFiles.get(from)); legacyFiles.delete(from); },
+    async deleteFile(remote) { legacyFiles.delete(remote); },
+  };
+  await uploadVerified({ adapter: legacyAdapter, source, target: "/ready/legacy.txt", maxBytes: expected.bytes,
+    expected, operation });
+  ok(legacyHashes === 1 && legacyInspections === 0 && legacyFiles.get("/ready/legacy.txt").equals(payload),
+    "transfers: legacy successful upload hashes exactly once and never uses durable inspection");
+
+  let invalidAccepted = 0;
+  for (const temporary of [
+    "/ready/.ftp-mcp-short.tmp", `/ready/.ftp-mcp-${"A".repeat(32)}.tmp`,
+    `/ready/prefix.ftp-mcp-${tokenA}.tmp`, `/ready/.ftp-mcp-${tokenA}.tmp.extra`,
+  ]) {
+    try { await stageVerifiedSource({ adapter, source, temporary, expected, operation }); invalidAccepted++; } catch { /* required */ }
+  }
+  try {
+    await promoteVerifiedStage({ adapter, temporary: temporaryA, target: "/other/final.txt", mode: 0o644,
+      identity: staged, operation });
+    invalidAccepted++;
+  } catch { /* required */ }
+  ok(invalidAccepted === 0, "transfers: durable temporary validation accepts only exact lowercase-hex sibling names");
+
+  const rejectedKinds = [];
+  for (const name of ["directory", "link"]) {
+    try { await adapter.inspectFile(`/ready/${name}`, { maxBytes: 100 }); }
+    catch { rejectedKinds.push(name); }
+  }
+  ok(rejectedKinds.join(",") === "directory,link", "transfers: strict inspection rejects directories and links");
+
+  const wrong = `/ready/.ftp-mcp-${"c".repeat(32)}.tmp`;
+  const beforeRemovals = removals;
+  const corrupt = { ...expected, sha256: "0".repeat(64) };
+  const mismatch = await stageVerifiedSource({ adapter, source, temporary: wrong, expected: corrupt, operation }).catch((error) => error);
+  ok(mismatch instanceof Error && files.has(wrong) && removals === beforeRemovals && /temporary/i.test(mismatch.message),
+    "transfers: unverified durable staging failure leaves the temporary with a bounded cleanup warning");
+  files.delete(wrong);
+}
+
 export async function runTransferTests({ root, ok }) {
   fs.mkdirSync(root, { recursive: true });
   root = fs.realpathSync(root);
   const source = path.join(root, "source.txt");
   fs.writeFileSync(source, "complete source bytes");
   fs.writeFileSync(path.join(root, "empty.txt"), "");
+  await durableSeamTests(root, ok);
   const base = loaded(root).config.servers.test;
   const configPath = path.join(root, "limits.json");
   for (const [field, maximum] of [["maxTransferBytes", 1099511627776], ["maxDeployBytes", 1099511627776], ["maxDeployFiles", 100000]]) {
@@ -563,6 +764,82 @@ async function transferIdentityTests(root, ok) {
 }
 
 async function sftpPermissionTests(root, ok) {
+  const seamRoot = path.join(root, "sftp-durable-seams");
+  fs.mkdirSync(path.join(seamRoot, "stage"), { recursive: true });
+  fs.mkdirSync(path.join(seamRoot, "directory"));
+  fs.writeFileSync(path.join(seamRoot, "file.txt"), "inspect me");
+  let linkCreated = false;
+  try {
+    fs.symlinkSync(path.join(seamRoot, "directory"), path.join(seamRoot, "link"), process.platform === "win32" ? "junction" : "dir");
+    linkCreated = true;
+  } catch { /* platform policy can forbid local symlink creation */ }
+  const seamFixture = await startSftpServer({ root: seamRoot, user: "test", password: SECRET });
+  let seamAdapter;
+  try {
+    seamAdapter = await connectSftp(loaded(root, {
+      host: "127.0.0.1", port: seamFixture.port, hostKeySha256: seamFixture.hostKeySha256,
+    }).config.servers.test);
+    const observed = await seamAdapter.inspectFile("/file.txt", { maxBytes: 100 });
+    const absent = await seamAdapter.inspectFile("/absent.txt", { maxBytes: 100 });
+    ok(observed.type === "file" && observed.bytes === 10 && observed.sha256 === digest(Buffer.from("inspect me")).sha256 &&
+      Number.isInteger(observed.mode) && observed.parent === "/" && observed.canonicalRoot === "/" &&
+      absent.type === "absent" && absent.parent === "/" && absent.canonicalRoot === "/",
+    "transfers: real SFTP inspectFile returns strict file/absent observations with digest, mode, parent and canonical root");
+    const rejected = [];
+    for (const name of ["directory", ...(linkCreated ? ["link"] : [])]) {
+      try { await seamAdapter.inspectFile(`/${name}`, { maxBytes: 100 }); }
+      catch { rejected.push(name); }
+    }
+    ok(rejected.length === 1 + Number(linkCreated),
+      "transfers: real SFTP inspectFile rejects directories and links without downloading them");
+    let missingParentRejected = false;
+    try {
+      await seamAdapter.uploadStream(Readable.from([Buffer.from("x")]),
+        `/missing/.ftp-mcp-${"d".repeat(32)}.tmp`, digest(Buffer.from("x")),
+        { staged: true, createParents: false });
+    } catch { missingParentRejected = true; }
+    ok(missingParentRejected && !fs.existsSync(path.join(seamRoot, "missing")),
+      "transfers: real SFTP uploadStream createParents:false rejects a missing parent without creating it");
+    let creating = 0, owned;
+    const stagePath = `/stage/.ftp-mcp-${"e".repeat(32)}.tmp`;
+    await seamAdapter.uploadStream(Readable.from([Buffer.from("streamed")]), stagePath, digest(Buffer.from("streamed")), {
+      staged: true, createParents: false, onCreating() { creating++; }, onOwned(value) { owned = value; },
+    });
+    const staged = await seamAdapter.inspectFile(stagePath, { maxBytes: 8 });
+    const chunks = [];
+    await seamAdapter.downloadStream(stagePath,
+      new Writable({ write(chunk, _encoding, callback) { chunks.push(chunk); callback(); } }), 8, { identity: staged.identity });
+    ok(creating === 1 && owned?.path === staged.path && Buffer.concat(chunks).toString() === "streamed",
+      "transfers: real SFTP stream seams retain exclusive ownership and verified identity");
+
+    const stageBacking = path.join(seamRoot, "stage", path.posix.basename(stagePath));
+    const promotionTarget = path.join(seamRoot, "stage", "preserved.txt");
+    fs.writeFileSync(promotionTarget, "preserved");
+    fs.writeFileSync(stageBacking, "thirdpty");
+    const beforeRename = seamFixture.getStats().renames.length;
+    const renameFailure = await seamAdapter.rename(stagePath, "/stage/preserved.txt", {
+      staged: true, createParents: false, mode: staged.mode, identity: staged.identity,
+    }).catch((error) => error);
+    ok(renameFailure instanceof Error && seamFixture.getStats().renames.length === beforeRename &&
+      fs.readFileSync(promotionTarget, "utf8") === "preserved" && fs.readFileSync(stageBacking, "utf8") === "thirdpty",
+    "transfers: SFTP adapter rehashes a durable identity immediately before rename and preserves substituted bytes");
+
+    const deletePath = `/stage/.ftp-mcp-${"f".repeat(32)}.tmp`;
+    const deleteBacking = path.join(seamRoot, "stage", path.posix.basename(deletePath));
+    fs.writeFileSync(deleteBacking, "deletion");
+    const deleteIdentity = await seamAdapter.inspectFile(deletePath, { maxBytes: 8 });
+    fs.writeFileSync(deleteBacking, "intruder");
+    const beforeDelete = seamFixture.getStats().removes.length;
+    const deleteFailure = await seamAdapter.deleteFile(deletePath, { identity: deleteIdentity.identity })
+      .catch((error) => error);
+    ok(deleteFailure instanceof Error && seamFixture.getStats().removes.length === beforeDelete &&
+      fs.readFileSync(deleteBacking, "utf8") === "intruder",
+    "transfers: SFTP adapter rehashes a durable identity immediately before delete and leaves substitutions intact");
+  } finally {
+    await seamAdapter?.close();
+    await seamFixture.close();
+  }
+
   for (const policy of ["executable", "private", "new", "deny restriction", "deny restoration", "ignored restriction", "ignored restoration"]) {
     const remoteRoot = path.join(root, "sftp-" + policy.replaceAll(" ", "-"));
     fs.mkdirSync(remoteRoot);
