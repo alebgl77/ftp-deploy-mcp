@@ -283,10 +283,11 @@ function inspectArchiveBytes(archive, digest, source, checkpoint, distribution) 
   checkpoint();
   assertPlainRegularTar(rawTar);
   checkpoint();
-  const tar = (args) => {
+  const tar = (args, cwd) => {
     const output = execFileSync("tar", ["--ignore-zeros", ...args, "-f", "-"], {
       input: rawTar, timeout: checkpoint(), maxBuffer: MAX_FILE_BYTES, windowsHide: true,
       env: { ...process.env, TAR_OPTIONS: "" },
+      ...(cwd === undefined ? {} : { cwd }),
     });
     checkpoint();
     return output;
@@ -305,7 +306,7 @@ function inspectArchiveBytes(archive, digest, source, checkpoint, distribution) 
   try {
     extractionRoot = realpathSync(extractionPath);
     chmodSync(extractionRoot, 0o700);
-    tar(["-x", "-C", extractionRoot]);
+    tar(["-x"], extractionRoot);
     for (const file of files) {
       checkpoint();
       const content = readBoundedFile(extractedFile(extractionRoot, file), MAX_FILE_BYTES);

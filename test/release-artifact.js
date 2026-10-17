@@ -327,11 +327,14 @@ test("all tar invocations inspect the same immutable buffer even if its path is 
   reset(); const changed = changedArchive("src/tools.js", (bytes) => Buffer.concat([bytes, Buffer.from("changed")]));
   const originalExec = childProcess.execFileSync;
   const inputs = [];
+  const invocations = [];
   t.mock.method(childProcess, "execFileSync", (command, args, settings) => {
     if (command === "tar") {
       assert.ok(args.includes("--ignore-zeros"));
       assert.equal(args[args.indexOf("-f") + 1], "-");
       inputs.push(settings.input);
+      invocations.push({ args, cwd: settings.cwd,
+        canonicalCwd: settings.cwd === undefined ? undefined : settings.cwd === realpathSync(settings.cwd) });
       if (inputs.length === 1) writeFileSync(tarball, changed);
     }
     return originalExec(command, args, settings);
@@ -342,6 +345,13 @@ test("all tar invocations inspect the same immutable buffer even if its path is 
     ({ record } = inspectArtifact(packFile, options));
     assert.equal(inputs.length, 3);
     assert.ok(inputs.every((input) => input === inputs[0] && input.equals(gunzipSync(archive))));
+    assert.equal(invocations.length, 3);
+    assert.ok(invocations.slice(0, 2).every(({ cwd }) => cwd === undefined));
+    const extraction = invocations[2];
+    assert.equal(extraction.args.includes("-x"), true);
+    assert.equal(extraction.args.includes("-C"), false, "Extraction must not pass a path through tar arguments");
+    assert.equal(extraction.canonicalCwd, true, "Extraction cwd must be canonical");
+    assert.match(path.basename(extraction.cwd), /^ftp-release-inspect-/, "Extraction cwd must be the private staging directory");
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
   assert.throws(() => checkArtifact(record, { ...options, expectedIntegrity: record.integrity, expectedTarball: record.tarball }), /integrity mismatch|artifact changed/);
 });
@@ -352,8 +362,9 @@ test("private extraction rejects path substitution and removes read-only staging
   const roots = [];
   t.mock.method(childProcess, "execFileSync", (command, args, settings) => {
     const output = originalExec(command, args, settings);
-    if (command === "tar" && args.includes("-x") && args.includes("-C")) {
-      const root = args[args.indexOf("-C") + 1]; roots.push(root);
+    if (command === "tar" && args.includes("-x")) {
+      assert.equal(args.includes("-C"), false);
+      const root = settings.cwd; roots.push(root);
       const replaced = path.join(root, "package", "src");
       rmSync(replaced, { recursive: true, force: true });
       fs.symlinkSync(outside, replaced, process.platform === "win32" ? "junction" : "dir");

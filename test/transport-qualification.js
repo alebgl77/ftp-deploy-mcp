@@ -22,6 +22,7 @@ const tlsOptions = {
   cert: fs.readFileSync(certPath),
   key: fs.readFileSync(new URL("./fixtures/transport/localhost-key.pem", import.meta.url)),
 };
+const SOCKET_IDLE_TIMEOUT_MS = 10000;
 
 function scratch(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ftp-transport-test-"));
@@ -33,12 +34,30 @@ function scratch(t) {
 async function startFtpsServer(root, { disconnectOnRead = false } = {}) {
   const sockets = new Set();
   const listeners = new Set();
+  const timeoutHandlers = new WeakMap();
   const stats = { commands: [], controlTLS: 0, dataTLS: 0, logins: 0, writes: 0, reads: 0, disconnects: 0 };
+  const clearTimeoutPolicy = (socket) => {
+    socket.setTimeout(0);
+    const handler = timeoutHandlers.get(socket);
+    if (handler) {
+      socket.removeListener("timeout", handler);
+      timeoutHandlers.delete(socket);
+    }
+  };
   const track = (socket) => {
-    sockets.add(socket);
-    socket.on("error", () => {}); // Expected for rejected certificates/disconnects.
-    socket.on("close", () => sockets.delete(socket));
-    socket.setTimeout(10000, () => socket.destroy());
+    if (!sockets.has(socket)) {
+      sockets.add(socket);
+      socket.on("error", () => {}); // Expected for rejected certificates/disconnects.
+      socket.once("close", () => {
+        clearTimeoutPolicy(socket);
+        sockets.delete(socket);
+      });
+    }
+    clearTimeoutPolicy(socket);
+    const handler = () => socket.destroy();
+    timeoutHandlers.set(socket, handler);
+    socket.setTimeout(SOCKET_IDLE_TIMEOUT_MS);
+    socket.once("timeout", handler);
     return socket;
   };
   const listen = async (server) => {
@@ -70,7 +89,14 @@ async function startFtpsServer(root, { disconnectOnRead = false } = {}) {
       if (verb === "AUTH" && arg === "TLS" && control === raw) {
         raw.removeListener("data", onData);
         reply("234 Start TLS");
+        clearTimeoutPolicy(raw);
         control = track(new tls.TLSSocket(raw, { isServer: true, secureContext: tls.createSecureContext(tlsOptions) }));
+        stats.controlTimeoutTransfer = {
+          rawTimeout: raw.timeout,
+          rawTimeoutListeners: raw.listenerCount("timeout"),
+          tlsTimeout: control.timeout,
+          tlsTimeoutListeners: control.listenerCount("timeout"),
+        };
         control.on("secure", () => { stats.controlTLS++; });
         control.on("data", onData);
         return;
@@ -93,15 +119,25 @@ async function startFtpsServer(root, { disconnectOnRead = false } = {}) {
       if (verb === "EPSV") {
         if (!protectedData) return reply("536 Private data required");
         let resolveData;
+        let rawData;
         dataReady = new Promise((resolve) => { resolveData = resolve; });
         const passive = tls.createServer(tlsOptions, (socket) => {
           assert.ok(socket instanceof tls.TLSSocket && socket.encrypted && socket.getCipher());
+          assert.ok(rawData);
+          clearTimeoutPolicy(rawData);
           stats.dataTLS++;
           track(socket);
+          stats.dataTimeoutTransfers ??= [];
+          stats.dataTimeoutTransfers.push({
+            rawTimeout: rawData.timeout,
+            rawTimeoutListeners: rawData.listenerCount("timeout"),
+            tlsTimeout: socket.timeout,
+            tlsTimeoutListeners: socket.listenerCount("timeout"),
+          });
           passive.close();
           resolveData(socket);
         });
-        passive.on("connection", track);
+        passive.on("connection", (socket) => { rawData = track(socket); });
         passive.on("tlsClientError", () => {});
         const port = await listen(passive);
         return reply(`229 Entering Extended Passive Mode (|||${port}|)`);
@@ -278,12 +314,27 @@ for (const mode of ["trusted", "untrusted", "disconnect"]) {
     const server = await startFtpsServer(path.join(dir, "remote"), { disconnectOnRead: mode === "disconnect" });
     try {
       const result = await ftpChild(server, dir, mode !== "untrusted");
+      assert.deepEqual(server.stats.controlTimeoutTransfer, {
+        rawTimeout: 0,
+        rawTimeoutListeners: 0,
+        tlsTimeout: SOCKET_IDLE_TIMEOUT_MS,
+        tlsTimeoutListeners: 1,
+      });
       if (mode === "trusted") {
         assert.deepEqual(result, { ok: true, bytes: 61440 });
         assert.equal(server.stats.controlTLS, 1);
         // Each of two payloads uses STOR, verification RETR, explicit read,
         // download-expectation RETR and download RETR, all protected by TLS.
         assert.equal(server.stats.dataTLS, 10);
+        assert.equal(server.stats.dataTimeoutTransfers.length, 10);
+        for (const timeoutTransfer of server.stats.dataTimeoutTransfers) {
+          assert.deepEqual(timeoutTransfer, {
+            rawTimeout: 0,
+            rawTimeoutListeners: 0,
+            tlsTimeout: SOCKET_IDLE_TIMEOUT_MS,
+            tlsTimeoutListeners: 1,
+          });
+        }
         assert.equal(server.stats.writes, 2);
         assert.equal(server.stats.reads, 8);
         assert.deepEqual(fs.readdirSync(path.join(dir, "remote")), []);
