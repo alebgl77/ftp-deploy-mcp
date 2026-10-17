@@ -64,12 +64,29 @@ runs against local FTP and SFTP servers. There is no telemetry.
 
 ## Architecture and scenarios
 
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/architecture-overview.png" width="100%" alt="Architecture overview: MCP client routes locally confined FTP, FTPS, and SFTP transfers through ftp-deploy-mcp.">
+
+</div>
+
 Explore the current and target architecture diagrams and illustrative scenarios
 in the bilingual [interactive HTML guide](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/index.html).
 The guide and its
 [English](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.md) / [French](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.fr.md)
 build instructions are in the repository, outside the npm package. After
 cloning, open `site/index.html` locally and use its language selector.
+
+### Animated verified deployment flow
+
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.gif" width="100%" alt="Animated verified deployment flow: scan, plan, approve, transfer, verify, and promote with a rollback safety path.">
+
+</div>
+
+For reduced motion, view the [static completed-state image](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.png).
+See the [visual system provenance and generation notes](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/visual-system-2026-10-17.md).
 
 The README banners were generated with ChatGPT Image. Their
 [provenance and exact prompts](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/README.md)

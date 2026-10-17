@@ -64,6 +64,12 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 
 ## Architecture et scénarios
 
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/architecture-overview.png" width="100%" alt="Vue d’ensemble de l’architecture : le client MCP achemine via ftp-deploy-mcp des transferts FTP, FTPS et SFTP confinés localement.">
+
+</div>
+
 Explorez les schémas d'architecture actuelle et cible et les scénarios illustratifs
 dans le [guide HTML interactif bilingue](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/index.html).
 Le guide et ses instructions
@@ -71,6 +77,17 @@ de reconstruction en [anglais](https://github.com/alebgl77/ftp-deploy-mcp/blob/m
 [français](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.fr.md) se trouvent dans le dépôt, hors du paquet
 npm. Après clonage, ouvrez `site/index.html` localement et utilisez son
 sélecteur de langue.
+
+### Flux animé de déploiement vérifié
+
+<div align="center">
+
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.gif" width="100%" alt="Flux animé de déploiement vérifié : analyser, planifier, approuver, transférer, vérifier et promouvoir, avec une voie sûre de retour arrière.">
+
+</div>
+
+Pour réduire les animations, consultez l’[image statique de l’état final](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.png).
+Consultez les [notes de provenance et de génération du système visuel](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/visual-system-2026-10-17.fr.md).
 
 Les bannières du README ont été générées avec ChatGPT Image. Leur
 [provenance et leurs prompts exacts](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/README.fr.md)
