@@ -33,15 +33,13 @@ support read-only servers and dry runs, and limit local file access with
 `localRoot`. The repository is covered by an extensive end-to-end suite that
 runs against local FTP and SFTP servers. There is no telemetry.
 
-> **Availability:** install from source today. The npm package has **not been
-> published yet**, so `npx -y ftp-deploy-mcp` is unavailable. The project still
-> lists publication in the Official MCP Registry as pending; registry-based
-> installation is not offered here. GitHub source releases are
-> separate from npm and Official MCP Registry publication. Existing Glama and
-> MCP Index pages are discovery listings, not proof of an installable package.
-> This checkout has version 0.3.1. Find published source versions on
-> [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest);
-> the published GitHub release v0.3.0 remains unchanged.
+> **Availability:** the package is available from npm and listed in the
+> Official MCP Registry; `npx -y ftp-deploy-mcp` runs the currently published
+> version. This checkout targets version 0.3.2. Confirm that this exact version
+> appears on both registries before treating its publication as complete.
+> GitHub source releases remain a separate distribution channel; find their
+> published versions on
+> [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest).
 
 ## Documentation
 
@@ -102,12 +100,12 @@ the sole authoritative `package-lock.json`, with six exact direct pins and the
 reviewed graph. Keep it with the sources. `--ignore-scripts` disables automatic
 dependency lifecycle scripts; setup is a separate, explicit action.
 
-The v0.3.1 source installation asset is named
-`ftp-deploy-mcp-0.3.1-source.tar.gz`: 90 files, including that lockfile. Once its
-publication and checksums are verified, extract it in a fresh directory:
+Once published, the v0.3.2 source installation asset is named
+`ftp-deploy-mcp-0.3.2-source.tar.gz`: 90 files, including that lockfile. Verify
+its publication and checksums before extracting it in a fresh directory:
 
 ```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.1-source.tar.gz
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.2-source.tar.gz
 cd package
 npm ci --omit=dev --ignore-scripts
 node src/index.js setup
@@ -115,9 +113,9 @@ node src/index.js setup
 
 This installation archive excludes repository tests and maintainer scripts;
 GitHub's automatic source ZIP/tar contains the complete repository. The separate
-npm `.tgz` contains 89 files without a lockfile and remains unqualified: an actual
-npm consumer changed ten production dependencies. It provides no locked-install
-guarantee. See the [release guide](./docs/RELEASE.md) for verification and limits.
+npm `.tgz` contains 89 files without a lockfile and follows npm dependency
+resolution. It provides no locked-install guarantee. See the
+[release guide](./docs/RELEASE.md) for verification and limits.
 
 ## Protocol and security matrix
 
@@ -418,9 +416,9 @@ Common locations include `.mcp.json` for Claude Code,
 `~/.codeium/windsurf/mcp_config.json` for Windsurf. Claude Desktop and other
 clients accept the same command/arguments structure through their MCP settings.
 
-After the first npm release is verified, this source command can be replaced
-with `npx -y ftp-deploy-mcp`. It is intentionally not presented as a working
-installation method today.
+The published npm package can instead be launched with
+`npx -y ftp-deploy-mcp`. Pin an exact published version when reproducibility
+matters, and verify that version on npm before updating.
 
 ## FileZilla import and diagnostics
 
@@ -437,10 +435,9 @@ printing passwords.
 
 ## Migrating from v0.1 to v0.2
 
-GitHub v0.3.0 is published. This source checkout has version 0.3.1. The npm
-package remains unpublished, and the project still lists Official MCP Registry
-publication as pending. The steps below apply to the source installation and
-do not announce an npm release.
+The npm package and Official MCP Registry listing are available. This source
+checkout targets version 0.3.2; confirm that exact version on npm, the Official
+MCP Registry, and GitHub Releases before treating the release as complete.
 
 1. Add an absolute `localRoot` to every server used by upload, deploy, or
    download.

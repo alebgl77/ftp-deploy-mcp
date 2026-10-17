@@ -9,6 +9,11 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-17
+
+This patch release hardens npm publication verification for registry processing
+delays. It does not change runtime behavior or the public MCP API.
+
 ### Fixed
 
 - Post-publish npm verification now tolerates registry malware-scanning and

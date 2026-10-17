@@ -33,16 +33,13 @@ réponses d'outils, proposent lecture seule et dry-run, et limitent l'accès aux
 fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 étendue utilisant des serveurs FTP et SFTP locaux. Aucune télémétrie.
 
-> **Disponibilité :** l'installation depuis les sources fonctionne aujourd'hui.
-> Le paquet npm n'est **pas encore publié** : `npx -y ftp-deploy-mcp` reste
-> indisponible. Le projet indique toujours que la publication dans le registre
-> MCP officiel est en attente ; l'installation depuis un registre n'est pas
-> proposée ici. Les releases de sources GitHub sont distinctes des publications
-> sur npm et le registre MCP officiel. Les pages Glama et MCP Index existantes
-> sont des fiches de découverte, pas la preuve d'un paquet installable.
-> Cette copie porte la version 0.3.1. Les versions sources publiées figurent sur
-> [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest) ;
-> la release GitHub v0.3.0 publiée reste inchangée.
+> **Disponibilité :** le paquet est disponible sur npm et référencé dans le
+> registre MCP officiel ; `npx -y ftp-deploy-mcp` lance la version actuellement
+> publiée. Cette copie cible la version 0.3.2. Vérifiez que cette version exacte
+> apparaît dans les deux registres avant de considérer sa publication comme
+> terminée. Les releases de sources GitHub restent un canal de distribution
+> distinct ; leurs versions publiées figurent sur
+> [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest).
 
 ## Documentation
 
@@ -105,13 +102,12 @@ dépendances directes épinglées exactement et le graphe revu. Conservez-le ave
 les sources. `--ignore-scripts` désactive les scripts automatiques de cycle de
 vie des dépendances ; le setup est une action explicite distincte.
 
-Le fichier d'installation source v0.3.1 porte le nom
-`ftp-deploy-mcp-0.3.1-source.tar.gz` : 90 fichiers, dont ce verrouillage. Après
-vérification de sa publication et de ses empreintes, extrayez-le dans un dossier
-neuf :
+Une fois publié, le fichier d'installation source v0.3.2 porte le nom
+`ftp-deploy-mcp-0.3.2-source.tar.gz` : 90 fichiers, dont ce verrouillage. Vérifiez
+sa publication et ses empreintes avant de l'extraire dans un dossier neuf :
 
 ```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.1-source.tar.gz
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.2-source.tar.gz
 cd package
 npm ci --omit=dev --ignore-scripts
 node src/index.js setup
@@ -119,10 +115,9 @@ node src/index.js setup
 
 Cette archive d'installation exclut les tests et scripts de maintenance du dépôt ;
 le ZIP/tar automatique de GitHub contient le dépôt complet. Le `.tgz` npm distinct
-contient 89 fichiers sans verrouillage et reste non qualifié : un vrai consommateur
-npm a changé dix dépendances de production. Il ne garantit pas une installation
-verrouillée. Le [guide de publication](./docs/RELEASE.fr.md) décrit les contrôles
-et leurs limites.
+contient 89 fichiers sans verrouillage et suit la résolution de dépendances npm.
+Il ne garantit pas une installation verrouillée. Le
+[guide de publication](./docs/RELEASE.fr.md) décrit les contrôles et leurs limites.
 
 ## Matrice protocoles et sécurité
 
@@ -433,9 +428,10 @@ Les emplacements courants sont `.mcp.json` pour Claude Code,
 autres clients acceptent la même commande et les mêmes arguments dans leurs
 réglages MCP.
 
-Après vérification de la première publication npm, cette commande source pourra
-être remplacée par `npx -y ftp-deploy-mcp`. Ce n'est volontairement pas présenté
-comme une installation fonctionnelle aujourd'hui.
+Le paquet npm publié peut être lancé à la place avec
+`npx -y ftp-deploy-mcp`. Épinglez une version exacte publiée lorsque la
+reproductibilité importe, et vérifiez cette version sur npm avant de la mettre à
+jour.
 
 ## Import FileZilla et diagnostic
 
@@ -451,10 +447,10 @@ chaque avertissement de transport ou de racine FTP/FTPS avant la connexion.
 
 ## Migration de v0.1 vers v0.2
 
-La release GitHub v0.3.0 est publiée. Cette copie source porte la version
-0.3.1. Le paquet npm reste non publié et le projet indique toujours que la
-publication dans le registre MCP officiel est en attente. Les étapes ci-dessous
-concernent l'installation depuis les sources et n'annoncent pas une release npm.
+Le paquet npm et sa fiche dans le registre MCP officiel sont disponibles. Cette
+copie source cible la version 0.3.2 ; vérifiez cette version exacte sur npm, dans
+le registre MCP officiel et dans GitHub Releases avant de considérer la release
+comme terminée.
 
 1. Ajoutez un `localRoot` absolu à tout serveur utilisé pour upload, deploy ou
    download.

@@ -9,6 +9,12 @@ et le projet suit le [versionnement sémantique](https://semver.org/lang/fr/spec
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-17
+
+Cette version corrective renforce la vérification de publication npm face aux
+délais de traitement du registre. Elle ne modifie ni le comportement
+d'exécution ni l'API MCP publique.
+
 ### Corrigé
 
 - La vérification npm après publication tolère désormais jusqu’à 15 minutes
