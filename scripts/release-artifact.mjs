@@ -2,7 +2,7 @@ import { assertReleaseToolchain } from "./release-toolchain.mjs";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -211,6 +211,66 @@ function inspectBytes(tarball, digest, source, checkpoint, distribution) {
   inspectArchiveBytes(readBoundedFile(tarball, MAX_ARCHIVE_BYTES), digest, source, checkpoint, distribution);
 }
 
+function confined(root, target) {
+  const relative = path.relative(root, target);
+  return relative !== "" && !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`);
+}
+
+function extractedFile(root, file) {
+  const parts = ["package", ...file.split("/")];
+  let directory = root;
+  for (const part of parts.slice(0, -1)) {
+    directory = path.resolve(directory, part);
+    assert.ok(confined(root, directory), `Extracted path escapes the private directory: ${file}`);
+    const stat = lstatSync(directory);
+    assert.ok(stat.isDirectory() && !stat.isSymbolicLink(), `Expected a real extracted directory: ${file}`);
+    assert.equal(realpathSync(directory), directory, `Extracted directory must not contain links: ${file}`);
+  }
+  const target = path.resolve(directory, parts.at(-1));
+  assert.ok(confined(root, target), `Extracted path escapes the private directory: ${file}`);
+  const stat = lstatSync(target);
+  assert.ok(stat.isFile() && !stat.isSymbolicLink(), `Expected a regular extracted file: ${file}`);
+  const resolved = realpathSync(target);
+  assert.ok(confined(root, resolved), `Extracted path escapes the private directory: ${file}`);
+  assert.equal(resolved, target, `Extracted path must not contain links: ${file}`);
+  return target;
+}
+
+function removeExtraction(root, files) {
+  const entries = new Set([root]);
+  for (const file of files) {
+    const target = path.resolve(root, "package", ...file.split("/"));
+    entries.add(target);
+    for (let directory = path.dirname(target); directory !== root; directory = path.dirname(directory)) entries.add(directory);
+  }
+  for (const entry of [...entries].sort((left, right) => left.length - right.length)) {
+    try {
+      const stat = lstatSync(entry);
+      if (stat.isSymbolicLink()) continue;
+      const resolved = realpathSync(entry);
+      if (resolved !== root && (!confined(root, resolved) || resolved !== entry)) continue;
+      if (stat.isDirectory()) chmodSync(entry, 0o700);
+      else if (stat.isFile()) chmodSync(entry, 0o600);
+    } catch { /* best-effort permission restore before forced removal */ }
+  }
+  rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+}
+
+function assertPlainRegularTar(rawTar) {
+  assert.equal(rawTar.length % 512, 0, "TAR bytes must contain complete records");
+  for (let offset = 0; offset < rawTar.length;) {
+    const header = rawTar.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) { offset += 512; continue; }
+    assert.ok(header[156] === 0 || header[156] === 48, "Archive may contain only plain regular-file headers");
+    const encodedSize = header.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim();
+    assert.match(encodedSize, /^[0-7]+$/, "Archive contains an unsupported TAR size field");
+    const size = Number.parseInt(encodedSize, 8);
+    assert.ok(Number.isSafeInteger(size) && size <= MAX_TAR_BYTES, "Archive TAR entry exceeds byte bound");
+    offset += 512 + Math.ceil(size / 512) * 512;
+    assert.ok(offset <= rawTar.length, "Archive TAR entry exceeds available bytes");
+  }
+}
+
 function inspectArchiveBytes(archive, digest, source, checkpoint, distribution) {
   const files = distributionFiles(distribution);
   assert.equal(integrity(archive), digest, "Packed integrity mismatch or artifact changed after validation");
@@ -220,6 +280,8 @@ function inspectArchiveBytes(archive, digest, source, checkpoint, distribution) 
   const { buffer: rawTar, engine } = gunzipSync(archive, { maxOutputLength: MAX_TAR_BYTES, info: true });
   assert.ok(Number.isInteger(engine.bytesWritten) && engine.bytesWritten >= 0 && engine.bytesWritten <= archive.length, "Invalid gzip consumption boundary");
   assert.ok(archive.subarray(engine.bytesWritten).every((byte) => byte === 0), "Unconsumed nonzero bytes after gzip stream");
+  checkpoint();
+  assertPlainRegularTar(rawTar);
   checkpoint();
   const tar = (args) => {
     const output = execFileSync("tar", ["--ignore-zeros", ...args, "-f", "-"], {
@@ -235,18 +297,23 @@ function inspectArchiveBytes(archive, digest, source, checkpoint, distribution) 
   const types = tar(["-tv"]).toString("utf8").trimEnd().split(/\r?\n/);
   assert.equal(types.length, files.length, "Archive type list count mismatch");
   assert.ok(types.every((entry) => entry.startsWith("-")), "Archive may contain only regular files");
-  for (const file of files) {
-    // The allowlist and type list are checked before the first binary extraction.
-    const content = execFileSync("tar", ["--ignore-zeros", "-xO", "-f", "-", "--", `package/${file}`], {
-      input: rawTar, timeout: checkpoint(), maxBuffer: MAX_FILE_BYTES, windowsHide: true,
-      env: { ...process.env, TAR_OPTIONS: "" },
-    });
-    checkpoint();
-    assert.ok(content.length <= MAX_FILE_BYTES, `Extracted file exceeds byte bound: ${file}`);
-    if (file === "package.json") assert.deepEqual(JSON.parse(content), source.pkg, "Archive package manifest differs from the reviewed package.json");
-    if (file === "package-lock.json") assert.deepEqual(JSON.parse(content), source.lock, "Archive dependency graph differs from the reviewed package lock");
-    assert.ok(content.equals(source.bytes.get(file)), `Archive file differs from reviewed source bytes: ${file}`);
-  }
+  // The allowlist and type list are checked before one complete extraction from
+  // the same immutable TAR bytes. Private, canonical staging makes every later
+  // descriptor read both bounded and independent from the original archive path.
+  const extractionPath = mkdtempSync(path.join(os.tmpdir(), "ftp-release-inspect-"));
+  let extractionRoot = extractionPath;
+  try {
+    extractionRoot = realpathSync(extractionPath);
+    chmodSync(extractionRoot, 0o700);
+    tar(["-x", "-C", extractionRoot]);
+    for (const file of files) {
+      checkpoint();
+      const content = readBoundedFile(extractedFile(extractionRoot, file), MAX_FILE_BYTES);
+      if (file === "package.json") assert.deepEqual(JSON.parse(content), source.pkg, "Archive package manifest differs from the reviewed package.json");
+      if (file === "package-lock.json") assert.deepEqual(JSON.parse(content), source.lock, "Archive dependency graph differs from the reviewed package lock");
+      assert.ok(content.equals(source.bytes.get(file)), `Archive file differs from reviewed source bytes: ${file}`);
+    }
+  } finally { removeExtraction(extractionRoot, files); }
   checkpoint();
 }
 

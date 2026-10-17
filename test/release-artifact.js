@@ -57,6 +57,27 @@ function changedArchive(file, mutate) {
   try { writeFileSync(target, mutate(original)); return archiveFromBuild(); }
   finally { writeFileSync(target, original); }
 }
+function tarChecksum(header) {
+  header.fill(32, 148, 156);
+  let checksum = 0; for (const value of header) checksum += value;
+  header.write(checksum.toString(8).padStart(6, "0") + "\0 ", 148, "ascii");
+}
+function paxRecord(key, value) {
+  const body = `${key}=${value}\n`;
+  let length = Buffer.byteLength(body) + 3;
+  while (Buffer.byteLength(`${length} ${body}`) !== length) length = Buffer.byteLength(`${length} ${body}`);
+  return Buffer.from(`${length} ${body}`);
+}
+function metadataArchive(type, payload) {
+  const raw = gunzipSync(archive);
+  const header = Buffer.from(raw.subarray(0, 512));
+  header.fill(0, 0, 100); header.write("PaxHeaders/metadata", 0, "ascii");
+  header.fill(0, 124, 136); header.write(payload.length.toString(8).padStart(11, "0") + "\0", 124, "ascii");
+  header.fill(0, 157, 257); header.fill(0, 345, 500); header[156] = type.charCodeAt(0);
+  tarChecksum(header);
+  const padding = Buffer.alloc((512 - payload.length % 512) % 512);
+  return gzipSync(Buffer.concat([header, payload, padding, raw]));
+}
 
 before(() => {
   for (const file of PACKAGE_FILES) {
@@ -203,6 +224,18 @@ test("unlisted, traversal, directory and link headers are rejected before extrac
     reset(); rejected(gzipSync(altered));
   }
 });
+test("PAX, global PAX, xattr and sparse headers fail closed before extraction", () => {
+  const raw = gunzipSync(archive);
+  const sparse = Buffer.from(raw); sparse[156] = "S".charCodeAt(0); tarChecksum(sparse.subarray(0, 512));
+  for (const [label, bytes] of [
+    ["PAX path", metadataArchive("x", paxRecord("path", "../escape"))],
+    ["global PAX", metadataArchive("g", paxRecord("mtime", "0"))],
+    ["PAX xattr", metadataArchive("x", paxRecord("SCHILY.xattr.user.release-test", "blocked"))],
+    ["GNU sparse", gzipSync(sparse)],
+  ]) {
+    reset(); rejected(bytes, /plain regular-file headers/, options, label);
+  }
+});
 
 test("inventory mutation, missing/extra paths, wrong commit and wrong source fail closed", () => {
   for (const mutate of [
@@ -307,10 +340,75 @@ test("all tar invocations inspect the same immutable buffer even if its path is 
   let record;
   try {
     ({ record } = inspectArtifact(packFile, options));
-    assert.equal(inputs.length, PACKAGE_FILES.length + 2);
+    assert.equal(inputs.length, 3);
     assert.ok(inputs.every((input) => input === inputs[0] && input.equals(gunzipSync(archive))));
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
   assert.throws(() => checkArtifact(record, { ...options, expectedIntegrity: record.integrity, expectedTarball: record.tarball }), /integrity mismatch|artifact changed/);
+});
+test("private extraction rejects path substitution and removes read-only staging", (t) => {
+  reset(); const originalExec = childProcess.execFileSync;
+  const outside = path.join(temp, "outside-extraction"); mkdirSync(outside);
+  writeFileSync(path.join(outside, "index.js"), readFileSync(path.join(sourceRoot, "src/index.js")));
+  const roots = [];
+  t.mock.method(childProcess, "execFileSync", (command, args, settings) => {
+    const output = originalExec(command, args, settings);
+    if (command === "tar" && args.includes("-x") && args.includes("-C")) {
+      const root = args[args.indexOf("-C") + 1]; roots.push(root);
+      const replaced = path.join(root, "package", "src");
+      rmSync(replaced, { recursive: true, force: true });
+      fs.symlinkSync(outside, replaced, process.platform === "win32" ? "junction" : "dir");
+      fs.chmodSync(root, 0o500);
+    }
+    return output;
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => inspectArtifact(packFile, options), /escapes the private directory|must not contain links|real extracted directory/);
+    assert.equal(existsSync(proofFile), false);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  assert.equal(roots.length, 1);
+  assert.equal(existsSync(roots[0]), false, "Private extraction must be removed after failure");
+  assert.equal(existsSync(path.join(outside, "index.js")), true, "Cleanup must not traverse a substituted path");
+});
+test("private extraction is removed when canonicalization fails immediately after creation", (t) => {
+  reset(); const originalMkdtemp = fs.mkdtempSync; const originalRealpath = fs.realpathSync;
+  let created;
+  t.mock.method(fs, "mkdtempSync", (prefix, ...args) => {
+    const result = originalMkdtemp(prefix, ...args);
+    if (prefix.includes("ftp-release-inspect-")) created = result;
+    return result;
+  });
+  t.mock.method(fs, "realpathSync", (input, ...args) => {
+    if (input === created) throw new Error("canonicalization fixture failure");
+    return originalRealpath(input, ...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => inspectArtifact(packFile, options), /canonicalization fixture failure/);
+    assert.equal(existsSync(proofFile), false);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  assert.ok(created);
+  assert.equal(existsSync(created), false, "Created extraction must be removed before canonicalization succeeds");
+});
+test("private extraction is removed when permission hardening fails", (t) => {
+  reset(); const originalMkdtemp = fs.mkdtempSync; const originalChmod = fs.chmodSync;
+  let created;
+  t.mock.method(fs, "mkdtempSync", (prefix, ...args) => {
+    const result = originalMkdtemp(prefix, ...args);
+    if (prefix.includes("ftp-release-inspect-")) created = result;
+    return result;
+  });
+  t.mock.method(fs, "chmodSync", (input, mode) => {
+    if (created && input === realpathSync(created) && mode === 0o700) throw new Error("permission fixture failure");
+    return originalChmod(input, mode);
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => inspectArtifact(packFile, options), /permission fixture failure/);
+    assert.equal(existsSync(proofFile), false);
+  } finally { t.mock.restoreAll(); syncBuiltinESMExports(); }
+  assert.ok(created);
+  assert.equal(existsSync(created), false, "Created extraction must be removed after permission failure");
 });
 test("descriptor reads cap concurrent file growth and always close the descriptor", (t) => {
   const file = path.join(temp, "growing-input"); writeFileSync(file, "small");
