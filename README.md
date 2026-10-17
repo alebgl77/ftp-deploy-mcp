@@ -39,9 +39,9 @@ runs against local FTP and SFTP servers. There is no telemetry.
 > installation is not offered here. GitHub source releases are
 > separate from npm and Official MCP Registry publication. Existing Glama and
 > MCP Index pages are discovery listings, not proof of an installable package.
-> This checkout has version 0.3.0. Find published source versions on
+> This checkout has version 0.3.1. Find published source versions on
 > [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest);
-> the published GitHub release v0.2.0 remains unchanged.
+> the published GitHub release v0.3.0 remains unchanged.
 
 ## Documentation
 
@@ -102,12 +102,12 @@ the sole authoritative `package-lock.json`, with six exact direct pins and the
 reviewed graph. Keep it with the sources. `--ignore-scripts` disables automatic
 dependency lifecycle scripts; setup is a separate, explicit action.
 
-The v0.3.0 source installation asset is named
-`ftp-deploy-mcp-0.3.0-source.tar.gz`: 90 files, including that lockfile. Once its
+The v0.3.1 source installation asset is named
+`ftp-deploy-mcp-0.3.1-source.tar.gz`: 90 files, including that lockfile. Once its
 publication and checksums are verified, extract it in a fresh directory:
 
 ```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.0-source.tar.gz
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.1-source.tar.gz
 cd package
 npm ci --omit=dev --ignore-scripts
 node src/index.js setup
@@ -437,7 +437,7 @@ printing passwords.
 
 ## Migrating from v0.1 to v0.2
 
-GitHub v0.2.0 is published. This source checkout has version 0.3.0. The npm
+GitHub v0.3.0 is published. This source checkout has version 0.3.1. The npm
 package remains unpublished, and the project still lists Official MCP Registry
 publication as pending. The steps below apply to the source installation and
 do not announce an npm release.

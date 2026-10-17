@@ -40,9 +40,9 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 > proposée ici. Les releases de sources GitHub sont distinctes des publications
 > sur npm et le registre MCP officiel. Les pages Glama et MCP Index existantes
 > sont des fiches de découverte, pas la preuve d'un paquet installable.
-> Cette copie porte la version 0.3.0. Les versions sources publiées figurent sur
+> Cette copie porte la version 0.3.1. Les versions sources publiées figurent sur
 > [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest) ;
-> la release GitHub v0.2.0 publiée reste inchangée.
+> la release GitHub v0.3.0 publiée reste inchangée.
 
 ## Documentation
 
@@ -105,13 +105,13 @@ dépendances directes épinglées exactement et le graphe revu. Conservez-le ave
 les sources. `--ignore-scripts` désactive les scripts automatiques de cycle de
 vie des dépendances ; le setup est une action explicite distincte.
 
-Le fichier d'installation source v0.3.0 porte le nom
-`ftp-deploy-mcp-0.3.0-source.tar.gz` : 90 fichiers, dont ce verrouillage. Après
+Le fichier d'installation source v0.3.1 porte le nom
+`ftp-deploy-mcp-0.3.1-source.tar.gz` : 90 fichiers, dont ce verrouillage. Après
 vérification de sa publication et de ses empreintes, extrayez-le dans un dossier
 neuf :
 
 ```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.0-source.tar.gz
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.1-source.tar.gz
 cd package
 npm ci --omit=dev --ignore-scripts
 node src/index.js setup
@@ -451,8 +451,8 @@ chaque avertissement de transport ou de racine FTP/FTPS avant la connexion.
 
 ## Migration de v0.1 vers v0.2
 
-La release GitHub v0.2.0 est publiée. Cette copie source porte la version
-0.3.0. Le paquet npm reste non publié et le projet indique toujours que la
+La release GitHub v0.3.0 est publiée. Cette copie source porte la version
+0.3.1. Le paquet npm reste non publié et le projet indique toujours que la
 publication dans le registre MCP officiel est en attente. Les étapes ci-dessous
 concernent l'installation depuis les sources et n'annoncent pas une release npm.
 

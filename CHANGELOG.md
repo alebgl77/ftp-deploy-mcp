@@ -7,6 +7,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-17
+
+This patch release is limited to release qualification and a supply-chain lock
+refresh. It preserves the immutable v0.3.0 tag and GitHub source release. npm
+and Official MCP Registry publication remain pending.
+
+### Fixed
+
+- Release qualification now locks the optional transitive `nan` dependency to
+  2.29.0, including its reviewed registry URL and integrity, matching the
+  version resolved by a fresh installation. No runtime behavior or public API
+  changes.
+
+### Changed
+
+- Package, lockfile, MCP server and bilingual release metadata now consistently
+  target v0.3.1. The complete v0.3.0 history remains below.
+
 ## [0.3.0] - 2026-10-17
 
 This minor release uses the separate GitHub source release channel; the published v0.2.0 tag and

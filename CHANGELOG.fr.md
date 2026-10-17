@@ -7,6 +7,26 @@ Toutes les modifications notables de ce projet sont consignées dans ce fichier.
 Le format s'inspire de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 et le projet suit le [versionnement sémantique](https://semver.org/lang/fr/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-10-17
+
+Cette version corrective se limite à la qualification de release et à
+l'actualisation du verrouillage de la chaîne d'approvisionnement. Elle préserve
+le tag v0.3.0 immuable et sa release de sources GitHub. La publication sur npm
+et le registre MCP officiel reste en attente.
+
+### Corrigé
+
+- La qualification de release verrouille désormais la dépendance transitive
+  optionnelle `nan` en 2.29.0, avec son URL de registre et son intégrité revues,
+  conformément à la version résolue par une installation neuve. Aucun
+  comportement d'exécution ni aucune API publique ne change.
+
+### Modifié
+
+- Les métadonnées du paquet, du verrouillage, du serveur MCP et de la release
+  bilingue ciblent maintenant v0.3.1 de façon cohérente. L'historique complet
+  de v0.3.0 est conservé ci-dessous.
+
 ## [0.3.0] - 2026-10-17
 
 Cette version mineure utilise le canal distinct des releases de sources
