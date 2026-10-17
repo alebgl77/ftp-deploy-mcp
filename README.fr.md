@@ -66,7 +66,7 @@ fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/architecture-overview.png" width="100%" alt="Vue d’ensemble de l’architecture : le client MCP achemine via ftp-deploy-mcp des transferts FTP, FTPS et SFTP confinés localement.">
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/architecture-overview-fr.png" width="100%" alt="Vue d’ensemble de l’architecture : le client MCP achemine via ftp-deploy-mcp des transferts FTP, FTPS et SFTP confinés localement.">
 
 </div>
 
@@ -82,16 +82,17 @@ sélecteur de langue.
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.gif" width="100%" alt="Flux animé de déploiement vérifié : analyser, planifier, approuver, transférer, vérifier et promouvoir, avec une voie sûre de retour arrière.">
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow-fr.gif" width="100%" alt="Flux animé de déploiement vérifié : analyser, planifier, approuver, transférer, vérifier et promouvoir, avec une voie sûre de retour arrière.">
 
 </div>
 
-Pour réduire les animations, consultez l’[image statique de l’état final](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.png).
+Pour réduire les animations, consultez l’[image statique de l’état final](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow-fr.png).
 Consultez les [notes de provenance et de génération du système visuel](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/visual-system-2026-10-17.fr.md).
 
-Les bannières du README ont été générées avec ChatGPT Image. Leur
+La direction visuelle a été explorée avec ChatGPT Image ; les visuels finaux du
+README sont rendus de façon déterministe. Leur
 [provenance et leurs prompts exacts](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/README.fr.md)
-documentent leur rôle illustratif ; elles ne constituent pas une certification.
+documentent leur rôle illustratif ; ils ne constituent pas une certification.
 
 ## Première installation depuis les sources
 

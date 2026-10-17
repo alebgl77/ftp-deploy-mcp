@@ -1,22 +1,22 @@
-# README banner provenance
+# Visual asset provenance
 
 **English** | [Français](./README.fr.md)
 
-The [French banner](../banner-fr.png) and [English banner](../banner-en.png)
-were generated with ChatGPT Image on **2026-09-09 (Europe/Paris)**. The French
-image was generated first; the English image was produced by editing its
-subtitle using the French image as a reference.
+The README banners, architecture diagrams, deployment-flow images, logo, and
+wordmarks belong to one deterministic minimal identity system. The final assets
+are rendered from editable SVG or from
+[`scripts/visuals/render_brand_assets.py`](../../scripts/visuals/render_brand_assets.py).
 
-The exact prompts are preserved without translation or rewriting:
+ChatGPT Image was used once for a text-free direction board. The generated
+source remains outside the repository and is not embedded in the final assets.
+Exact generation details and the full prompt are recorded in
+[the visual-system record](./visual-system-2026-10-17.md).
 
-- [French banner generation prompt](./banner-fr.prompt.txt).
-- [English subtitle editing prompt](./banner-en.prompt.txt).
+The banner render briefs are preserved verbatim:
 
-These illustrations communicate the project's direction. They do not certify
-security, atomicity, availability, or readiness for autonomous production
-deployment. They contain no release version, test count, or performance result.
-See the [security model](../../docs/SECURITY-MODEL.md) for actual guarantees
-and limits.
+- [English banner brief](./banner-en.prompt.txt)
+- [French banner brief](./banner-fr.prompt.txt)
 
-The images and this provenance stay in the repository, outside the npm package.
-README image URLs point to the repository so package readers can load them too.
+These visuals communicate product direction. They do not certify security,
+atomicity, availability, or readiness for autonomous production deployment.
+They contain no release version, test count, or performance result.

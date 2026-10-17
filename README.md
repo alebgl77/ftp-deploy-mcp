@@ -88,7 +88,8 @@ cloning, open `site/index.html` locally and use its language selector.
 For reduced motion, view the [static completed-state image](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.png).
 See the [visual system provenance and generation notes](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/visual-system-2026-10-17.md).
 
-The README banners were generated with ChatGPT Image. Their
+The visual direction was explored with ChatGPT Image; the final README assets
+are rendered deterministically. Their
 [provenance and exact prompts](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/README.md)
 document their illustrative role; they are not a certification.
 
