@@ -69,12 +69,40 @@ test("local-root hash binds domain, platform and canonical material with constan
   assert.equal(sameLocalRootHash(baseline, "malformed"), false);
 });
 
-test("Windows canonical path variants collapse only the approved prefix and drive spelling", () => {
+test("Windows canonical paths use win32 semantics independently of the host platform", () => {
   assert.equal(normalizeCanonicalLocalPath("\\\\?\\C:\\Users\\Alice\\Source", "win32"), "C:/Users/Alice/Source");
   assert.equal(normalizeCanonicalLocalPath("c:\\Users\\Alice\\Source", "win32"), "C:/Users/Alice/Source");
+  assert.equal(normalizeCanonicalLocalPath("C:/Users/Alice/Source", "win32"), "C:/Users/Alice/Source");
   assert.equal(normalizeCanonicalLocalPath("\\\\?\\UNC\\server\\share\\Source", "win32"), "//server/share/Source");
+  assert.equal(normalizeCanonicalLocalPath("//server/share/Source", "win32"), "//server/share/Source");
   assert.notEqual(normalizeCanonicalLocalPath("C:\\Users\\Alice\\Source", "win32"),
     normalizeCanonicalLocalPath("C:\\Users\\alice\\Source", "win32"));
+});
+
+test("Windows canonical paths reject relative, root-relative and unsafe alias forms", () => {
+  for (const candidate of [
+    "relative\\Source",
+    "C:relative\\Source",
+    "\\root-relative\\Source",
+    "C:\\Users\\Alice\\..\\Bob",
+    "\\\\?\\GLOBALROOT\\Device\\HarddiskVolume1\\Source",
+    "\\\\.\\C:\\Users\\Alice\\Source",
+    "\\\\?\\UNC\\?\\GLOBALROOT\\Device\\HarddiskVolume1\\Source",
+    "//?/C:/Users/Alice/Source",
+    "//?/UNC/server/share/Source",
+    "//?/GLOBALROOT/Device/HarddiskVolume1/Source",
+    "//./C:/Users/Alice/Source",
+    "\\\\?/C:\\Users\\Alice\\Source",
+    "//?\\UNC\\server\\share\\Source",
+    "\\\\?\\UNC/server/share/Source",
+  ]) {
+    assert.throws(() => normalizeCanonicalLocalPath(candidate, "win32"), { code: "PLAN_STALE" }, candidate);
+  }
+});
+
+test("POSIX canonical path behavior remains platform-specific", () => {
+  assert.equal(normalizeCanonicalLocalPath("/srv/releases/../current", "linux"), "/srv/current");
+  assert.throws(() => normalizeCanonicalLocalPath("C:\\Users\\Alice\\Source", "linux"), { code: "PLAN_STALE" });
 });
 
 test("a pinned local directory refuses path replacement and junction retargeting", async (t) => {

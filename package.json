@@ -36,7 +36,7 @@
     "test:prepared": "node --test test/prepared-lifecycle.js",
     "test:performance": "node --test test/redaction-performance.test.mjs test/agent-performance.test.mjs",
     "benchmark:agents": "node scripts/benchmark-agent-performance.mjs",
-    "test:release": "node --test test/release-gates.js test/release-artifact.js test/release-npm-pack.js test/release-graph.js",
+    "test:release": "node --test --test-concurrency=1 test/release-gates.js test/release-artifact.js test/release-npm-pack.js test/release-graph.js",
     "release:source": "node scripts/release-gate.mjs --source-only --runtime"
   },
   "files": [

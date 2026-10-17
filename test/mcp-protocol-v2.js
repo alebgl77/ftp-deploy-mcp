@@ -10,7 +10,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 const entry = fileURLToPath(new URL("../src/index.js", import.meta.url));
 
 function fixture(durable = false) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ftp-mcp-protocol-"));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ftp-mcp-protocol-")));
   const localRoot = durable ? path.join(root, "local") : root;
   if (durable) fs.mkdirSync(localRoot);
   if (durable) fs.mkdirSync(path.join(root, "state"));

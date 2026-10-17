@@ -148,12 +148,28 @@ function localSourceFailure(serverAlias, relativePath, reason) {
 }
 
 export function normalizeCanonicalLocalPath(value, platform = process.platform) {
-  if (typeof value !== "string" || !path.isAbsolute(value)) throw localSourceFailure("configured server", ".", "invalid root");
+  const pathModule = platform === "win32" ? path.win32 : path.posix;
+  if (typeof value !== "string" || !pathModule.isAbsolute(value)) {
+    throw localSourceFailure("configured server", ".", "invalid root");
+  }
   if (platform !== "win32") return path.posix.normalize(value);
+  const namespacePrefix = /^[\\/]{2}[?.][\\/]/;
+  const extendedUnc = /^\\\\\?\\UNC\\[^\\/?]+\\[^\\/?]+(?:\\|$)/i.test(value) && !value.includes("/");
+  const extendedDrive = /^\\\\\?\\[a-z]:\\/i.test(value) && !value.includes("/");
   let normalized = value;
-  if (/^\\\\\?\\UNC\\/i.test(normalized)) normalized = `\\\\${normalized.slice(8)}`;
-  else if (/^\\\\\?\\/.test(normalized)) normalized = normalized.slice(4);
+  if (namespacePrefix.test(value)) {
+    if (!extendedUnc && !extendedDrive) throw localSourceFailure("configured server", ".", "invalid root");
+    normalized = extendedUnc ? `\\\\${value.slice(8)}` : value.slice(4);
+  }
+  normalized = normalized.replaceAll("/", "\\");
+  if (namespacePrefix.test(normalized)) throw localSourceFailure("configured server", ".", "invalid root");
+  if (/(?:^|[\\/])\.{1,2}(?:[\\/]|$)/.test(normalized)) {
+    throw localSourceFailure("configured server", ".", "invalid root");
+  }
   normalized = path.win32.normalize(normalized);
+  if (!/^(?:[a-z]:\\|\\\\[^\\]+\\[^\\]+(?:\\|$))/i.test(normalized)) {
+    throw localSourceFailure("configured server", ".", "invalid root");
+  }
   if (/^[a-z]:\\/i.test(normalized)) normalized = `${normalized[0].toUpperCase()}${normalized.slice(1)}`;
   return normalized.replaceAll("\\", "/");
 }

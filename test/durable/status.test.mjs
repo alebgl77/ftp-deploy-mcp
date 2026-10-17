@@ -160,9 +160,12 @@ test("read-only status works on a readable non-writable state tree where support
   const { f, state } = await plannedFixture(t);
   await state.close();
   await chmodTree(f.stateDir, 0o500, 0o400);
-  t.after(() => chmodTree(f.stateDir, 0o700, 0o600));
-  const result = await readDeploymentStatus({ loaded: f.loaded, input: { plan_id: PLAN_ID } });
-  assert.equal(result.phase, "planned");
+  try {
+    const result = await readDeploymentStatus({ loaded: f.loaded, input: { plan_id: PLAN_ID } });
+    assert.equal(result.phase, "planned");
+  } finally {
+    await chmodTree(f.stateDir, 0o700, 0o600);
+  }
 });
 
 test("plan replacement during a read-only snapshot fails busy without a mixed projection", async (t) => {
