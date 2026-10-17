@@ -7,6 +7,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Post-publish npm verification now tolerates registry malware-scanning and
+  propagation delays for up to 15 minutes. It uses bounded equal-jitter
+  backoff, honors valid `Retry-After` guidance, retries only transient HTTP or
+  transport failures, and still fails immediately on redirects, malformed
+  metadata, identity drift, or SHA512 integrity mismatch.
+- The npm publication job and its final registry verification step now have
+  explicit 20-minute and 16-minute timeouts respectively.
+
 ## [0.3.1] - 2026-10-17
 
 This patch release is limited to release qualification and a supply-chain lock

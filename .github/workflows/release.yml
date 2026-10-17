@@ -103,7 +103,7 @@ jobs:
     needs: qualify
     if: github.repository == 'alebgl77/ftp-deploy-mcp' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: read
       id-token: write
@@ -148,6 +148,7 @@ jobs:
           npm publish "$RELEASE_TARBALL" --ignore-scripts --provenance --access public --registry=https://registry.npmjs.org
 
       - name: Verify public npm identity and original tarball integrity
+        timeout-minutes: 16
         env:
           RELEASE_TARBALL: ${{ steps.artifact.outputs.tarball }}
           RELEASE_INTEGRITY: ${{ steps.artifact.outputs.integrity }}

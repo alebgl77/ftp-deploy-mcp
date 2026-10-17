@@ -7,6 +7,20 @@ Toutes les modifications notables de ce projet sont consignées dans ce fichier.
 Le format s'inspire de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/),
 et le projet suit le [versionnement sémantique](https://semver.org/lang/fr/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Corrigé
+
+- La vérification npm après publication tolère désormais jusqu’à 15 minutes
+  pour l’analyse anti-programmes malveillants et la propagation du registre.
+  Elle utilise un recul exponentiel borné avec gigue égale, respecte les
+  indications `Retry-After` valides, ne réessaie que les erreurs HTTP ou de
+  transport transitoires et refuse toujours immédiatement les redirections,
+  les métadonnées mal formées, les divergences d’identité ou d’intégrité
+  SHA512.
+- Le job de publication npm et son étape finale de vérification du registre
+  disposent maintenant de délais explicites de 20 et 16 minutes.
+
 ## [0.3.1] - 2026-10-17
 
 Cette version corrective se limite à la qualification de release et à

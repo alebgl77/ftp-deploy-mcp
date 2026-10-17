@@ -116,7 +116,9 @@ export function validateCheckout(root, release, ref, files = [], eventCommit = p
 // docs/RELEASE.md requires the effective publication date at release approval, so a tag must
 // never be cut while a changelog still reads "Release candidate" / "Version candidate".
 export function validateChangelog(text, version, label) {
-  const heading = text.split(/\r?\n/).find((line) => line.startsWith("## ["));
+  const headings = text.split(/\r?\n/).filter((line) => line.startsWith("## ["));
+  if (headings[0]?.trim() === "## [Unreleased]") headings.shift();
+  const heading = headings[0];
   assert.ok(heading, `${label}: no release section found`);
   const match = /^## \[(\d+\.\d+\.\d+)\] - (\d{4}-\d{2}-\d{2})$/.exec(heading.trim());
   assert.ok(match, `${label}: newest section must read "## [x.y.z] - YYYY-MM-DD", found ${JSON.stringify(heading)}`);

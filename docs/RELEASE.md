@@ -319,11 +319,17 @@ Official MCP Registry available.
    generation to pass before the publish step.
 5. Wait for that workflow run to finish successfully. Its last step compares
    the public npm name, exact version, `mcpName`, and SHA512 integrity to the
-   validated archive. Only 404 propagation responses are retried (six attempts,
-   five-second delay, 15-second request timeout); authentication, HTTP errors,
-   invalid metadata, and mismatched integrity fail closed. A failed check after
-   publish does **not** prove npm publication failed: inspect the exact version
-   before doing anything else, and do not rerun npm publication blindly.
+   validated archive. Registry visibility is checked for at most 15 minutes,
+   with at most 32 requests, a per-request timeout clipped to 15 seconds, and
+   bounded equal-jitter exponential backoff. It retries only HTTP 404, 408,
+   425, 429, 500, 502, 503 and 504 plus transport/timeouts; valid
+   `Retry-After` guidance on 429/503 is honored within the remaining deadline.
+   Other statuses, redirects, invalid JSON, identity drift and integrity
+   mismatch fail immediately. The one-shot npm archive qualification performed
+   later by the MCP workflow intentionally remains non-retrying under its
+   separate 90-second inspection budget. A failed check after publish does
+   **not** prove npm publication failed: inspect the exact version before doing
+   anything else, and do not rerun npm publication blindly.
 6. For the first-publish bootstrap, configure Trusted Publishing and revoke and
    remove the token immediately after success. For later releases, leave
    `NPM_TOKEN` absent so npm authenticates with GitHub OIDC. Verify the trust

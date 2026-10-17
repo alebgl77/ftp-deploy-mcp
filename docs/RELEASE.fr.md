@@ -341,10 +341,16 @@ ne rend disponibles ni npm, ni `npx`, ni le registre MCP officiel.
    de publication.
 5. Attendez la réussite de cette exécution. Sa dernière étape compare le nom
    public npm, la version exacte, `mcpName` et l'intégrité SHA512 à l'archive
-   validée. Seules les réponses 404 de propagation sont réessayées (six
-   tentatives, délai de cinq secondes, expiration de requête à 15 secondes) ;
-   les erreurs d'authentification ou HTTP, les métadonnées invalides et les
-   écarts d'intégrité entraînent un refus. Un contrôle en échec après
+   validée. La visibilité du registre est contrôlée pendant 15 minutes au
+   maximum, avec au plus 32 requêtes, un délai par requête plafonné à 15
+   secondes et un recul exponentiel borné avec gigue égale. Seuls les statuts
+   HTTP 404, 408, 425, 429, 500, 502, 503 et 504 ainsi que les échecs de
+   transport/délai sont réessayés ; une indication `Retry-After` valide sur
+   429/503 est respectée dans la limite du temps restant. Les autres statuts,
+   les redirections, un JSON invalide, une divergence d'identité ou d'intégrité
+   échouent immédiatement. La qualification ultérieure de l'archive npm par
+   le workflow MCP reste volontairement limitée à une seule tentative dans
+   son budget d'inspection distinct de 90 secondes. Un contrôle en échec après
    publication ne prouve **pas** que la publication npm a échoué : examinez
    d'abord la version exacte et ne republiez pas aveuglément.
 6. Pour l'amorçage de la première publication, configurez Trusted Publishing,

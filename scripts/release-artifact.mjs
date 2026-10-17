@@ -394,20 +394,118 @@ export function validatePublished(metadata, release, expectedIntegrity) {
   return metadata;
 }
 
-export async function verifyPublished(release, expectedIntegrity, { fetchImpl = fetch, sleep = setTimeout, attempts = 6 } = {}) {
+const NPM_VERIFICATION_DEADLINE_MS = 15 * 60_000;
+const NPM_VERIFICATION_REQUEST_MS = 15_000;
+const NPM_VERIFICATION_ATTEMPTS = 32;
+const NPM_RETRY_STATUSES = new Set([404, 408, 425, 429, 500, 502, 503, 504]);
+
+function retryAfterMs(response, wallClock) {
+  if (response.status !== 429 && response.status !== 503) return undefined;
+  const value = response.headers?.get?.("retry-after");
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (/^\d+$/.test(trimmed)) {
+    const seconds = Number(trimmed);
+    const delay = seconds * 1000;
+    return Number.isFinite(delay) ? delay : undefined;
+  }
+  const date = Date.parse(trimmed);
+  const current = wallClock();
+  return Number.isFinite(date) && Number.isFinite(current) ? Math.max(0, date - current) : undefined;
+}
+
+function redirectFailure(error) {
+  return [error?.message, error?.cause?.message, error?.cause?.code]
+    .some((value) => typeof value === "string" && /redirect/i.test(value));
+}
+
+function transportFailure(error) {
+  return error?.name === "AbortError" || error?.name === "TimeoutError" || (error instanceof TypeError && error.cause !== undefined);
+}
+
+async function cancelBody(response) {
+  try { await response?.body?.cancel?.(); } catch { /* best-effort release of an unused body */ }
+}
+
+export async function verifyPublished(release, expectedIntegrity, {
+  fetchImpl = fetch,
+  sleep = setTimeout,
+  now = () => performance.now(),
+  wallClock = Date.now,
+  random = Math.random,
+  timeoutSignal = (ms) => AbortSignal.timeout(ms),
+  deadlineMs = NPM_VERIFICATION_DEADLINE_MS,
+  requestTimeoutMs = NPM_VERIFICATION_REQUEST_MS,
+  attempts = NPM_VERIFICATION_ATTEMPTS,
+} = {}) {
   assertReleaseToolchain();
-  assert.ok(Number.isInteger(attempts) && attempts >= 1 && attempts <= 6, "Invalid retry bound");
+  assert.ok(Number.isInteger(attempts) && attempts >= 1 && attempts <= NPM_VERIFICATION_ATTEMPTS, "Invalid retry bound");
+  assert.ok(Number.isSafeInteger(deadlineMs) && deadlineMs > 0 && deadlineMs <= NPM_VERIFICATION_DEADLINE_MS, "Invalid verification deadline");
+  assert.ok(Number.isSafeInteger(requestTimeoutMs) && requestTimeoutMs > 0 && requestTimeoutMs <= NPM_VERIFICATION_REQUEST_MS, "Invalid request timeout");
   const url = `https://registry.npmjs.org/${encodeURIComponent(release.name)}/${encodeURIComponent(release.version)}`;
+  const deadline = now() + deadlineMs;
+  let lastFailure;
+
+  const exhausted = (attempt) => {
+    const detail = lastFailure?.message ? `: ${lastFailure.message}` : "";
+    return new Error(`npm verification deadline or attempt bound exhausted after ${attempt} attempt(s)${detail}`, { cause: lastFailure });
+  };
+
+  const retry = async (attempt, response) => {
+    if (attempt >= attempts) throw exhausted(attempt);
+    const remaining = deadline - now();
+    if (remaining <= 0) throw exhausted(attempt);
+    const ceiling = Math.min(60_000, 5_000 * (2 ** (attempt - 1)));
+    const draw = random();
+    assert.ok(Number.isFinite(draw) && draw >= 0 && draw <= 1, "Invalid retry jitter");
+    const retryAfter = response ? retryAfterMs(response, wallClock) : undefined;
+    const delay = Math.min(remaining, Math.max(ceiling / 2 + draw * ceiling / 2, retryAfter ?? 0));
+    await sleep(delay);
+  };
+
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const response = await fetchImpl(url, { signal: AbortSignal.timeout(15000), redirect: "error" });
-    if (response.status === 404 && attempt < attempts) {
-      await response.body?.cancel();
-      await sleep(5000);
+    const remaining = deadline - now();
+    if (remaining < 1) throw exhausted(attempt - 1);
+    const timeout = Math.max(1, Math.floor(Math.min(requestTimeoutMs, remaining)));
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        signal: timeoutSignal(timeout),
+        redirect: "error",
+        headers: { Accept: "application/json", "Cache-Control": "no-cache", Pragma: "no-cache" },
+      });
+    } catch (error) {
+      if (redirectFailure(error) || !transportFailure(error)) throw error;
+      lastFailure = error;
+      await retry(attempt);
       continue;
     }
-    assert.equal(response.status, 200, `npm verification failed: HTTP ${response.status}`);
-    return validatePublished(await response.json(), release, expectedIntegrity);
+
+    if (deadline - now() <= 0) {
+      await cancelBody(response);
+      throw exhausted(attempt);
+    }
+    if (response.status !== 200) {
+      await cancelBody(response);
+      lastFailure = new Error(`npm verification failed: HTTP ${response.status}`);
+      if (!NPM_RETRY_STATUSES.has(response.status)) throw lastFailure;
+      await retry(attempt, response);
+      continue;
+    }
+
+    let metadata;
+    try {
+      metadata = await response.json();
+    } catch (error) {
+      if (!transportFailure(error)) throw error;
+      lastFailure = error;
+      await retry(attempt);
+      continue;
+    }
+    if (deadline - now() <= 0) throw exhausted(attempt);
+    return validatePublished(metadata, release, expectedIntegrity);
   }
+  throw exhausted(attempts);
 }
 
 if (isMain(import.meta.url)) {

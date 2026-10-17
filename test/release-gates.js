@@ -30,6 +30,20 @@ function gate(data, tag = ref, runtime) {
 function published() {
   return { ...release, dist: { integrity: digest } };
 }
+function verificationClock({ epoch = Date.UTC(2026, 9, 17), random = 0 } = {}) {
+  let monotonic = 0;
+  const sleeps = [];
+  const timeouts = [];
+  return {
+    sleeps,
+    timeouts,
+    now: () => monotonic,
+    wallClock: () => epoch + monotonic,
+    random: () => random,
+    sleep: async (ms) => { sleeps.push(ms); monotonic += ms; },
+    timeoutSignal: (ms) => { timeouts.push(ms); return { timeout: ms }; },
+  };
+}
 
 test("release gate accepts only coherent stable metadata and runtime", () => {
   assert.deepEqual(gate(fixture(), ref, "0.2.0"), release);
@@ -155,8 +169,12 @@ test("changelog gate requires a dated newest section matching the release", () =
 
 ## [0.1.0] - 2026-07-20
 `, "0.2.0", "CHANGELOG.md"), "2026-09-09");
+  assert.equal(validateChangelog("## [Unreleased]\n\n### Fixed\n\n- Pending fix.\n\n## [0.2.0] - 2026-09-09\n", "0.2.0", "CHANGELOG.md"), "2026-09-09");
   assert.equal(validateChangelog("# Changelog\r\n\r\n## [0.2.0] - 2026-09-09\r\n", "0.2.0", "CHANGELOG.fr.md"), "2026-09-09");
   for (const bad of [
+    "## [Non publié]\n\n## [0.2.0] - 2026-09-09",
+    "## [Unreleased] - 2026-09-09\n\n## [0.2.0] - 2026-09-09",
+    "## [Unreleased]\n\n## [Unreleased]\n\n## [0.2.0] - 2026-09-09",
     "## [0.2.0] - Release candidate (2026-09-03)",
     "## [0.2.0] - Version candidate (2026-09-03)",
     "## [0.1.0] - 2026-07-20",
@@ -194,52 +212,198 @@ test("public npm metadata must match identity and the exact validated SHA512", (
     assert.throws(() => validatePublished({ ...release, dist: { integrity: value } }, release, digest));
   }
 });
-test("npm verification retries only propagation 404s and checks exact-version URL", async () => {
+test("npm verification reaches an eventual 200 with no-cache requests and equal-jitter backoff", async () => {
   let calls = 0;
   let canceled = 0;
-  const delays = [];
+  const clock = verificationClock();
   const result = await verifyPublished(release, digest, {
     fetchImpl: async (url, options) => {
       assert.equal(url, "https://registry.npmjs.org/ftp-deploy-mcp/0.2.0");
       assert.equal(options.redirect, "error");
-      assert.ok(options.signal instanceof AbortSignal);
+      assert.deepEqual(options.signal, { timeout: 15000 });
+      assert.deepEqual(options.headers, { Accept: "application/json", "Cache-Control": "no-cache", Pragma: "no-cache" });
       calls += 1;
       return calls < 3 ? { status: 404, body: { cancel: async () => { canceled += 1; } } } : { status: 200, json: async () => published() };
     },
-    sleep: async (ms) => delays.push(ms),
+    ...clock,
   });
   assert.equal(result.version, release.version);
   assert.equal(calls, 3);
   assert.equal(canceled, 2);
-  assert.deepEqual(delays, [5000, 5000]);
+  assert.deepEqual(clock.sleeps, [2500, 5000]);
 });
-test("npm propagation retry budget is finite", async () => {
+test("npm verification clips backoff to and stops at its monotonic deadline", async () => {
+  let calls = 0;
+  const clock = verificationClock({ random: 1 });
+  await assert.rejects(verifyPublished(release, digest, {
+    fetchImpl: async () => { calls += 1; return { status: 404 }; },
+    deadlineMs: 6000,
+    ...clock,
+  }), /deadline or attempt bound exhausted/);
+  assert.equal(calls, 2);
+  assert.deepEqual(clock.sleeps, [5000, 1000]);
+});
+test("npm verification keeps a secondary 32-attempt cap even when fake time does not advance", async () => {
   let calls = 0;
   let sleeps = 0;
+  const clock = verificationClock();
   await assert.rejects(verifyPublished(release, digest, {
     fetchImpl: async () => { calls += 1; return { status: 404 }; },
     sleep: async () => { sleeps += 1; },
-  }), /HTTP 404/);
-  assert.equal(calls, 6);
-  assert.equal(sleeps, 5);
+    now: clock.now,
+    random: clock.random,
+    timeoutSignal: clock.timeoutSignal,
+  }), /after 32 attempt\(s\)/);
+  assert.equal(calls, 32);
+  assert.equal(sleeps, 31);
 });
-for (const status of [401, 403, 429, 500, 302]) {
-  test(`npm HTTP ${status} fails immediately without treating it as absence`, async () => {
+for (const status of [404, 408, 425, 429, 500, 502, 503, 504]) {
+  test(`npm HTTP ${status} is retryable`, async () => {
     let calls = 0;
-    await assert.rejects(verifyPublished(release, digest, {
-      fetchImpl: async () => { calls += 1; return { status }; },
-      sleep: async () => assert.fail("Must not retry HTTP errors"),
-    }), new RegExp(`HTTP ${status}`));
-    assert.equal(calls, 1);
+    const clock = verificationClock();
+    const result = await verifyPublished(release, digest, {
+      fetchImpl: async () => (++calls === 1 ? { status } : { status: 200, json: async () => published() }),
+      attempts: 2,
+      ...clock,
+    });
+    assert.equal(result.version, release.version);
+    assert.equal(calls, 2);
+    assert.deepEqual(clock.sleeps, [2500]);
   });
 }
-test("npm transport errors, bad JSON and mismatched metadata never pass or retry", async () => {
+
+for (const status of [300, 400, 401, 403, 409, 418]) {
+  test(`npm HTTP ${status} fails immediately and cancels its unused body`, async () => {
+    let calls = 0;
+    let canceled = 0;
+    const clock = verificationClock();
+    await assert.rejects(verifyPublished(release, digest, {
+      fetchImpl: async () => { calls += 1; return { status, body: { cancel: async () => { canceled += 1; } } }; },
+      sleep: async () => assert.fail("Must not retry a terminal HTTP status"),
+      now: clock.now,
+      timeoutSignal: clock.timeoutSignal,
+    }), new RegExp(`HTTP ${status}`));
+    assert.equal(calls, 1);
+    assert.equal(canceled, 1);
+  });
+}
+
+test("npm verification honors delta and HTTP-date Retry-After for 429/503", async () => {
+  let calls = 0;
+  const clock = verificationClock();
+  const retryDate = new Date(clock.wallClock() + 30_000).toUTCString();
+  const result = await verifyPublished(release, digest, {
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) return { status: 429, headers: { get: () => "10" } };
+      if (calls === 2) return { status: 503, headers: { get: () => retryDate } };
+      return { status: 200, json: async () => published() };
+    },
+    ...clock,
+  });
+  assert.equal(result.version, release.version);
+  assert.deepEqual(clock.sleeps, [10_000, 20_000]);
+});
+
+test("npm verification clips each request timeout to the remaining deadline", async () => {
+  let calls = 0;
+  const clock = verificationClock();
+  const result = await verifyPublished(release, digest, {
+    fetchImpl: async () => (++calls === 1
+      ? { status: 429, headers: { get: () => "18" } }
+      : { status: 200, json: async () => published() }),
+    deadlineMs: 20_000,
+    ...clock,
+  });
+  assert.equal(result.version, release.version);
+  assert.deepEqual(clock.sleeps, [18_000]);
+  assert.deepEqual(clock.timeouts, [15_000, 2_000]);
+});
+
+test("npm verification bounds Retry-After by the remaining monotonic deadline", async () => {
+  let calls = 0;
+  const clock = verificationClock();
+  await assert.rejects(verifyPublished(release, digest, {
+    fetchImpl: async () => { calls += 1; return { status: 503, headers: { get: () => "120" } }; },
+    deadlineMs: 20_000,
+    ...clock,
+  }), /deadline or attempt bound exhausted/);
+  assert.equal(calls, 1);
+  assert.deepEqual(clock.sleeps, [20_000]);
+});
+
+test("npm verification retries transport and timeout failures but not redirects", async () => {
+  let calls = 0;
+  const clock = verificationClock();
+  const result = await verifyPublished(release, digest, {
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) throw new TypeError("fetch failed", { cause: Object.assign(new Error("socket reset"), { code: "ECONNRESET" }) });
+      if (calls === 2) throw Object.assign(new Error("request aborted"), { name: "AbortError" });
+      if (calls === 3) throw Object.assign(new Error("request timed out"), { name: "TimeoutError" });
+      return { status: 200, json: async () => published() };
+    },
+    ...clock,
+  });
+  assert.equal(result.version, release.version);
+  assert.equal(calls, 4);
+  assert.deepEqual(clock.sleeps, [2500, 5000, 10_000]);
+
+  let ordinaryCalls = 0;
+  await assert.rejects(verifyPublished(release, digest, {
+    fetchImpl: async () => { ordinaryCalls += 1; throw new Error("programming failure"); },
+    sleep: async () => assert.fail("Must not retry ordinary exceptions"),
+    now: clock.now,
+    timeoutSignal: clock.timeoutSignal,
+  }), /programming failure/);
+  assert.equal(ordinaryCalls, 1);
+
+  let redirectCalls = 0;
+  await assert.rejects(verifyPublished(release, digest, {
+    fetchImpl: async () => { redirectCalls += 1; throw new TypeError("unexpected redirect"); },
+    sleep: async () => assert.fail("Must not retry redirects"),
+    now: clock.now,
+    timeoutSignal: clock.timeoutSignal,
+  }), /redirect/);
+  assert.equal(redirectCalls, 1);
+});
+
+test("npm verification retries a body transport timeout and tolerates cancellation cleanup failure", async () => {
+  let calls = 0;
+  let cancellations = 0;
+  const clock = verificationClock();
+  const result = await verifyPublished(release, digest, {
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls === 1) return { status: 200, json: async () => { throw new TypeError("body transport failed", { cause: new Error("socket reset") }); } };
+      if (calls === 2) return { status: 404, body: { cancel: async () => { cancellations += 1; throw new Error("already closed"); } } };
+      return { status: 200, json: async () => published() };
+    },
+    ...clock,
+  });
+  assert.equal(result.version, release.version);
+  assert.equal(calls, 3);
+  assert.equal(cancellations, 1);
+  assert.deepEqual(clock.sleeps, [2500, 5000]);
+});
+
+test("npm malformed JSON and mismatched metadata are terminal", async () => {
   for (const fetchImpl of [
-    async () => { throw new Error("network/timeout"); },
     async () => ({ status: 200, json: async () => { throw new SyntaxError("invalid JSON"); } }),
+    async () => ({ status: 200, json: async () => { throw new TypeError("body is unusable"); } }),
+    async () => ({ status: 200, json: async () => { throw new Error("non-transport body failure"); } }),
     async () => ({ status: 200, json: async () => ({ ...published(), mcpName: "wrong" }) }),
+    async () => ({ status: 200, json: async () => ({ ...published(), dist: { integrity: integrity(Buffer.from("substituted")) } }) }),
   ]) {
-    await assert.rejects(verifyPublished(release, digest, { fetchImpl, sleep: async () => assert.fail("Must not retry invalid results") }));
+    let calls = 0;
+    const clock = verificationClock();
+    await assert.rejects(verifyPublished(release, digest, {
+      fetchImpl: async (...args) => { calls += 1; return fetchImpl(...args); },
+      sleep: async () => assert.fail("Must not retry invalid results"),
+      now: clock.now,
+      timeoutSignal: clock.timeoutSignal,
+    }));
+    assert.equal(calls, 1);
   }
 });
 
@@ -278,6 +442,9 @@ test("publication workflows remain manual, pinned and secret-scoped", () => {
   assert.match(npm, /inspect .*--expected-integrity "\$BUILD_INTEGRITY"/);
   assert.match(npm, /check .*--inventory-sha256 "\$SOURCE_INVENTORY_SHA256" --expected-integrity "\$RELEASE_INTEGRITY" --expected-tarball "\$RELEASE_TARBALL"/);
   assert.match(npm, /verify-npm .*--expected-integrity "\$RELEASE_INTEGRITY" --expected-tarball "\$RELEASE_TARBALL"/);
+  const npmPublication = npm.split(/^  publish:\s*$/m)[1];
+  assert.match(npmPublication, /timeout-minutes: 20/);
+  assert.match(npmPublication, /- name: Verify public npm identity and original tarball integrity\r?\n        timeout-minutes: 16/);
   const uploaded = npm.match(/          path: \|\r?\n((?:            .+\r?\n?)+)/)?.[1].trim().split(/\r?\n/).map((line) => line.trim());
   assert.deepEqual(uploaded, ["${{ steps.artifact.outputs.tarball }}", "${{ runner.temp }}/release-pack.json", "${{ runner.temp }}/source-inventory.json"]);
   const mcp = readFileSync(new URL("publish-mcp.yml", root), "utf8");
