@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "ftp-deploy-mcp"
+abstract: >-
+  Model Context Protocol server to deploy, inspect and transfer files over FTP,
+  FTPS and SFTP from AI coding agents, with local-root confinement, SFTP host-key
+  pinning, SHA-256-verified staged promotion, human confirmation and rollback.
+authors:
+  - family-names: "Beguel"
+    given-names: "Alexandre"
+    alias: "alebgl77"
+    website: "https://beguel.com/"
+license: MIT
+repository-code: "https://github.com/alebgl77/ftp-deploy-mcp"
+url: "https://github.com/alebgl77/ftp-deploy-mcp"
+keywords:
+  - mcp
+  - mcp-server
+  - model-context-protocol
+  - ai-agents
+  - deployment
+  - sftp
+  - ftp
+  - secure-deployment
