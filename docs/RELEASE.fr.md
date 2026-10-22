@@ -2,11 +2,23 @@
 
 [English](./RELEASE.md) | **Français**
 
-Voici la liste de contrôle des mainteneurs pour la release de sources GitHub
-v0.3.1 et, séparément, une future première publication sur npm et le registre
-MCP officiel. Une release GitHub ne rend disponibles ni l'identifiant npm, ni
-la commande `npx`, ni l'entrée du registre. Le tag et la release GitHub v0.3.0
-publiés restent immuables.
+Ce guide documente **v0.3.2** et la qualification des versions suivantes.
+Les tags, versions de paquets et artefacts publiés restent immuables. Une
+modification documentaire sur `main` ne met pas à jour un paquet déjà publié.
+
+## Distributions publiées
+
+| Canal | Référence de version | Ce que la référence établit |
+|---|---|---|
+| GitHub | [Release v0.3.2](https://github.com/alebgl77/ftp-deploy-mcp/releases/tag/v0.3.2) | Tag source publié et fichiers effectivement joints à cette release. |
+| npm | [Métadonnées 0.3.2](https://registry.npmjs.org/ftp-deploy-mcp/0.3.2) | Identité du paquet publié, archive, intégrité SHA512 et métadonnées de provenance. |
+| Registre MCP officiel | [Entrée 0.3.2](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.alebgl77%2Fftp-deploy-mcp/versions/0.3.2) | Entrée active du serveur pointant vers npm `ftp-deploy-mcp@0.3.2`. |
+
+Ces références de version exacte ont été vérifiées pour cette mise à jour
+documentaire. Elles établissent la disponibilité, pas une nouvelle qualification
+d'installation, une résolution npm future verrouillée ni une CI réussie sur un
+commit ultérieur de `main`. Les anciennes mentions de publication en attente
+dans le journal décrivent leur situation à cette date.
 
 Consultez les fichiers sources disponibles sur
 [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest). Les workflows npm et MCP sont manuels
@@ -66,19 +78,21 @@ de sources GitHub est prête.
 
 ## Contrôle des versions et du journal des modifications
 
-Pour la release GitHub v0.3.1 :
+Pour revoir v0.3.2 publiée, vérifiez les valeurs existantes ci-dessous sans
+réécrire son tag, sa date ou ses artefacts. Pour une nouvelle release, utilisez
+partout une nouvelle version revue et sa date réelle de publication :
 
-1. Réglez `version` dans [package.json](../package.json), les métadonnées racine
+1. Alignez `version` dans [package.json](../package.json), les métadonnées racine
    et du paquet racine de `package-lock.json`, ainsi que `server.json`, sur
-   `0.3.1`. Le verrouillage source est l'unique fichier de verrouillage de référence ;
+   `0.3.2` pour la version actuelle. Le verrouillage source est l'unique fichier de verrouillage de référence ;
    ne conservez pas de `npm-shrinkwrap.json` parallèle.
 2. Réglez la version annoncée par le serveur MCP sur la même valeur. Recherchez
    les versions obsolètes dans les sources et les métadonnées générées ;
    les références historiques attendues du journal sont exclues.
-3. Utilisez le titre apparié `## [0.3.1] - 2026-10-17` dans
+3. Le titre apparié actuel est `## [0.3.2] - 2026-10-17` dans
    [CHANGELOG.md](../CHANGELOG.md) et [CHANGELOG.fr.md](../CHANGELOG.fr.md).
-   Confirmez la validité calendaire de la date effective, modifiez-la uniquement
-   si le jour réel de publication change et conservez tout l'historique 0.3.0.
+   Pour une nouvelle release, ajoutez sa date réelle valide et conservez tout
+   l'historique publié. Ne réécrivez et n'antidatez aucune entrée existante.
 4. Confirmez que chaque changement de la version mineure visible par l'utilisateur est documenté
    dans [README.md](../README.md) et [README.fr.md](../README.fr.md).
 5. Vérifiez que la version inclut le remplacement atomique des nouvelles
@@ -88,14 +102,18 @@ Pour la release GitHub v0.3.1 :
    verrouillage source et le tag concordent. Vérifiez séparément les versions npm et du
    registre MCP officiel uniquement après leurs publications respectives.
 
-Utilisez un commit dédié à la publication. Ne déplacez et ne réutilisez jamais
-le tag v0.2.0 publié.
+Utilisez un commit dédié pour une nouvelle version. Ne déplacez et ne réutilisez
+jamais un tag publié, y compris v0.3.2.
 
 ## Revoir les graphes source et installé
 
-La seule référence source est `package-lock.json`, avec six dépendances directes
-épinglées exactement et 112 entrées non racine : 110 de production et deux de
-développement. Les installations source/Docker/utilisateur utilisent
+La seule référence source est `package-lock.json`. Le paquet actuel possède cinq
+dépendances de production épinglées exactement, validées par `PRODUCTION_PINS` dans
+[`scripts/release-gate.mjs`](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/scripts/release-gate.mjs).
+Déduisez les nombres de dépendances transitives et les classifications de
+développement/facultatives du verrouillage revu et du graphe installé pour la
+release exacte ; les anciens nombres ne constituent pas un contrôle de
+qualification. Les installations source/Docker/utilisateur utilisent
 `npm ci --omit=dev --ignore-scripts` ; les contributeurs utilisent
 `npm ci --ignore-scripts`. Aucun shrinkwrap n'est conservé. npm 12 ne lit et
 n'écrit plus ces fichiers, y compris dans les dépendances ; voir la
@@ -119,11 +137,11 @@ Ce vérificateur n'importe aucun code de dépendance.
 
 ## Qualifier l'archive d'installation source
 
-Deux distributions sont définies. `ftp-deploy-mcp-0.3.1-source.tar.gz` contient
+Deux distributions sont définies. Un candidat `ftp-deploy-mcp-0.3.2-source.tar.gz` contient
 90 fichiers ordinaires sous `package/`, dont le verrouillage source. C'est une
 archive d'installation, pas le dépôt complet : tests, scripts de maintenance et
 guide HTML restent dans le dépôt. Le ZIP/tar automatique de GitHub contient le
-dépôt complet. L'archive npm distincte `ftp-deploy-mcp-0.3.1.tgz` contient
+dépôt complet. L'archive npm distincte `ftp-deploy-mcp-0.3.2.tgz` contient
 89 fichiers, sans fichier de verrouillage.
 
 Capturez les 90 fichiers sources revus avant installation, tests ou création
@@ -183,11 +201,13 @@ preuve source. Modifier une preuve ou renommer l'archive ne change pas son type.
 
 ## Garder la qualification npm distincte
 
-npm reste non qualifié : un vrai consommateur npm 10.9.8 a changé dix dépendances
-de production. Le candidat refusé et ses rapports sont conservés, sans devenir
-preuves de la release source ni fichiers joints qualifiés. Un éventuel graphe npm
-conforme ne vaudrait que pour l'environnement et la date testés, sans garantir
-les futures installations npm. Pour inspecter un candidat npm distinct avec
+Une ancienne tentative de qualification avec npm 10.9.8 a changé dix dépendances
+de production. Conservez ce candidat refusé et ses rapports comme preuves
+historiques de régression ; ils ne décrivent pas la disponibilité actuelle au
+registre. La version v0.3.2 publiée est liée plus haut. Tout nouveau candidat npm
+doit toujours passer son propre contrôle du graphe installé ; une correspondance
+ne vaut que pour l'environnement et la date testés, sans garantir les futures
+installations npm. Pour inspecter un candidat distinct avec
 l'inventaire source original de 90 fichiers :
 
 ```bash
@@ -309,32 +329,38 @@ fraîche épinglée à l'événement fournit le `server.json` publié.
 
 ## Release GitHub et fichiers joints
 
-Après qualification indépendante et revue, utilisez le commit final vérifié,
-attendez la CI publique complète sur ce commit, puis créez v0.3.1. Conservez les
-octets exacts de `ftp-deploy-mcp-0.3.1-source.tar.gz` validés. Préparez
+Pour une nouvelle version, utilisez le commit final qualifié indépendamment et
+revu, attendez sa CI publique complète, puis créez une nouvelle release. Ne
+recréez pas v0.3.2 publiée. Conservez les octets exacts de l'archive source
+validée pour la nouvelle version. Préparez
 `SHA256SUMS` pour cette archive, le guide HTML bilingue autonome et les preuves
 finales/SBOM ; déposez seulement ces fichiers vérifiés. Publiez des notes EN/FR
 fidèles au périmètre source, puis retéléchargez et vérifiez les empreintes.
 Consignez commit, tag, date réelle, noms et digests.
 
 Aucun `.tgz` npm ayant dérivé n'est joint. Le ZIP/tar automatique de GitHub
-reste le dépôt complet distinct. Les dépôts de fichiers restent en attente avant
-vérification ; npm et MCP restent non qualifiés/en attente. Une release source
-ne rend disponibles ni npm, ni `npx`, ni le registre MCP officiel.
+reste le dépôt complet distinct. Pour chaque nouvelle version, les dépôts de
+fichiers restent en attente avant vérification et les publications npm/MCP
+exigent leur propre qualification. Une release GitHub seule n'établit la
+disponibilité dans aucun des deux registres.
 
 ## Publier sur npm
+
+Cette procédure concerne une **nouvelle version qualifiée**. Ne republiez pas
+`0.3.2`. Après revue de la nouvelle version dans `package.json`, définissez
+`release_tag` comme son tag exact préfixé par `v` et vérifiez son absence de publication.
 
 1. Examinez le workflow préparé et confirmez que son déclencheur correspond
    à la politique de tags prévue.
 2. Créez un tag annoté dont le nom correspond exactement à la version :
-   `git tag -a v0.3.1 -m "v0.3.1"`. Si la release de sources GitHub a déjà créé
+   `git tag -a "$release_tag" -m "$release_tag"`. Si la release de sources GitHub a déjà créé
    ce tag, vérifiez et réutilisez sa cible inchangée ; ne le recréez pas.
 3. Après approbation du mainteneur et préparation des identifiants, poussez le
    commit et le tag. Vérifiez que le workflow figure dans la branche par
    défaut, puis déclenchez-le explicitement sur le tag :
 
    ```bash
-   gh workflow run release.yml --ref v0.3.1
+   gh workflow run release.yml --ref "$release_tag"
    ```
 4. Exigez la réussite des tests, des contrôles de cohérence des versions, de
    l'inspection de l'archive et de la génération de provenance avant l'étape
@@ -361,13 +387,15 @@ ne rend disponibles ni npm, ni `npx`, ni le registre MCP officiel.
 7. Vérifiez indépendamment l'artefact public :
 
 ```bash
-npm view ftp-deploy-mcp@0.3.1 name version mcpName dist.integrity
-npm view ftp-deploy-mcp@0.3.1 dist.tarball
-npx -y ftp-deploy-mcp@0.3.1 --version
+npm view ftp-deploy-mcp@0.3.2 name version mcpName dist.integrity
+npm view ftp-deploy-mcp@0.3.2 dist.tarball
+npx -y ftp-deploy-mcp@0.3.2 --version
 ```
 
-Comparez l'intégrité et la version du registre avec l'archive validée et le
-tag. Ce n'est qu'après réussite de ces contrôles que le README doit présenter
+Ces exemples de vérification visent la release existante ; remplacez la version
+lors de la qualification d'une publication ultérieure. Comparez l'intégrité et
+la version du registre avec l'archive validée et le tag.
+Ce n'est qu'après réussite de ces contrôles que le README doit présenter
 `npx` comme une méthode d'installation actuellement disponible.
 
 Créez la release GitHub depuis le même tag immuable et copiez l'entrée
@@ -375,7 +403,10 @@ correspondante du journal. Ne déplacez ni ne réutilisez un tag publié.
 
 ## Publier sur le registre MCP
 
-Cette étape reste en attente. Ne publiez qu'après qualification distincte de npm, y compris le graphe installé. Le workflow MCP retélécharge et requalifie l'archive npm réellement publiée ; une identité seule ne suffit pas :
+La version 0.3.2 figure déjà dans le registre MCP officiel. Pour une nouvelle
+version, ne publiez qu'après qualification distincte de npm, y compris le graphe
+installé. Le workflow MCP retélécharge et requalifie l'archive npm réellement
+publiée ; une identité seule ne suffit pas :
 
 1. Vérifiez `server.json` par rapport au schéma `2025-12-11` ; il doit
    correspondre au tag, aux versions racine/paquet racine du verrouillage source, à la
@@ -383,7 +414,7 @@ Cette étape reste en attente. Ne publiez qu'après qualification distincte de n
 2. Déclenchez le workflow distinct sur exactement le même tag :
 
    ```bash
-   gh workflow run publish-mcp.yml --ref v0.3.1
+   gh workflow run publish-mcp.yml --ref "$release_tag"
    ```
 
 3. Le job non privilégié qualifie l'archive npm réellement téléchargée et son

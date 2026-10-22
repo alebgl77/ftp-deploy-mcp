@@ -5,23 +5,23 @@
     "fr": {
       "schemaVersion": 1,
       "project": "ftp-deploy-mcp",
-      "version": "0.2.0",
-      "updated": "9 septembre 2026",
+      "version": "0.3.2",
+      "updated": "22 octobre 2026",
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-      "head": "f8428238f1ded34597b529479aa2364f4ea05a17",
-      "scope": "MCP stdio local · usage local supervisé",
+      "head": "f38a76c774d73fde7c7b36a3f4adbb22736f318c",
+      "scope": "Vue d’architecture · preuves historiques par révision",
       "toolCount": 14,
       "summary": "Planifier, confirmer, appliquer, consulter et restaurer avec un journal durable borné et des garanties explicites.",
-      "deliveryNote": "Avec stateDir, quatre outils durables complètent les dix outils historiques : plan immuable, confirmation MCP input_required signée, reprise explicite, statut paginé sans écriture et rollback conservateur. La garantie est observable_state_reconciled, jamais exactement une fois ni atomique sur plusieurs fichiers.",
+      "deliveryNote": "Distribution actuelle : 0.3.2. Les nombres de tests, runs CI et contrôles d’artefacts ci-dessous conservent leurs révisions historiques nommées ; ils ne qualifient pas ce commit source ultérieur. Avec stateDir, quatre outils durables complètent les dix outils historiques : plan immuable, confirmation MCP input_required signée, reprise explicite, statut paginé sans écriture et rollback conservateur. La garantie est observable_state_reconciled, jamais exactement une fois ni atomique sur plusieurs fichiers.",
       "metrics": [
         {
           "value": "672",
-          "label": "assertions smoke réussies",
+          "label": "assertions smoke historiques",
           "detail": "6 transports · 14 CLI · 53 contrat · 29 ressources · 123 état · 100 workflow"
         },
         {
           "value": "86",
-          "label": "passages scriptés réussis",
+          "label": "passages scriptés historiques",
           "detail": "43 scénarios × 2 langues · aucune mesure LLM"
         },
         {
@@ -514,7 +514,7 @@
         {
           "id": "C",
           "priority": "P0",
-          "status": "in_progress",
+          "status": "delivered",
           "title": "Plan, apply et statut durables",
           "summary": "Lier chaque décision à une identité de cible, des préconditions et des politiques ; conserver l’état des opérations.",
           "effort": "Élevé",
@@ -528,14 +528,14 @@
             "Une écriture non confirmée reste inconnue jusqu’à réconciliation.",
             "Les outils bas niveau et le rollback respectent les mêmes politiques."
           ],
-          "evidence": "En préparation : conception du protocole durable. Aucun outil plan/apply/status livré ni exécuté. L’idempotence ne garantit pas exactly once."
+          "evidence": "Livré avec stateDir : plans immuables, application, statut paginé et confirmation MCP signée. Voir src/durable-tools.js et le README pour les clients pris en charge, la reprise explicite et les limites d’effets. La disponibilité du code reste distincte de la qualification des incidents de production."
         },
         {
           "id": "D",
           "priority": "P1",
-          "status": "planned",
+          "status": "in_progress",
           "title": "Delta, reprise et rollback conditionnel",
-          "summary": "Éviter les transferts inutiles ; retrouver les fichiers après crash et refuser toute restauration qui écrase une dérive tierce.",
+          "summary": "La reprise conditionnelle et le retour arrière prudent sont livrés dans le workflow durable optionnel. Les comparaisons de performances et la qualification des incidents de production restent ouvertes.",
           "effort": "Élevé",
           "dependencies": [
             "C"
@@ -547,7 +547,7 @@
             "Rollback refusé lorsqu’une modification tierce est détectée.",
             "Aucune suppression miroir activée par défaut."
           ],
-          "evidence": "À mesurer ; aucun gain de volume ou de durée annoncé."
+          "evidence": "Le retour arrière se limite aux fichiers durablement acquittés ; les modifications tierces sont refusées. Aucun gain de volume ni de durée n’est revendiqué."
         },
         {
           "id": "E",
@@ -565,7 +565,7 @@
             "Lire un grand fichier par pages sans suffixe inaccessible.",
             "Documenter unités, limites et stockage hors de la racine web."
           ],
-          "evidence": "Cible : les erreurs strictes sont livrées en E0 ; ranges et rapports durables ne le sont pas."
+          "evidence": "Les lectures par plages restent prévues. Le statut des opérations durables fait déjà partie de C ; cette étape de la feuille de route ne rend pas l’outil de statut existant indisponible."
         },
         {
           "id": "F",
@@ -746,9 +746,9 @@
         },
         {
           "name": "MCP / stdio",
-          "proof": "2025-11-25 négocié",
-          "level": "verified",
-          "limits": "SDK inspecté : 1.29.0. Aucun support implicite de la révision 2026-07-28."
+          "proof": "2026-07-28 et historique implémentés",
+          "level": "observed",
+          "limits": "Le code utilise le SDK MCP serveur modulaire 2.3.1 avec les tests du protocole v2. Le résultat 2025-11-25 / SDK 1.29.0 est historique ; cette mise à jour documentaire ne réexécute pas la compatibilité des clients."
         },
         {
           "name": "Windows / Node 22",
@@ -760,7 +760,7 @@
           "name": "Matrice CI / Node 22–24",
           "proof": "6 combinaisons réussies",
           "level": "verified",
-          "limits": "Linux, macOS et Windows × Node 22/24 ; run 34326855200, commit f842823. Les garanties de récupération durable restent cibles."
+          "limits": "Le run historique 34326855200 à f842823 couvre Linux/macOS/Windows et Node 22/24. La CI actuelle configure Node 22/24/26 ; vérifier une exécution complète sur le commit exact pour sa qualification."
         }
       ],
       "competitors": [
@@ -965,23 +965,23 @@
     "en": {
       "schemaVersion": 1,
       "project": "ftp-deploy-mcp",
-      "version": "0.2.0",
-      "updated": "9 September 2026",
+      "version": "0.3.2",
+      "updated": "22 October 2026",
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-      "head": "f8428238f1ded34597b529479aa2364f4ea05a17",
-      "scope": "Local MCP stdio · supervised local use",
+      "head": "f38a76c774d73fde7c7b36a3f4adbb22736f318c",
+      "scope": "Architecture overview · historical evidence by revision",
       "toolCount": 14,
       "summary": "Plan, confirm, apply, inspect and restore with a bounded durable journal and explicit guarantees.",
-      "deliveryNote": "With stateDir, four durable tools complement the ten legacy tools: immutable plan, signed MCP input_required confirmation, explicit resume, write-free paginated status and conservative rollback. The guarantee is observable_state_reconciled, never exactly-once or multi-file atomic.",
+      "deliveryNote": "Current distribution: 0.3.2. The test totals, CI runs and artifact checks below retain their named historical revisions; they do not qualify this later source commit. With stateDir, four durable tools complement the ten legacy tools: immutable plan, signed MCP input_required confirmation, explicit resume, write-free paginated status and conservative rollback. The guarantee is observable_state_reconciled, never exactly-once or multi-file atomic.",
       "metrics": [
         {
           "value": "672",
-          "label": "smoke assertions passed",
+          "label": "historical smoke assertions",
           "detail": "6 transports · 14 CLI · 53 contract · 29 resource · 123 state · 100 workflow tests"
         },
         {
           "value": "86",
-          "label": "scripted executions passed",
+          "label": "historical scripted passes",
           "detail": "43 scenarios × 2 languages · no LLM measurement"
         },
         {
@@ -1474,7 +1474,7 @@
         {
           "id": "C",
           "priority": "P0",
-          "status": "in_progress",
+          "status": "delivered",
           "title": "Durable plan, apply and status",
           "summary": "Bind every decision to a target identity, preconditions and policies; retain operation state.",
           "effort": "High",
@@ -1488,14 +1488,14 @@
             "An unconfirmed write remains unknown until reconciled.",
             "Low-level tools and rollback enforce the same policies."
           ],
-          "evidence": "In preparation: durable protocol design. No plan/apply/status tool delivered or executed. Idempotency does not guarantee exactly once."
+          "evidence": "Shipped with stateDir: immutable plans, apply, paginated status and signed MCP confirmation. See src/durable-tools.js and the README for supported clients, explicit resume and effect limits. Source availability is separate from a production incident qualification."
         },
         {
           "id": "D",
           "priority": "P1",
-          "status": "planned",
+          "status": "in_progress",
           "title": "Delta, resumption and conditional rollback",
-          "summary": "Avoid unnecessary transfers, recover files after a crash and refuse restoration that overwrites third-party drift.",
+          "summary": "Conditional resume and conservative rollback are shipped in the optional durable workflow. Performance comparisons and production incident qualification remain open.",
           "effort": "High",
           "dependencies": [
             "C"
@@ -1507,7 +1507,7 @@
             "Refuse rollback when a third-party modification is detected.",
             "Do not enable mirror deletion by default."
           ],
-          "evidence": "To be measured; no volume or duration improvement is claimed."
+          "evidence": "Rollback is limited to durably acknowledged files; third-party drift is refused. No volume or duration improvement is claimed."
         },
         {
           "id": "E",
@@ -1525,7 +1525,7 @@
             "Read a large file in pages without an inaccessible suffix.",
             "Document units, limits and storage outside the web root."
           ],
-          "evidence": "Target: strict errors are delivered in E0; ranges and durable reports are not."
+          "evidence": "Range reads remain planned. Durable operation status is already part of C; this roadmap item does not make the existing status tool unavailable."
         },
         {
           "id": "F",
@@ -1706,9 +1706,9 @@
         },
         {
           "name": "MCP / stdio",
-          "proof": "2025-11-25 negotiated",
-          "level": "verified",
-          "limits": "Inspected SDK: 1.29.0. No implied support for revision 2026-07-28."
+          "proof": "2026-07-28 and legacy implemented",
+          "level": "observed",
+          "limits": "Source uses the modular MCP server SDK 2.3.1 with the v2 protocol tests. The old 2025-11-25 / SDK 1.29.0 result is historical; this documentation update does not rerun client compatibility."
         },
         {
           "name": "Windows / Node 22",
@@ -1720,7 +1720,7 @@
           "name": "CI matrix / Node 22–24",
           "proof": "6 combinations passed",
           "level": "verified",
-          "limits": "Linux, macOS and Windows × Node 22/24; run 34326855200, commit f842823. Durable recovery guarantees remain targets."
+          "limits": "Historical run 34326855200 at f842823 covers Linux/macOS/Windows and Node 22/24. Current CI configures Node 22/24/26; verify a complete run on the exact commit for current qualification."
         }
       ],
       "competitors": [

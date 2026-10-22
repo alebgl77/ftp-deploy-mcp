@@ -4,6 +4,12 @@ Français | [English](./README.md)
 
 Ce fichier HTML unique documente l’architecture, les flux, les preuves et la feuille de route de `ftp-deploy-mcp` en français et en anglais. Il fonctionne hors ligne et ne déclenche aucun appel de déploiement.
 
+La vue d'ensemble identifie la release 0.3.2 et son workflow durable optionnel.
+Chaque preuve conserve son propre commit, run ou périmètre d'artefact ; les
+nombres de succès historiques ne requalifient pas la release actuelle. Les liens
+de distribution et garanties actuels figurent dans le [README](../README.fr.md)
+et le [guide de publication](../docs/RELEASE.fr.md).
+
 ## Reconstruire et ouvrir
 
 Depuis la racine du dépôt, avec Node 22, 24 ou 26 :

@@ -2,10 +2,22 @@
 
 **English** | [Français](./RELEASE.fr.md)
 
-This is the maintainer checklist for the GitHub source release v0.3.1 and,
-separately, a future first npm and Official MCP Registry publication. A GitHub
-release does not make the npm identifier, `npx` command or registry entry
-available. The published GitHub v0.3.0 tag and release remain immutable.
+This guide documents **v0.3.2** and the qualification process for later releases.
+Published tags, package versions and artifacts remain immutable. Documentation
+changes on `main` do not update an already published package.
+
+## Published distributions
+
+| Channel | Version reference | What the reference establishes |
+|---|---|---|
+| GitHub | [v0.3.2 release](https://github.com/alebgl77/ftp-deploy-mcp/releases/tag/v0.3.2) | Published source tag and the assets actually listed on that release. |
+| npm | [0.3.2 metadata](https://registry.npmjs.org/ftp-deploy-mcp/0.3.2) | Published package identity, tarball, SHA512 integrity and provenance metadata. |
+| Official MCP Registry | [0.3.2 entry](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.alebgl77%2Fftp-deploy-mcp/versions/0.3.2) | Active server entry pointing to npm `ftp-deploy-mcp@0.3.2`. |
+
+These exact-version records were checked for this documentation update. They
+establish availability, not a new install qualification, locked future npm
+dependency resolution or a passing CI run on a later `main` commit. Historical
+pending-publication statements in older changelog entries describe their date.
 
 Check available source assets on [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest).
 The npm and MCP workflows are manual (`workflow_dispatch`); do not dispatch
@@ -60,18 +72,21 @@ prerequisites do not establish whether a GitHub source release is ready.
 
 ## Version and changelog gate
 
-For the v0.3.1 GitHub release:
+For a review of published v0.3.2, verify the existing values below without
+rewriting its tag, date or artifacts. For a new release, use a new reviewed
+version and its actual publication date throughout these gates:
 
-1. Set `version` in [package.json](../package.json), the root and root-package
-   metadata of `package-lock.json`, and `server.json` to `0.3.1`. The source lockfile
+1. Keep `version` in [package.json](../package.json), the root and root-package
+   metadata of `package-lock.json`, and `server.json` aligned (`0.3.2` for the
+   current release). The source lockfile
    is the sole authoritative lockfile; do not keep a parallel `npm-shrinkwrap.json`.
 2. Set the MCP server's reported version to the same value. Search the source
    and generated metadata for stale release strings; expected historical
    references in the changelog are exempt.
-3. Use the paired heading `## [0.3.1] - 2026-10-17` in
+3. The current paired heading is `## [0.3.2] - 2026-10-17` in
    [CHANGELOG.md](../CHANGELOG.md) and [CHANGELOG.fr.md](../CHANGELOG.fr.md).
-   Confirm the effective release date is a valid calendar date, update it only
-   if the actual release day changes, and preserve the complete 0.3.0 history.
+   For a new release, add its actual valid calendar date and preserve all
+   published history. Do not backdate or rewrite an existing release entry.
 4. Confirm every user-visible minor-release change is documented in both
    [README.md](../README.md) and [README.fr.md](../README.fr.md).
 5. Verify the release includes atomic replacement for newly written sensitive
@@ -81,13 +96,18 @@ For the v0.3.1 GitHub release:
    agree. Verify npm and Official MCP Registry versions separately only after
    their respective publications.
 
-Use a dedicated release commit. Never move or reuse the published v0.2.0 tag.
+Use a dedicated release commit for a new version. Never move or reuse any
+published tag, including v0.3.2.
 
 ## Review the source and installed dependency graphs
 
-The sole source authority is `package-lock.json`, with six exact direct pins and
-112 non-root records: 110 production and two development. Source/Docker/user
-installs use `npm ci --omit=dev --ignore-scripts`; contributors use
+The sole source authority is `package-lock.json`. The current package has five
+exact production dependency pins, validated by `PRODUCTION_PINS` in
+[`scripts/release-gate.mjs`](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/scripts/release-gate.mjs).
+Derive transitive counts and development/optional classifications from the
+reviewed lockfile and the installed graph for the exact release; historical
+counts are not a qualification gate. Source/Docker/user installs use
+`npm ci --omit=dev --ignore-scripts`; contributors use
 `npm ci --ignore-scripts`. No shrinkwrap is retained. npm 12 no longer reads or
 writes shrinkwrap files, including in dependencies; see the
 [official npm lockfile documentation](https://docs.npmjs.com/cli/v12/configuring-npm/package-lock-json/).
@@ -109,12 +129,12 @@ No dependency code is imported by this verifier.
 
 ## Qualify the source installation archive
 
-There are two fixed distributions. `ftp-deploy-mcp-0.3.1-source.tar.gz` contains
+There are two fixed distributions. A `ftp-deploy-mcp-0.3.2-source.tar.gz` candidate contains
 90 regular files under `package/`, including the source lock. It is an
 installation archive, not the complete repository: tests, maintainer scripts and
 the HTML guide remain in the repository. GitHub's automatic source ZIP/tar
 contains the complete repository. The separate npm archive
-`ftp-deploy-mcp-0.3.1.tgz` contains 89 files and no lockfile.
+`ftp-deploy-mcp-0.3.2.tgz` contains 89 files and no lockfile.
 
 Capture all 90 reviewed source files before installation, tests or packing.
 Keep the portable inventory outside the checkout and retain its original SHA256
@@ -171,11 +191,12 @@ renaming an archive cannot change its distribution.
 
 ## Keep npm qualification separate
 
-npm remains unqualified: a real npm 10.9.8 consumer changed ten production
-dependencies. Its failed candidate and reports are retained, never promoted to
-source-release evidence or attached as a qualified asset. A future matching npm
-graph would establish only the tested environment/date, not reproducibility of
-future npm installs. To inspect a separate npm candidate with the original
+An earlier qualification attempt with npm 10.9.8 changed ten production
+dependencies. Retain that failed candidate and its reports as historical
+regression evidence; they do not describe current registry availability.
+Published v0.3.2 is linked above. Every new npm candidate must still pass its
+own installed-graph gate; a match establishes only the tested environment/date,
+not reproducibility of future npm installs. To inspect a separate candidate with the original
 90-file source inventory:
 
 ```bash
@@ -288,32 +309,37 @@ event-pinned checkout supplies the published `server.json`.
 
 ## GitHub release and assets
 
-After independent qualification and review, use the final verified commit,
-require its complete public CI, then create v0.3.1. Retain the exact validated
-`ftp-deploy-mcp-0.3.1-source.tar.gz` bytes. Prepare `SHA256SUMS` for this archive,
+For a new version, use the final independently qualified and reviewed commit,
+require its complete public CI, then create a new release. Do not recreate
+published v0.3.2. Retain the exact validated source archive bytes for the new
+version. Prepare `SHA256SUMS` for this archive,
 the standalone bilingual HTML guide and final evidence/SBOM; upload only these
 verified files. Publish EN/FR notes that accurately describe the source scope,
 then download again and verify hashes. Record commit, tag, actual time, names
 and digests.
 
 Attach no drifting npm `.tgz`. GitHub's automatic ZIP/tar remains the separate
-complete repository. Asset uploads remain pending until verified; npm and MCP
-remain unqualified/pending. A source release does not make npm, `npx` or the
-Official MCP Registry available.
+complete repository. For each new version, asset uploads remain pending until
+verified, and npm/MCP publication requires its own qualification. An existing
+GitHub release alone does not establish either registry's availability.
 
 ## Publish npm
+
+This procedure is for a **new, qualified version**. Do not republish `0.3.2`.
+After reviewing the new version in `package.json`, set `release_tag` to that
+version's exact `v`-prefixed tag and confirm it is not already published.
 
 1. Review the prepared release workflow and confirm its trigger matches the
    intended tag policy.
 2. Create an annotated tag whose name exactly matches the version:
-   `git tag -a v0.3.1 -m "v0.3.1"`. If the GitHub source release already created
+   `git tag -a "$release_tag" -m "$release_tag"`. If the GitHub source release already created
    this tag, verify and reuse its unchanged target; do not recreate it.
 3. After maintainer approval and credential readiness, push the release commit
    and tag. Ensure the workflow is present on the default branch, then dispatch
    it explicitly on the tag:
 
    ```bash
-   gh workflow run release.yml --ref v0.3.1
+   gh workflow run release.yml --ref "$release_tag"
    ```
 4. Require tests, version-consistency checks, installed graph equality, tarball inspection, and provenance
    generation to pass before the publish step.
@@ -338,12 +364,14 @@ Official MCP Registry available.
 7. Verify the public artifact independently:
 
 ```bash
-npm view ftp-deploy-mcp@0.3.1 name version mcpName dist.integrity
-npm view ftp-deploy-mcp@0.3.1 dist.tarball
-npx -y ftp-deploy-mcp@0.3.1 --version
+npm view ftp-deploy-mcp@0.3.2 name version mcpName dist.integrity
+npm view ftp-deploy-mcp@0.3.2 dist.tarball
+npx -y ftp-deploy-mcp@0.3.2 --version
 ```
 
-Compare the registry integrity/version with the validated tarball and tag.
+These verification examples target the existing release; substitute the new
+version when qualifying a later publication. Compare the registry
+integrity/version with the validated tarball and tag.
 Only after these checks pass should the README call `npx` a currently available
 installation method.
 
@@ -352,7 +380,10 @@ changelog entry. Do not move or reuse a published tag.
 
 ## Publish to the MCP registry
 
-This step remains pending. Publish only after separate npm qualification, including the installed graph. The MCP workflow downloads and qualifies the actual published npm archive again; identity alone is insufficient:
+Version 0.3.2 is already listed in the Official MCP Registry. For a new version,
+publish only after separate npm qualification, including the installed graph.
+The MCP workflow downloads and qualifies the actual published npm archive again;
+identity alone is insufficient:
 
 1. Review `server.json` against schema `2025-12-11`; it must agree with the tag,
    source lockfile root/root-package versions, runtime version, npm identifier,
@@ -360,7 +391,7 @@ This step remains pending. Publish only after separate npm qualification, includ
 2. Dispatch the separate workflow on exactly the same tag:
 
    ```bash
-   gh workflow run publish-mcp.yml --ref v0.3.1
+   gh workflow run publish-mcp.yml --ref "$release_tag"
    ```
 
 3. The nonprivileged job also qualifies the actual npm download and installed graph. Its

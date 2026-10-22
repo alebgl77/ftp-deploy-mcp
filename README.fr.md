@@ -33,13 +33,20 @@ réponses d'outils, proposent lecture seule et dry-run, et limitent l'accès aux
 fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
 étendue utilisant des serveurs FTP et SFTP locaux. Aucune télémétrie.
 
-> **Disponibilité :** le paquet est disponible sur npm et référencé dans le
-> registre MCP officiel ; `npx -y ftp-deploy-mcp` lance la version actuellement
-> publiée. Cette copie cible la version 0.3.2. Vérifiez que cette version exacte
-> apparaît dans les deux registres avant de considérer sa publication comme
-> terminée. Les releases de sources GitHub restent un canal de distribution
-> distinct ; leurs versions publiées figurent sur
-> [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest).
+> **Disponibilité :** la version **0.3.2** est publiée sur
+> [npm](https://www.npmjs.com/package/ftp-deploy-mcp/v/0.3.2) et dans le
+> [registre MCP officiel](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.alebgl77%2Fftp-deploy-mcp/versions/0.3.2).
+> Utilisez `npx -y ftp-deploy-mcp@0.3.2` pour cette version. La
+> [release GitHub](https://github.com/alebgl77/ftp-deploy-mcp/releases/tag/v0.3.2)
+> est une distribution source distincte ; `main` peut contenir des changements ultérieurs.
+> La visibilité au registre établit la disponibilité, pas une résolution de dépendances
+> verrouillée ni la qualification d'un autre commit. Voir le [guide de publication](./docs/RELEASE.fr.md).
+
+**Modes de déploiement :** les dix outils de base proposent des transferts contrôlés
+et des dry-runs. Activer `stateDir` ajoute quatre outils durables avec confirmation
+MCP, reprise explicite et retour arrière prudent des changements acquittés.
+Ces garanties concernent le workflow durable optionnel ; le `ftp_deploy`
+historique n'a ni transaction ni retour arrière.
 
 ## Documentation
 
@@ -154,6 +161,8 @@ au serveur MCP.
 - Dix outils MCP ciblés : découverte et test des serveurs, liste, lecture,
   téléversement, déploiement récursif, téléchargement, création de dossier,
   renommage et suppression.
+- Quatre outils durables supplémentaires lorsque `stateDir` est configuré ;
+  confirmation et retour arrière suivent les [limites documentées](#garanties-du-workflow-durable).
 - Plusieurs serveurs nommés dans une configuration locale.
 - Exclusions façon gitignore, dry-run et mode `readOnly` par serveur.
 - Import FileZilla, assistant de configuration et commande `doctor` en lecture
@@ -447,9 +456,8 @@ autres clients acceptent la même commande et les mêmes arguments dans leurs
 réglages MCP.
 
 Le paquet npm publié peut être lancé à la place avec
-`npx -y ftp-deploy-mcp`. Épinglez une version exacte publiée lorsque la
-reproductibilité importe, et vérifiez cette version sur npm avant de la mettre à
-jour.
+`npx -y ftp-deploy-mcp@0.3.2`. Vérifiez la version exacte avant une mise à jour ;
+l'épingler ne fige pas aussi la résolution des dépendances transitives par npm.
 
 ## Import FileZilla et diagnostic
 
@@ -465,10 +473,9 @@ chaque avertissement de transport ou de racine FTP/FTPS avant la connexion.
 
 ## Migration de v0.1 vers v0.2
 
-Le paquet npm et sa fiche dans le registre MCP officiel sont disponibles. Cette
-copie source cible la version 0.3.2 ; vérifiez cette version exacte sur npm, dans
-le registre MCP officiel et dans GitHub Releases avant de considérer la release
-comme terminée.
+Les [liens de disponibilité plus haut](#ftp-deploy-mcp) identifient la version 0.3.2 publiée.
+Les étapes ci-dessous décrivent les changements de sécurité introduits après v0.1 ;
+elles n'exigent ni republication ni déplacement d'un tag existant.
 
 1. Ajoutez un `localRoot` absolu à tout serveur utilisé pour upload, deploy ou
    download.
@@ -522,9 +529,11 @@ lecture seule et hébergée à l'extérieur, est décrite dans
 [evaluations/README.fr.md](./evaluations/README.fr.md).
 
 Depuis un checkout source, `npm run eval:scripted` exécute 43 cas dans les deux
-langues avec un adaptateur mémoire et les vrais handlers MCP. Le
+langues via le vrai client SDK et les handlers, avec un adaptateur distant en mémoire :
+86 résultats de conformité serveur scriptée. Le
 [guide de conformité scriptée](./docs/SCRIPTED-EVALUATIONS.fr.md) décrit rapports
-et limites ; cette commande n’évalue pas un modèle.
+et limites ; cette commande n'évalue pas un modèle et ne remplace pas les tests
+distincts de transports réels.
 
 ## Licence
 
