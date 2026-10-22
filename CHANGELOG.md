@@ -9,6 +9,18 @@ and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.ht
 
 ## [Unreleased]
 
+### Changed
+
+- Align English and French documentation with the published GitHub, npm and
+  Official MCP Registry version 0.3.2, with exact-version links and separate
+  qualification gates for future releases. Historical failed candidates remain
+  historical evidence; published artifacts and tags are unchanged.
+- Make optional durable-workflow confirmation and rollback scope explicit near
+  the README introduction. Label the 43 bilingual scenarios as scripted server
+  conformance with an in-memory adapter, separate from model and transport evaluation.
+- Refresh the bilingual architecture guide's release and workflow overview while
+  retaining the exact revision scope of historical test and artifact evidence.
+
 ## [0.3.2] - 2026-10-17
 
 This patch release hardens npm publication verification for registry processing

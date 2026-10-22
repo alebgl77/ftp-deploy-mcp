@@ -9,6 +9,19 @@ et le projet suit le [versionnement sémantique](https://semver.org/lang/fr/spec
 
 ## [Unreleased]
 
+### Modifié
+
+- Aligner les documents anglais et français sur la version 0.3.2 publiée sur
+  GitHub, npm et le registre MCP officiel, avec liens de version exacte et
+  qualification distincte des prochaines releases. Les anciens candidats refusés
+  restent des preuves historiques ; artefacts publiés et tags restent inchangés.
+- Préciser dès l'introduction du README le périmètre de confirmation et de retour
+  arrière du workflow durable optionnel. Qualifier les 43 scénarios bilingues de
+  conformité serveur scriptée avec adaptateur mémoire, distincte des évaluations
+  de modèles et de transports.
+- Actualiser la version et le workflow du guide d'architecture bilingue en
+  conservant le périmètre exact des preuves historiques de tests et d'artefacts.
+
 ## [0.3.2] - 2026-10-17
 
 Cette version corrective renforce la vérification de publication npm face aux

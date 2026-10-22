@@ -60,4 +60,9 @@ Le helper de cadre dérive son budget du scope de l'événement, sans paramètre
 
 Exécuter `npm run test:workflow` depuis la racine du dépôt source. Les 100 tests de `test/workflow/` sont également exécutés par `npm test`, utilisé par la CI. Les tests utilisent des records canoniques en mémoire et ne créent aucun état sur le système de fichiers. Ils couvrent toutes les catégories de transitions, les tentatives finies, la propriété, l'ordre des phases/nettoyages, les charges séparées, les schémas mal formés, l'exclusion des champs secrets, les maxima de politique/nombre de fichiers, les frontières de largeur numérique, les vraies métadonnées de claim et la saturation exacte/+1 des quotas.
 
-Aucune garantie réseau, intégration SDK, verrouillage de processus, reprise après crash, transport chiffré, CI multiplateforme ou nettoyage distant n'est revendiquée ici. Ces étapes ultérieures et leur revue indépendante restent obligatoires avant l'activation du workflow dans le runtime. Les hashes ne détectent pas l'ABA, et l'égalité de contenu n'établit pas la propriété.
+Ces tests de modules purs n'établissent aucune garantie réseau, intégration SDK,
+verrouillage de processus, reprise après crash, transport chiffré, CI
+multiplateforme ou nettoyage distant. L'intégration runtime est exercée séparément
+par `npm run test:durable` et la suite de transports ; chaque release exige
+toujours sa propre qualification complète. Les hashes ne détectent pas l'ABA,
+et l'égalité de contenu n'établit pas la propriété.

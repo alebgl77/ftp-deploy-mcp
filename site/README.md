@@ -4,6 +4,11 @@
 
 This single HTML guide documents the architecture, flows, evidence and roadmap of `ftp-deploy-mcp` in French and English. It works offline and makes no deployment calls.
 
+The overview identifies release 0.3.2 and its optional durable workflow. Evidence
+cards retain their own commit, run or artifact scope; historical pass counts are
+not a fresh qualification of the current release. Current distribution links and
+guarantees are maintained in the [README](../README.md) and [release guide](../docs/RELEASE.md).
+
 ## Build and open
 
 From the repository root, using Node 22, 24 or 26:

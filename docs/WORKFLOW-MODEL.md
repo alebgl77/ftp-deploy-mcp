@@ -59,4 +59,9 @@ The frame helper derives its budget from event scope, with no separate budget pa
 
 Run `npm run test:workflow` from the source checkout root. The 100 tests in `test/workflow/` are also run by `npm test`, which CI uses. Tests use in-memory canonical storage records and never create filesystem state. They cover all transition categories, finite attempts, ownership, phase/cleanup ordering, separate charges, malformed schemas, secret projection exclusion, maximum policy/file counts, digit-width boundaries, real claim metadata and exact/+1 quota saturation.
 
-No network, SDK integration, process locking, crash restart, encrypted transport, cross-platform CI or remote cleanup guarantee is claimed here. Those later implementation gates and their independent review remain mandatory before activating the workflow in the runtime. Hashes do not detect ABA, and content equality is not ownership.
+These pure-module tests do not establish network, SDK integration, process
+locking, crash restart, encrypted transport, cross-platform CI or remote cleanup
+guarantees. The runtime integration is exercised separately by
+`npm run test:durable` and the transport suite; each release still requires its
+own complete qualification. Hashes do not detect ABA, and content equality is
+not ownership.

@@ -33,13 +33,19 @@ support read-only servers and dry runs, and limit local file access with
 `localRoot`. The repository is covered by an extensive end-to-end suite that
 runs against local FTP and SFTP servers. There is no telemetry.
 
-> **Availability:** the package is available from npm and listed in the
-> Official MCP Registry; `npx -y ftp-deploy-mcp` runs the currently published
-> version. This checkout targets version 0.3.2. Confirm that this exact version
-> appears on both registries before treating its publication as complete.
-> GitHub source releases remain a separate distribution channel; find their
-> published versions on
-> [GitHub Releases](https://github.com/alebgl77/ftp-deploy-mcp/releases/latest).
+> **Availability:** version **0.3.2** is published on
+> [npm](https://www.npmjs.com/package/ftp-deploy-mcp/v/0.3.2) and the
+> [Official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.alebgl77%2Fftp-deploy-mcp/versions/0.3.2).
+> Use `npx -y ftp-deploy-mcp@0.3.2` for that version. The
+> [GitHub release](https://github.com/alebgl77/ftp-deploy-mcp/releases/tag/v0.3.2)
+> is a separate source distribution; `main` can include later changes.
+> Registry visibility establishes availability, not locked dependency resolution
+> or qualification of a different commit. See the [release guide](./docs/RELEASE.md).
+
+**Deployment modes:** the ten base tools provide controlled transfers and dry runs.
+Enabling `stateDir` adds four durable tools with MCP confirmation, explicit resume
+and conservative rollback of acknowledged changes. These guarantees belong to
+the optional durable workflow; legacy `ftp_deploy` has no transaction or rollback.
 
 ## Documentation
 
@@ -151,6 +157,8 @@ and `ftp_download`. This limits which local files the MCP server can access.
 - Ten focused MCP tools for server discovery, testing, listing, reading,
   uploading, recursive deploys, downloading, creating directories, renaming,
   and deleting.
+- Four additional durable-workflow tools when `stateDir` is configured;
+  confirmation and rollback follow the [documented bounds](#durable-workflow-guarantees).
 - Multiple named servers in one local configuration.
 - Gitignore-like deploy exclusions, dry-run, and per-server `readOnly` mode.
 - FileZilla import, an interactive setup wizard, and a read-only `doctor`
@@ -435,8 +443,8 @@ Common locations include `.mcp.json` for Claude Code,
 clients accept the same command/arguments structure through their MCP settings.
 
 The published npm package can instead be launched with
-`npx -y ftp-deploy-mcp`. Pin an exact published version when reproducibility
-matters, and verify that version on npm before updating.
+`npx -y ftp-deploy-mcp@0.3.2`. Verify the exact version before updating;
+pinning it does not also freeze npm's transitive dependency resolution.
 
 ## FileZilla import and diagnostics
 
@@ -453,9 +461,9 @@ printing passwords.
 
 ## Migrating from v0.1 to v0.2
 
-The npm package and Official MCP Registry listing are available. This source
-checkout targets version 0.3.2; confirm that exact version on npm, the Official
-MCP Registry, and GitHub Releases before treating the release as complete.
+The [availability links above](#ftp-deploy-mcp) identify published version 0.3.2.
+The migration steps below describe the security changes introduced after v0.1;
+they do not require republishing or moving an existing release tag.
 
 1. Add an absolute `localRoot` to every server used by upload, deploy, or
    download.
@@ -508,9 +516,10 @@ network. Contributions are welcome; see
 agent evaluation is documented in [evaluations/README.md](./evaluations/README.md).
 
 From a source checkout, `npm run eval:scripted` runs 43 cases in both languages
-with a memory adapter and real MCP handlers. See the
+through the real SDK client and handlers, with an in-memory remote adapter:
+86 scripted server-conformance results. See the
 [scripted conformance guide](./docs/SCRIPTED-EVALUATIONS.md) for reports and limits;
-this command does not evaluate a model.
+this command does not evaluate a model or replace the separate real-transport tests.
 
 ## License
 
