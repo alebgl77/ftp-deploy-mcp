@@ -44,6 +44,14 @@ symbolique.
 | `dry_run` | Aperçu de la sélection de déploiement sans transfert de fichiers. | Modifications effectuées par un autre processus après l'aperçu. |
 | Masquage des identifiants | Renvoi intentionnel des mots de passe, phrases secrètes ou clés privées configurés dans les sorties d'outils. | Secrets contenus dans un fichier distant lu, dépendance compromise, inspection mémoire ou journaux non sûrs de l'opérateur. |
 
+## Guide d’architecture autonome
+
+Le guide intègre ses données dans du JSON échappé et affiche les textes sans
+interpréter de HTML. Les URL des illustrations et des téléchargements acceptent
+uniquement le préfixe `data:image/png;base64,` suivi de base64, y compris dans la
+fenêtre d’agrandissement : les données ne peuvent choisir une URL HTML, SVG,
+JavaScript ou distante.
+
 ## Périmètre du système de fichiers local
 
 Tout serveur utilisé avec `ftp_upload`, `ftp_deploy` ou `ftp_download` doit

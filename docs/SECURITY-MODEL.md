@@ -40,6 +40,13 @@ to prove a client-side sub-root is free of symlink escapes.
 | `dry_run` | Previewing deploy selection without transferring files. | Changes made by another process after the preview. |
 | Credential redaction | Intentional return of configured passwords, passphrases, or private keys in tool output. | Secrets stored inside a remotely read file, dependency compromise, memory inspection, or unsafe operator logs. |
 
+## Standalone architecture guide
+
+The guide embeds its project data as escaped JSON and renders prose as text.
+Illustration and download URLs accept only `data:image/png;base64,` values
+with a base64-only payload, including in the image modal; project data cannot
+select an HTML, SVG, JavaScript or remote URL.
+
 ## Local filesystem boundary
 
 Every server used with `ftp_upload`, `ftp_deploy`, or `ftp_download` must define

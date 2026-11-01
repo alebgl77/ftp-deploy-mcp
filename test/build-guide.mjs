@@ -5,8 +5,24 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+
+test("illustration URLs only admit canonical base64 PNGs in the gallery and modal", () => {
+  const template = readFileSync(path.join(root, "site/guide.template.html"), "utf8");
+  const declaration = template.split("\n").find((line) => line.trimStart().startsWith("const pngSource = "));
+  assert.ok(declaration, "The shared image URL boundary must exist");
+  const pngSource = runInNewContext(`${declaration}\npngSource;`);
+  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
+  assert.equal(pngSource(png), png);
+  for (const value of [undefined, null, "", "javascript:alert(1)", "https://example.com/image.png", "data:image/svg+xml,<svg onload=alert(1)>", "data:text/html;base64,PHNjcmlwdD4=", `${png}\"><img src=x onerror=alert(1)>`, `${png}%0a`, "data:image/png;base64,"]) {
+    assert.equal(pngSource(value), null, `Reject unsafe illustration URL: ${String(value)}`);
+  }
+  assert.equal(pngSource(`${png}\n`), null, "Line breaks must not survive the image URL boundary");
+  assert.doesNotMatch(template, /\.(?:src|href)\s*=\s*illustration\.dataUrl/, "Every image and download sink must use the validated URL");
+});
+
 function fixture(t) {
   const directory = mkdtempSync(path.join(os.tmpdir(), "ftp-guide-unit-"));
   t.after(() => {

@@ -507,7 +507,9 @@ test("publication context binds the real clean tag commit and tracked source inv
     assert.equal(record.scope, "publication");
     assert.deepEqual(checkArtifact(record, { ...strict, expectedIntegrity: record.integrity, expectedTarball: record.tarball }), record);
     const mockFetch = path.join(temp, "mock-registry.mjs");
-    writeFileSync(mockFetch, `globalThis.fetch = async () => new Response(${JSON.stringify(JSON.stringify({ ...release, dist: { integrity: integrity(archive) } }))}, { status: 200 });`);
+    const mockResponse = path.join(temp, "mock-registry.json");
+    writeFileSync(mockResponse, JSON.stringify({ ...release, dist: { integrity: integrity(archive) } }));
+    writeFileSync(mockFetch, 'import { readFileSync } from "node:fs";\nconst response = readFileSync(new URL("./mock-registry.json", import.meta.url), "utf8");\nglobalThis.fetch = async () => new Response(response, { status: 200 });\n');
     const bare = spawnSync(process.execPath, ["--import", pathToFileURL(mockFetch).href, path.join(repo, "scripts/release-artifact.mjs"), "verify-npm",
       "--source-root", sourceRoot, "--expected-integrity", integrity(Buffer.from("wrong original integrity"))], {
       windowsHide: true, encoding: "utf8", timeout: 15000, env: { ...process.env, GITHUB_OUTPUT: outputFile },

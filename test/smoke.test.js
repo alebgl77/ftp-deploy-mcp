@@ -36,6 +36,7 @@ const projectRoot = path.resolve(__dirname, "..");
 
 const TEST_USER = "mcp";
 const TEST_PASS = "s3cr3t-P@ss-DO-NOT-LEAK";
+const diagnostics = createRedactor({ password: TEST_PASS });
 
 // ---- assert helpers -------------------------------------------------------
 let passCount = 0;
@@ -44,15 +45,15 @@ const failDetails = [];
 function ok(cond, msg, detail) {
   if (cond) {
     passCount++;
-    console.log(`PASS: ${msg}`);
+    console.log(`PASS: ${diagnostics.strictText(msg)}`);
   } else {
     failCount++;
-    console.log(`FAIL: ${msg}`);
-    if (detail !== undefined) failDetails.push(`${msg}\n   ${detail}`);
+    console.log(`FAIL: ${diagnostics.strictText(msg)}`);
+    if (detail !== undefined) failDetails.push(`${diagnostics.strictText(msg)}\n   ${diagnostics.strictText(detail)}`);
   }
 }
 function contains(text, sub, msg) {
-  ok(typeof text === "string" && text.includes(sub), msg, `got: ${JSON.stringify(String(text).slice(0, 400))}`);
+  ok(typeof text === "string" && text.includes(sub), msg, `got: ${JSON.stringify(diagnostics.strictText(String(text).slice(0, 400)))}`);
 }
 function notContains(text, sub, msg) {
   ok(typeof text === "string" && !text.includes(sub), msg, `unexpectedly contained ${JSON.stringify(sub)}`);
@@ -935,6 +936,7 @@ async function main() {
   // ===== PART A: FileZilla import =====
   const fixture = fs.readFileSync(path.join(__dirname, "fixtures", "sitemanager.xml"), "utf8");
   const parsed = parseSiteManager(fixture);
+  diagnostics.add(parsed);
   const keys = Object.keys(parsed.servers);
   ok(keys.length === 3, "filezilla: parsed 3 servers", JSON.stringify(keys));
   const ftpSite = parsed.servers[keys[0]];
@@ -942,13 +944,12 @@ async function main() {
   const implicitSite = parsed.servers[keys[2]];
   ok(ftpSite.host === "ftp.example.com", "filezilla: ftp host parsed", ftpSite.host);
   ok(ftpSite.protocol === "ftp", "filezilla: ftp protocol mapped", ftpSite.protocol);
-  ok(ftpSite.password === "hunter2FTP", "filezilla: base64 password decoded", ftpSite.password);
+  ok(ftpSite.password === "hunter2FTP", "filezilla: base64 password decoded");
   ok(ftpSite.root === "/site/sub", "filezilla: RemoteDir decoded", ftpSite.root);
   ok(sftpSite.protocol === "sftp", "filezilla: sftp protocol mapped", sftpSite.protocol);
   ok(
     typeof sftpSite.password === "string" && sftpSite.password.startsWith("${ENV:"),
-    "filezilla: missing password becomes env placeholder",
-    sftpSite.password
+    "filezilla: missing password becomes env placeholder"
   );
   ok(implicitSite.host === "implicit.example.com", "filezilla: implicit ftps host parsed", implicitSite.host);
   ok(implicitSite.protocol === "ftps", "filezilla: implicit ftps protocol mapped", implicitSite.protocol);
@@ -956,8 +957,7 @@ async function main() {
   ok(implicitSite.port === 990, "filezilla: implicit ftps port parsed", implicitSite.port);
   ok(
     implicitSite.password === "implicit-Pass-1",
-    "filezilla: implicit ftps base64 password decoded",
-    implicitSite.password
+    "filezilla: implicit ftps base64 password decoded"
   );
   ok(decodeRemoteDir("1 0 4 site 3 sub") === "/site/sub", "filezilla: decodeRemoteDir pairs");
   ok(decodeRemoteDir("") === "", "filezilla: empty RemoteDir omitted");
@@ -1016,7 +1016,7 @@ async function main() {
   const bad = loadConfig(cfgPath("bad.json", "{ not valid json "));
   ok(bad.found && bad.config === null && /JSON/i.test(bad.error || ""), "config: parse error captured, no throw", bad.error);
   const noAuth = loadConfig(cfgPath("noauth.json", { servers: { x: { protocol: "ftp", host: "h", user: "u" } } }));
-  ok(noAuth.error && noAuth.error.includes("authentication"), "config: missing auth rejected with server name", noAuth.error);
+  ok(noAuth.error && noAuth.error.includes("authentication"), "config: missing auth rejected with server name");
   const badProto = loadConfig(cfgPath("badproto.json", { servers: { x: { protocol: "gopher", host: "h", user: "u", password: "p" } } }));
   ok(badProto.error && badProto.error.includes("protocol"), "config: unknown protocol rejected", badProto.error);
   process.env.__FTPMCP_TEST_PW = "envpw-value";
@@ -1302,7 +1302,7 @@ try {
   client = await main();
 } catch (err) {
   failCount++;
-  console.log(`FAIL: uncaught error — ${err && err.stack ? err.stack : err}`);
+  console.log(`FAIL: uncaught error — ${diagnostics.strictText(err && err.stack ? err.stack : err)}`);
 } finally {
   clearTimeout(watchdog);
   try {
@@ -1338,7 +1338,7 @@ try {
     if (client && client.stderr && client.stderr.length) {
       console.log("");
       console.log("--- MCP server stderr ---");
-      process.stdout.write(client.stderr.join(""));
+      process.stdout.write(diagnostics.strictText(client.stderr.join("")));
     }
   }
   process.exit(failCount > 0 ? 1 : 0);

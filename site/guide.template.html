@@ -108,6 +108,7 @@
   const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
   const set = (id, text) => { $(id).textContent = text; };
   const https = (url) => { const parsed = new URL(url); if (parsed.protocol !== "https:") throw new Error("Source links must use HTTPS"); return parsed.href; };
+  const pngSource = (value) => { const match = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(value); return match ? `data:image/png;base64,${match[1]}` : null; };
   const externalLink = (text, url) => { const link = el("a", text); link.href = https(url); link.target = "_blank"; link.rel = "noopener noreferrer"; return link; };
   const sourceUrl = (path) => `${data.repository}/blob/${data.head}/${path.split("/").map(encodeURIComponent).join("/")}`;
   const pill = (text, kind) => el("span", text, `pill ${kind}`);
@@ -224,14 +225,14 @@
   };
 
   const modal = $("image-modal"); let imageZoom = false, selectedImage = 0;
-  const updateModal = () => { const illustration = data.illustrations[selectedImage]; if (!illustration) return; set("modal-title", illustration.title); $("modal-image").src = illustration.dataUrl; $("modal-image").alt = illustration.alt; $("modal-image").style.width = imageZoom ? "180%" : "100%"; $("image-zoom").setAttribute("aria-pressed", String(imageZoom)); set("image-zoom", t(imageZoom ? "reset" : "imageZoom")); };
+  const updateModal = () => { const illustration = data.illustrations[selectedImage], source = pngSource(illustration?.dataUrl); if (!source) return; set("modal-title", illustration.title); $("modal-image").src = source; $("modal-image").alt = illustration.alt; $("modal-image").style.width = imageZoom ? "180%" : "100%"; $("image-zoom").setAttribute("aria-pressed", String(imageZoom)); set("image-zoom", t(imageZoom ? "reset" : "imageZoom")); };
   const renderIllustrations = () => {
     const provenanceOpen = Boolean($("illustrations").querySelector("details[open]")); $("illustrations").replaceChildren(); $("vision").hidden = true;
     for (const [index, illustration] of (data.illustrations ?? []).entries()) {
-      if (!illustration.dataUrl?.startsWith("data:image/png;base64,")) continue;
-      $("vision").hidden = false; const frame = el("figure", undefined, "image-frame"), launch = el("button", undefined, "image-launch"); launch.type = "button"; launch.setAttribute("aria-label", t("enlargeImage", { title: illustration.title })); const img = el("img"); img.src = illustration.dataUrl; img.alt = illustration.alt; img.loading = "lazy"; launch.append(img);
+      const source = pngSource(illustration.dataUrl); if (!source) continue;
+      $("vision").hidden = false; const frame = el("figure", undefined, "image-frame"), launch = el("button", undefined, "image-launch"); launch.type = "button"; launch.setAttribute("aria-label", t("enlargeImage", { title: illustration.title })); const img = el("img"); img.src = source; img.alt = illustration.alt; img.loading = "lazy"; launch.append(img);
       launch.addEventListener("click", () => { stopFlow(); imageZoom = false; selectedImage = index; updateModal(); modal.showModal(); });
-      const caption = el("div", undefined, "image-caption"), figcaption = el("figcaption"); figcaption.append(el("strong", illustration.title), document.createTextNode(illustration.caption)); const save = el("a", t("downloadPng"), "button"); save.href = illustration.dataUrl; save.download = t("imageFilename"); caption.append(figcaption, save); frame.append(launch, caption); $("illustrations").append(frame);
+      const caption = el("div", undefined, "image-caption"), figcaption = el("figcaption"); figcaption.append(el("strong", illustration.title), document.createTextNode(illustration.caption)); const save = el("a", t("downloadPng"), "button"); save.href = source; save.download = t("imageFilename"); caption.append(figcaption, save); frame.append(launch, caption); $("illustrations").append(frame);
       const provenance = el("details", undefined, "provenance"); provenance.open = provenanceOpen; const prompt = el("p", `${t("prompt")}\n\n${illustration.prompt}`); prompt.lang = "en"; provenance.append(el("summary", t("imageProvenance")), el("p", illustration.provenance), prompt); $("illustrations").append(provenance);
     }
     $("vision-nav").hidden = $("vision").hidden; if (modal.open) updateModal();
