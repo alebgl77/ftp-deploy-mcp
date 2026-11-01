@@ -9,13 +9,22 @@ import { runInNewContext } from "node:vm";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 
-test("illustration URLs only admit canonical base64 PNGs in the gallery and modal", () => {
+test("illustration URLs preserve PNG bytes and reject active content in the gallery and modal", async () => {
   const template = readFileSync(path.join(root, "site/guide.template.html"), "utf8");
   const declaration = template.split("\n").find((line) => line.trimStart().startsWith("const pngSource = "));
   assert.ok(declaration, "The shared image URL boundary must exist");
   const pngSource = runInNewContext(`${declaration}\npngSource;`);
-  const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB";
-  assert.equal(pngSource(png), png);
+  const base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+yWZkAAAAASUVORK5CYII=";
+  assert.ok(["+", "/", "="].every((character) => base64.includes(character)), "The PNG must exercise reserved base64 characters");
+  const png = `data:image/png;base64,${base64}`;
+  const encoded = pngSource(png);
+  assert.equal(encoded, `data:image/png;base64,${encodeURIComponent(base64)}`);
+  const response = await fetch(encoded);
+  assert.equal(response.headers.get("content-type"), "image/png");
+  const bytes = Buffer.from(await response.arrayBuffer());
+  assert.deepEqual(bytes, Buffer.from(base64, "base64"), "Encoding must preserve the downloaded image bytes");
+  assert.equal(bytes.length, 68);
+  assert.equal(bytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a");
   for (const value of [undefined, null, "", "javascript:alert(1)", "https://example.com/image.png", "data:image/svg+xml,<svg onload=alert(1)>", "data:text/html;base64,PHNjcmlwdD4=", `${png}\"><img src=x onerror=alert(1)>`, `${png}%0a`, "data:image/png;base64,"]) {
     assert.equal(pngSource(value), null, `Reject unsafe illustration URL: ${String(value)}`);
   }

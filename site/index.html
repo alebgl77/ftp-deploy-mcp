@@ -108,7 +108,7 @@
   const el = (tag, text, className) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; };
   const set = (id, text) => { $(id).textContent = text; };
   const https = (url) => { const parsed = new URL(url); if (parsed.protocol !== "https:") throw new Error("Source links must use HTTPS"); return parsed.href; };
-  const pngSource = (value) => { const match = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(value); return match ? `data:image/png;base64,${match[1]}` : null; };
+  const pngSource = (value) => { const match = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/.exec(value); return match ? `data:image/png;base64,${encodeURIComponent(match[1])}` : null; };
   const externalLink = (text, url) => { const link = el("a", text); link.href = https(url); link.target = "_blank"; link.rel = "noopener noreferrer"; return link; };
   const sourceUrl = (path) => `${data.repository}/blob/${data.head}/${path.split("/").map(encodeURIComponent).join("/")}`;
   const pill = (text, kind) => el("span", text, `pill ${kind}`);
