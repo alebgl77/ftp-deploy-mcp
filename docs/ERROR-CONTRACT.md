@@ -29,9 +29,10 @@ the localized human text.
 ```
 
 `request_id` is a fresh server-generated UUID for one call. It is unrelated to
-the JSON-RPC correlation ID and is not a durable operation identifier. No
-`operation_id`. Durable errors additionally carry nullable `plan_id` and
-`operation_id`, a phase, and durable partial counters. Those identifiers refer
+the JSON-RPC correlation ID and is not a durable operation identifier. Legacy
+errors contain no `operation_id`. Durable errors always include `plan_id` and
+`operation_id`, each an identifier or null, plus a phase and durable partial
+counters. Those identifiers refer
 only to the sealed journal workflow and are never JSON-RPC correlation IDs.
 
 ## Stable decisions and effect observations
@@ -60,8 +61,9 @@ before preparation, with `effects:none` and `next_action:retry`. Both keep
 
 The accepted legacy `next_action` values are `fix_input`, `fix_config`,
 `select_server`, `inspect_target`, `retry`, `contact_operator`, and `none`.
-Durable errors can additionally direct `status`, `resume_apply`,
-`resume_rollback`, `offline_recovery`, or `upgrade_client`.
+The durable `next_action` values are `fix_input`, `fix_config`, `inspect_target`,
+`retry`, `status`, `resume_apply`, `resume_rollback`, `offline_recovery`,
+`upgrade_client`, and `none`.
 Legacy-tool errors conservatively return `retryable:false`. Durable errors set
 `retryable:true` only for `DURABLE_STATE_BUSY`, `DURABLE_STATE_IO`,
 `STATUS_CHANGED`, and mapped `TIMEOUT` or `TRANSPORT_ERROR` failures; all other

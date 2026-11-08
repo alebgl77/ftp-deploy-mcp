@@ -37,7 +37,8 @@ Imports depuis `src/state/index.mjs` :
 
 ```js
 validateStateLimits(input = {})
-openStateStore({ stateDir, localRoots, limits, signal, fault, create = true })
+openStateStore({ stateDir, localRoots, limits, signal, fault,
+                 create = true, readOnly = false })
 StateError // .code et .stage ; aucun détail/cause natif ni stack persistée
 ```
 
@@ -48,7 +49,14 @@ Identité et confinement sont revérifiés aux ouvertures. Sans répertoire
 fourni : STATE_DISABLED, sans création. Avec `create:false`, un répertoire
 absent ou vide non initialisé provoque STATE_INVALID/domain_uninitialized,
 sans mkdir, verrou ou écriture. Un domaine non vide sans marqueur est corrompu.
-L'ouverture d'un domaine valide existant prend toujours le verrou d'admission.
+L'ouverture d'un domaine valide existant prend le verrou d'admission en mode
+écriture.
+
+`readOnly:true` exige `create:false`. L'ouverture valide alors le domaine
+existant sans créer de verrou ni d'enregistrement. Les méthodes mutatrices,
+le verrouillage de cible et l'ouverture d'un journal en écriture sont refusés
+avec `STATE_INVALID/read_only`. Ce mode permet la lecture de statut sans
+écriture utilisée par `ftp_deploy_status`.
 
 Méthodes du store :
 
@@ -61,9 +69,19 @@ store.claim({ planId, keyHash, targetHash, reservation, initialEvent,
               validateEvent, reduce }) // -> enveloppe du claim vérifiée
 store.lookupClaim({ planId }) // ou exactement { operationId } ; enveloppe ou null
 store.openJournal(operationId, { validateEvent, reduce }) // -> writer
+store.readStatusSnapshot(selector, callbacksForPlan) // -> instantané détaché
 store.inventory() // compteurs bornés, actualBytes et reservedBytes
 store.close() // attend le travail possédé et ferme les lecteurs de backups
 ```
+
+`readStatusSnapshot` accepte exactement `{planId}` ou `{operationId}`. Si un
+claim existe, `callbacksForPlan(planBytes)` renvoie synchroniquement les
+callbacks `{validateEvent, reduce}` du journal à partir d'un Buffer de plan
+indépendant. Le résultat est `{planId, planBytes, claim, journalMetadata}` ;
+les deux derniers champs valent null pour un plan sans claim. Deux inventaires
+sans verrou d'admission et la tête exacte du journal rejoué sont comparés. Un
+changement d'instantané provoque `STATE_BUSY` plutôt qu'un mélange de preuves.
+Cette méthode ne crée aucun verrou et n'écrit aucun état.
 
 Les identifiants sont des UUID v4 canoniques minuscules : UUID simple pour le
 domaine, `pln_<uuid>` et `op_<uuid>`. Les empreintes SHA256 sont minuscules.

@@ -4,7 +4,7 @@
 
 ## Supported versions
 
-The project has not yet completed its first npm or MCP registry publication.
+Published distribution references are maintained in the [release guide](./docs/RELEASE.md).
 Security fixes target the current source branch and the latest tagged 0.x
 release. Older 0.x tags may be asked to upgrade rather than receive a backport.
 
@@ -64,18 +64,20 @@ malicious server. These limits are documented in the
 
 ## Dependency and release integrity
 
-The six direct production dependencies use exact versions.
+The five direct production dependencies use exact versions.
 `package-lock.json` is the sole source graph authority, shipped in the 90-file
 source installation archive. Use `npm ci --omit=dev --ignore-scripts` after
 extraction and retain this file. Changes require review of the complete graph,
 its URLs and integrity values, then the checks in the
 [release guide](./docs/RELEASE.md).
 
-The 89-file npm package contains no lockfile and remains unqualified. A real
-installation changed ten production dependencies. Workflows reject installed
-graph drift before npm or MCP publication; a source proof cannot authorize npm.
-A future matching npm graph is evidence only for the tested environment and date,
-with no guarantee about future installations.
+The 89-file npm package contains no lockfile. An earlier qualification attempt
+with npm 10.9.8 changed ten production dependencies; that failed candidate is
+historical evidence, not a statement about current registry availability.
+Every new candidate must pass the installed-graph gate before npm or MCP
+publication; a source proof cannot authorize npm. A matching npm graph is
+evidence only for the tested environment and date, with no guarantee about
+future installations.
 
 A passing dependency audit is evidence for that graph on that date, not a
 guarantee against future advisories or a certification of production use.

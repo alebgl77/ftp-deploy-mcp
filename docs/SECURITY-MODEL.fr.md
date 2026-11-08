@@ -3,8 +3,8 @@
 [English](./SECURITY-MODEL.md) | **Français**
 
 Ce document décrit ce que protège ftp-deploy-mcp, ses hypothèses et les cas où
-les opérateurs doivent fournir des contrôles plus forts. Il s'applique aux
-sources v0.2 non publiées ; vérifiez les notes de version de l'artefact exact
+les opérateurs doivent fournir des contrôles plus forts. Il décrit la révision
+source contenant ce fichier ; vérifiez les notes de version de l'artefact exact
 que vous exécutez.
 
 ## Éléments sensibles et frontières de confiance
@@ -39,7 +39,7 @@ symbolique.
 | SFTP `hostKeySha256` | Connexion à un serveur SFTP présentant une clé d'hôte inattendue. | Serveur compromis possédant la clé attendue, ou empreinte obtenue via le canal attaqué. |
 | Contrôles SFTP realpath/lstat | Composants symboliques distants connus et chemins résolus hors de `root`. | Ensemble des courses entre contrôle et usage sur un serveur malveillant ou modifié simultanément. |
 | Politique FTP/FTPS `root: "/"` | Présentation d'un sous-dossier côté client comme un confinement de sécurité démontré. | Sortie d'un compte que le serveur FTP lui-même n'a pas isolé. |
-| `readOnly` | Écritures demandées via ce serveur MCP. | Autres clients utilisant les mêmes identifiants, ou identifiants serveur conservant le droit d'écriture. |
+| `readOnly` | Mutations distantes demandées via ce serveur MCP. | Écritures locales des téléchargements, autres clients utilisant les mêmes identifiants, ou identifiants serveur conservant le droit d'écriture. |
 | Condition `allowInsecure` | Usage accidentel de FTP en clair ou de FTPS sans vérification du certificat. | Interception après acceptation du risque par l'opérateur. |
 | `dry_run` | Aperçu de la sélection de déploiement sans transfert de fichiers. | Modifications effectuées par un autre processus après l'aperçu. |
 | Masquage des identifiants | Renvoi intentionnel des mots de passe, phrases secrètes ou clés privées configurés dans les sorties d'outils. | Secrets contenus dans un fichier distant lu, dépendance compromise, inspection mémoire ou journaux non sûrs de l'opérateur. |
@@ -213,11 +213,12 @@ automatiquement une mutation incertaine. L'annulation ne défait pas les
 transferts atomiques.
 
 L'assistant conserve des sauvegardes horodatées lorsqu'il modifie une
-configuration client MCP existante. Le remplacement atomique des nouvelles
-configurations sensibles est une condition de publication de la v0.2 ; n'en
-déduisez pas que chaque chemin d'écriture historique ou non publié est
-atomique. Conservez des sauvegardes indépendantes et validez l'artefact
-empaqueté avant publication.
+configuration client MCP existante. Les écritures actuelles de l'assistant et
+des configurations clientes créent un temporaire voisin exclusif, le
+synchronisent, le ferment puis le renomment via `atomicWriteFileSync`. Cela
+décrit les chemins actuels, sans qualifier chaque artefact historique ni
+garantir la résistance universelle aux coupures électriques. Conservez des
+sauvegardes indépendantes et validez l'artefact empaqueté avant publication.
 
 ## Erreurs structurées et annulation
 
@@ -225,8 +226,10 @@ Les erreurs d’outils connus utilisent une enveloppe stricte avec un code stabl
 un nouvel UUID, des effets observés prudemment et aucune reprise automatique.
 Pour les erreurs durables, `retryable:true` ne désigne qu’une condition que le
 client peut retenter après avoir suivi `next_action` ; il n’autorise jamais à
-rejouer une mutation incertaine. Les neuf outils structurés publient des possibilités strictes de
-succès ou d’erreur. Le résultat complet est limité à 25 000 octets JSON UTF-8
+rejouer une mutation incertaine. Neuf outils de base et les quatre outils
+durables optionnels publient des possibilités strictes de succès ou d'erreur ;
+`ftp_read` conserve un succès texte seul. Le résultat complet est limité à
+25 000 octets JSON UTF-8
 après masquage ; les avertissements et la pagination reposent sur des métadonnées
 internes fiables. Le [contrat d’erreur](./ERROR-CONTRACT.fr.md) décrit les champs
 et codes exacts.

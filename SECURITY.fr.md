@@ -4,8 +4,8 @@
 
 ## Versions prises en charge
 
-Le projet n'a pas encore achevé sa première publication sur npm ou le registre
-MCP. Les correctifs de sécurité visent la branche source actuelle et la dernière
+Les références des distributions publiées figurent dans le [guide de publication](./docs/RELEASE.fr.md).
+Les correctifs de sécurité visent la branche source actuelle et la dernière
 version 0.x étiquetée. Pour les anciens tags 0.x, une mise à niveau peut être
 demandée plutôt qu'un rétroportage.
 
@@ -67,18 +67,20 @@ courses sur un serveur malveillant. Ces limites sont décrites dans le
 
 ## Intégrité des dépendances et de la publication
 
-Les six dépendances directes de production utilisent des versions exactes.
+Les cinq dépendances directes de production utilisent des versions exactes.
 `package-lock.json` est l'unique référence du graphe source, livrée dans
 l'archive d'installation source de 90 fichiers. Utilisez
 `npm ci --omit=dev --ignore-scripts` après extraction et conservez ce fichier.
 Toute modification exige une revue du graphe complet, de ses URL et intégrités,
 puis les contrôles du [guide de publication](./docs/RELEASE.fr.md).
 
-Le paquet npm de 89 fichiers ne contient aucun verrouillage et reste non qualifié.
-Une installation réelle a changé dix dépendances de production. Les workflows
-refusent toute dérive du graphe installé avant publication npm ou MCP ; une preuve
-de type source ne peut pas autoriser npm. Un éventuel graphe npm conforme ne vaut
-que pour l'environnement et la date testés, sans garantir les installations futures.
+Le paquet npm de 89 fichiers ne contient aucun verrouillage. Une ancienne tentative
+de qualification avec npm 10.9.8 a changé dix dépendances de production ; ce candidat
+refusé constitue une preuve historique, pas une affirmation sur la disponibilité
+actuelle au registre. Chaque nouveau candidat doit passer le contrôle du graphe
+installé avant publication npm ou MCP ; une preuve source ne peut pas autoriser npm.
+Un graphe npm conforme ne vaut que pour l'environnement et la date testés, sans
+garantir les installations futures.
 
 Un audit de dépendances réussi vaut pour ce graphe à cette date ; il ne garantit
 pas l'absence d'avis futurs et ne certifie pas un usage en production. Signalez

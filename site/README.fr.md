@@ -5,6 +5,8 @@ Français | [English](./README.md)
 Ce fichier HTML unique documente l’architecture, les flux, les preuves et la feuille de route de `ftp-deploy-mcp` en français et en anglais. Il fonctionne hors ligne et ne déclenche aucun appel de déploiement.
 
 La vue d'ensemble identifie la release 0.3.2 et son workflow durable optionnel.
+Les vues d’architecture comparent **Base : 10 outils** et **Avec stateDir : 14 outils**.
+Toutes deux décrivent des configurations disponibles ; la seconde n’est pas une architecture future.
 Chaque preuve conserve son propre commit, run ou périmètre d'artefact ; les
 nombres de succès historiques ne requalifient pas la release actuelle. Les liens
 de distribution et garanties actuels figurent dans le [README](../README.fr.md)
@@ -25,6 +27,7 @@ Pour vérifier la documentation sans reconstruire le HTML suivi :
 
 ```sh
 node scripts/check-docs.mjs
+node scripts/check-coherence.mjs
 node scripts/build-guide.mjs --check
 node --test test/build-guide.mjs
 ```
@@ -41,11 +44,11 @@ Le changement de langue conserve la vue d’architecture, le composant sélectio
 
 ## Sources et mises à jour
 
-- `project-data.json` : contenus correspondants `locales.fr` et `locales.en`, faits, révision des sources, preuves, lots, scénarios, commits et provenance des images. Actualiser les deux langues ensemble et conserver les résultats historiques avec leur révision initiale.
+- `project-data.json` : contenus correspondants `locales.fr` et `locales.en`, nombres d’outils de base/durables, indicateurs de composants optionnels, révision des sources, preuves, lots, scénarios, commits et provenance des images. Actualiser les deux langues ensemble et conserver les résultats historiques avec leur révision initiale.
 - `i18n.json` : textes d’interface, libellés accessibles et d’exports correspondants. Les clés de `static` identifient le texte français du template partagé ; les valeurs contiennent chaque traduction. Les entrées `dynamic` utilisent des paramètres nommés.
 - `guide.template.html` : une structure, des styles et un moteur de rendu partagés. Les données sont insérées avec `textContent`, sans interprétation de HTML non fiable.
-- `assets/architecture-cible.png` et `assets/architecture-target.png` : illustrations conceptuelles française et anglaise ChatGPT Image, toutes deux embarquées.
-- `assets/architecture-cible.prompt.txt` et `assets/architecture-target.prompt.txt` : prompts originaux exacts, également copiés dans les données pour consulter leur provenance hors ligne.
+- `assets/architecture-cible.png` et `assets/architecture-target.png` : illustrations déterministes française et anglaise du workflow durable optionnel, produites par `scripts/visuals/render_brand_assets.py` et toutes deux embarquées.
+- `assets/architecture-cible.prompt.txt` et `assets/architecture-target.prompt.txt` : briefs conceptuels historiques. Les données conservent verbatim des prompts conceptuels antérieurs comme archives de conception ; ces textes ne décrivent pas la production des images déterministes finales.
 - `index.html` : fichier généré. Modifier les sources puis reconstruire ; le JSON échappé et les PNG base64 sont embarqués.
 - `../scripts/build-guide.mjs` : assemblage déterministe. Traductions absentes, clés/longueurs divergentes, identifiants/statuts/faits numériques différents, paramètres incompatibles, textes statiques non traduits et chemins/signatures d’images invalides font échouer le build. La prose nécessite toujours une revue éditoriale bilingue.
 
@@ -55,4 +58,4 @@ Les liens internes utilisent le commit `head` des données ; l’historique cons
 
 **Livré** signifie que les critères et preuves du lot sont documentés. **En cours** indique un travail incomplet ; **Prévu** décrit une évolution cible. La progression compte les lots livrés, sans pondération de leur effort ni promesse de date.
 
-Les scénarios sont pédagogiques et ne sont pas des tests exécutés. Les illustrations cibles n’ont pas valeur de preuve fonctionnelle. Une CI réussie ne qualifie pas à elle seule le déploiement autonome en production ou un service multiutilisateur. Les garanties de transfert dépendent du protocole/serveur ; les verrous locaux au processus ne démontrent pas une exclusion multiprocessus.
+Les scénarios sont pédagogiques et ne sont pas des tests exécutés. Les illustrations du workflow durable n’ont pas valeur de preuve fonctionnelle. Elles supposent `stateDir` ; le rollback reste explicite et limité aux fichiers durablement acquittés. Une CI réussie ne qualifie pas à elle seule le déploiement autonome en production ou un service multiutilisateur. Les garanties de transfert dépendent du protocole/serveur ; les verrous locaux au processus ne démontrent pas une exclusion multiprocessus.

@@ -27,7 +27,7 @@ parse changed JSON examples, check relative Markdown links, and run
 ## Updating the dependency graph
 
 `package-lock.json` is the only authoritative lockfile; do not add a parallel
-`npm-shrinkwrap.json`. The six direct production dependencies are exact pins.
+`npm-shrinkwrap.json`. The five direct production dependencies are exact pins.
 Routine setup uses `npm ci --ignore-scripts` and must not rewrite the graph.
 
 For an intentional update, change only the approved exact versions, regenerate
@@ -39,7 +39,14 @@ fix. Run a clean install, the affected tests, the dependency audit and exact
 tarball/isolated-consumer checks in the [release guide](./docs/RELEASE.md).
 Keep the source, manifest and lockfile changes together for review.
 
-The source installation distribution contains 90 files, including this lockfile. The separate npm package contains 89 files without a lockfile and remains unqualified after ten observed changes in a real installation. Installed-graph checks compare transitive dependencies and peers against the original source inventory; any difference blocks npm/MCP publication.
+The source installation distribution contains 90 files, including this lockfile.
+The separate npm package contains 89 files without a lockfile. An earlier
+qualification attempt with npm 10.9.8 changed ten production dependencies; that
+result describes the failed candidate, not current registry availability.
+Published distribution references are maintained in the [release guide](./docs/RELEASE.md).
+Every new candidate must pass installed-graph checks against the original source
+inventory, including transitive dependencies and peers; any difference blocks
+npm/MCP publication.
 
 ## Principles
 
@@ -96,7 +103,7 @@ existing assertions enabled.
 
 ## Releasing (maintainers)
 
-Do not improvise the first publication from this short section. Follow the
+Do not improvise a publication from this short section. Follow the
 [release guide](./docs/RELEASE.md), which covers:
 
 - matching package, lockfile, server and tag versions, then separately
@@ -107,5 +114,6 @@ Do not improvise the first publication from this short section. Follow the
 - manual MCP registry ownership and publication;
 - post-publish verification and fix-forward rollback.
 
-The npm package and MCP registry entry are not available until every applicable
-manual prerequisite and verification step in that guide has passed.
+Published availability and qualification of a new candidate are separate.
+Use that guide for current distribution references and complete every applicable
+manual prerequisite and verification step before each new publication.

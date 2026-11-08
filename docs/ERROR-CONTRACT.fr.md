@@ -30,8 +30,10 @@ plutôt qu’analyser le texte traduit.
 
 `request_id` est un nouvel UUID créé par le serveur pour un appel. Il est
 distinct de l’identifiant de corrélation JSON-RPC et n’identifie pas une
-opération durable. Les erreurs durables ajoutent `plan_id` et `operation_id`
-facultatifs, une phase et des compteurs partiels durables. Ces identifiants
+opération durable. Les erreurs de base ne contiennent pas `operation_id`. Les
+erreurs durables incluent toujours `plan_id` et `operation_id`, chacun valant
+un identifiant ou null, ainsi qu'une phase et des compteurs partiels durables.
+Ces identifiants
 réfèrent uniquement au workflow journalisé et jamais à la corrélation JSON-RPC.
 
 ## Décisions stables et effets observés
@@ -61,8 +63,9 @@ voir les [limites de ressources](./RESOURCE-BOUNDS.fr.md).
 
 Les valeurs legacy de `next_action` sont `fix_input`, `fix_config`,
 `select_server`, `inspect_target`, `retry`, `contact_operator` et `none`.
-Les erreurs durables peuvent aussi indiquer `status`, `resume_apply`,
-`resume_rollback`, `offline_recovery` ou `upgrade_client`.
+Les valeurs durables de `next_action` sont `fix_input`, `fix_config`,
+`inspect_target`, `retry`, `status`, `resume_apply`, `resume_rollback`,
+`offline_recovery`, `upgrade_client` et `none`.
 Les erreurs des outils historiques renvoient prudemment `retryable:false`. Les
 erreurs durables ne renvoient `retryable:true` que pour
 `DURABLE_STATE_BUSY`, `DURABLE_STATE_IO`, `STATUS_CHANGED` et les échecs

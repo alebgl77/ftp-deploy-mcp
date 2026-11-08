@@ -3,8 +3,8 @@
 **English** | [Français](./SECURITY-MODEL.fr.md)
 
 This document describes what ftp-deploy-mcp protects, what it assumes, and
-where operators must provide stronger controls. It applies to the unreleased
-v0.2 source line; verify the release notes for the exact artifact you run.
+where operators must provide stronger controls. It describes the source revision
+containing this file; verify the release notes for the exact artifact you run.
 
 ## Assets and trust boundaries
 
@@ -35,7 +35,7 @@ to prove a client-side sub-root is free of symlink escapes.
 | SFTP `hostKeySha256` | Connecting to an SFTP endpoint presenting an unexpected host key. | A compromised server holding the expected key, or a pin obtained through the attacked channel. |
 | SFTP realpath/lstat checks | Known remote symlink components and resolved paths outside `root`. | All time-of-check/time-of-use races on a malicious or concurrently changing server. |
 | FTP/FTPS `root: "/"` policy | Avoids presenting a client-side subdirectory as a proven security jail. | Escape from an account that the FTP server itself has not isolated. |
-| `readOnly` | Writes requested through this MCP server. | Other clients using the same credentials, or server credentials that remain writable. |
+| `readOnly` | Remote mutations requested through this MCP server. | Local download writes, other clients using the same credentials, or server credentials that remain writable. |
 | `allowInsecure` gate | Accidental use of plaintext FTP or FTPS without certificate verification. | Interception after the operator accepts the risk. |
 | `dry_run` | Previewing deploy selection without transferring files. | Changes made by another process after the preview. |
 | Credential redaction | Intentional return of configured passwords, passphrases, or private keys in tool output. | Secrets stored inside a remotely read file, dependency compromise, memory inspection, or unsafe operator logs. |
@@ -193,18 +193,20 @@ uncertain mutation automatically. Cancellation does not undo completed writes,
 prove the final remote state, or make file transfer atomic.
 
 Setup keeps timestamped backups when changing existing MCP client
-configuration. Atomic replacement of newly written sensitive configuration is
-a release gate for v0.2; do not infer that every historical or unpublished
-write path is atomic. Keep independent backups and validate the packaged
-artifact before release.
+configuration. Current setup and client-configuration writes use an exclusive
+sibling temporary, synchronize and close it, then rename it into place through
+`atomicWriteFileSync`. This describes the current write paths, not every
+historical artifact or universal power-loss durability. Keep independent backups
+and validate the packaged artifact before release.
 
 ## Structured errors and cancellation
 
 Known-tool errors use a strict envelope with a stable code, fresh request UUID,
 conservative effect observations and no automatic retry behavior. A durable
 `retryable:true` only identifies a condition a caller may retry after following
-`next_action`; it never authorizes replay of an uncertain mutation. The nine
-structured tools publish strict success/error schema alternatives. The complete
+`next_action`; it never authorizes replay of an uncertain mutation. Nine legacy
+tools and the four optional durable tools publish strict success/error schema
+alternatives; `ftp_read` retains text-only success. The complete
 result is limited to 25,000 UTF-8 JSON bytes after masking; security notices and
 pagination are rendered from trusted internal metadata. See the
 [error contract](./ERROR-CONTRACT.md) for exact fields and codes.
