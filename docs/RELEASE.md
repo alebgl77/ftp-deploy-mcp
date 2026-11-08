@@ -37,6 +37,24 @@ rather than CycloneDX edge layout because npm may hoist or deduplicate paths;
 the separate release-graph gate validates the installed production graph
 against the authoritative lockfile.
 
+## Optional SBOM tooling exception
+
+The optional XML build chain of `@cyclonedx/cyclonedx-npm@6.0.1` uses
+`libxmljs2 -> node-gyp -> make-fetch-happen -> cacache@19.0.1 -> glob`.
+Dependabot cannot move its `minimatch@9` dependency to the patched major version.
+One reviewed override therefore selects `glob@14.0.2` only below
+`cacache@19.0.1`; the lockfile resolves a patched `minimatch` (>=11.0.1).
+Upgrading `glob` with its matching dependency avoids forcing a new minimatch API
+into the old glob implementation. This addresses
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) and
+[GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4).
+
+The release gate accepts only that exact override, requires its affected packages
+to remain optional development tooling, and rejects production references to
+them. All other overrides remain forbidden. CI tests cache verification and
+cleanup with the patched glob as well as the existing SBOM generation contract.
+Remove the exception when the upstream chain no longer contains `cacache@19.0.1`.
+
 ## Manual prerequisites
 
 Complete these outside the repository before dispatching npm or MCP publication:

@@ -56,7 +56,7 @@ jobs:
         run: node scripts/build-guide.mjs --check
 
       - name: Test documentation and guide checks
-        run: node --test test/build-guide.mjs
+        run: node --test test/build-guide.mjs test/development-dependencies.test.mjs
 
       - run: npm test
 
