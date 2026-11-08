@@ -6,12 +6,14 @@
       "schemaVersion": 1,
       "project": "ftp-deploy-mcp",
       "version": "0.3.2",
-      "updated": "22 octobre 2026",
+      "updated": "8 novembre 2026",
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-      "head": "f38a76c774d73fde7c7b36a3f4adbb22736f318c",
-      "scope": "Vue d’architecture · preuves historiques par révision",
+      "head": "ececff144c567b2b40154e4570d62bf7f3375e47",
+      "scope": "Architecture de base et workflow durable optionnel · preuves historiques par révision",
+      "baseToolCount": 10,
+      "durableToolCount": 4,
       "toolCount": 14,
-      "summary": "Planifier, confirmer, appliquer, consulter et restaurer avec un journal durable borné et des garanties explicites.",
+      "summary": "Transférer avec 10 outils de base, ou planifier, confirmer et restaurer avec 4 outils durables activés par stateDir.",
       "deliveryNote": "Distribution actuelle : 0.3.2. Les nombres de tests, runs CI et contrôles d’artefacts ci-dessous conservent leurs révisions historiques nommées ; ils ne qualifient pas ce commit source ultérieur. Avec stateDir, quatre outils durables complètent les dix outils historiques : plan immuable, confirmation MCP input_required signée, reprise explicite, statut paginé sans écriture et rollback conservateur. La garantie est observable_state_reconciled, jamais exactement une fois ni atomique sur plusieurs fichiers.",
       "metrics": [
         {
@@ -60,7 +62,8 @@
             "Le contenu distant reste une donnée, jamais une autorisation.",
             "Un plan_id ou confirm: true n’est pas une preuve de consentement humain."
           ],
-          "source": "src/index.js"
+          "source": "src/index.js",
+          "optional": false
         },
         {
           "id": "host",
@@ -75,9 +78,10 @@
           "responsibility": "Lance le processus Node, fournit une configuration et délimite les accès locaux. La cible reste un serveur MCP stdio local.",
           "constraints": [
             "L’isolation multiutilisateur n’est pas qualifiée.",
-            "Le consentement de l’hôte et les politiques externes appartiennent à la vue cible."
+            "Les mutations durables exigent une confirmation via un client compatible MCP input_required ; les politiques restent définies dans la configuration locale."
           ],
-          "source": "src/index.js"
+          "source": "src/index.js",
+          "optional": false
         },
         {
           "id": "core",
@@ -89,18 +93,20 @@
           "w": 215,
           "h": 90,
           "current": true,
-          "responsibility": "Expose dix outils aux textes EN/FR, valide les entrées et les résultats, masque les secrets et restitue des erreurs structurées. Annulation MCP, progression opt-in et verrous restent liés à la terminaison réelle du travail.",
+          "responsibility": "Expose 10 outils de base et, avec stateDir, 4 outils durables aux textes EN/FR. Valide les entrées et résultats, masque les secrets et restitue des erreurs structurées. Annulation MCP, progression opt-in et verrous restent liés à la terminaison réelle du travail.",
           "constraints": [
-            "Neuf outils annoncent oneOf réussite/erreur ; ftp_read conserve une réussite textuelle. request_id n’est pas un identifiant durable.",
+            "Parmi les dix outils de base, neuf annoncent oneOf réussite/erreur ; ftp_read conserve une réussite textuelle. request_id n’est pas un identifiant durable.",
             "Plafond JSON de 25000 octets ; aucune conversion en tokens.",
             "64 appels admis au plus par isolate partageant le module ; places et verrous conservés jusqu’au vrai settlement. Ni multiprocessus ni buffers transport bornés."
           ],
           "source": "src/tools.js",
           "extraSources": [
+            "src/durable-tools.js",
             "src/tool-registry.js",
             "src/admission.js",
             "docs/ERROR-CONTRACT.md"
-          ]
+          ],
+          "optional": false
         },
         {
           "id": "policy",
@@ -118,26 +124,35 @@
             "readOnly interdit les mutations distantes ; ftp_download peut écrire localement.",
             "Parcours : maxScanEntries 100000 (max 1000000), maxScanDepth 64 (max 256). La racine compte pour une entrée."
           ],
-          "source": "src/config.js"
+          "source": "src/config.js",
+          "optional": false
         },
         {
           "id": "state",
           "name": "Plans & journal durable",
-          "short": "Cible · préconditions · opérations",
+          "short": "Option stateDir · état persistant",
           "zone": "Plans, état et opérations",
           "x": 555,
           "y": 285,
           "w": 230,
           "h": 90,
           "current": true,
-          "responsibility": "Conserve un plan immuable privacy-safe, l’identité distante, les préconditions, le hash de clé d’idempotence et l’état journalisé de chaque fichier. Permet statut, reprise et rollback conservateur.",
+          "responsibility": "Avec stateDir, conserve un plan immuable, l’identité distante, les préconditions, le hash de clé d’idempotence et l’état journalisé de chaque fichier. Permet statut paginé, reprise explicite et rollback conservateur.",
           "constraints": [
-            "À persister hors de la racine web et sans contenu secret.",
+            "stateDir doit rester hors des racines de déploiement ; les sauvegardes de fichiers restent locales.",
             "Un crash entre écriture distante et journal impose une réconciliation.",
             "Idempotence ne signifie pas exactly once."
           ],
-          "source": "src/tools.js",
-          "roadmap": "C"
+          "source": "src/durable/state.js",
+          "roadmap": "C",
+          "optional": true,
+          "extraSources": [
+            "src/durable/plan.js",
+            "src/durable/confirmation.js",
+            "src/durable/engine.js",
+            "src/durable/status.js",
+            "src/state/store.mjs"
+          ]
         },
         {
           "id": "adapters",
@@ -160,7 +175,8 @@
             "src/adapters/sftp.js",
             "src/transfers.js",
             "docs/TRANSFERS.md"
-          ]
+          ],
+          "optional": false
         },
         {
           "id": "remote",
@@ -178,20 +194,27 @@
             "Les hashes ne neutralisent pas un serveur malveillant ni toutes les courses.",
             "Un mutex local ne protège pas contre plusieurs processus."
           ],
-          "source": "README.md"
+          "source": "README.md",
+          "optional": false
         }
       ],
       "scenarios": [
         {
           "id": "success",
           "name": "Succès",
-          "summary": "Parcours cible complet, du plan à un état consultable. L’illustration décrit le comportement attendu ; ce n’est pas une exécution de test.",
-          "currentFact": "Livré : sélection bornée sans réseau en dry run ; admission et verrous locaux ; SHA256, temporaire, relecture et promotion vérifiée. Plan et journal de cette séquence restent cibles.",
+          "summary": "Le parcours durable optionnel, du plan au statut consultable. Cette séquence illustre le comportement documenté ; elle ne lance aucun test.",
+          "currentFact": "Livré avec stateDir : plan persistant, confirmation MCP signée, revalidation des sources et de la cible, transfert temporaire, relecture SHA256, promotion vérifiée et statut paginé. Les dix outils de base conservent leur parcours distinct sans journal durable ni rollback.",
           "steps": [
             {
               "name": "Plan",
               "text": "Figer la sélection, les hashes locaux, l’identité de cible, les politiques et l’expiration.",
               "state": "Plan préparé",
+              "lot": "C"
+            },
+            {
+              "name": "Confirmation",
+              "text": "Présenter la demande au client compatible MCP input_required et attendre sa confirmation signée avant toute mutation.",
+              "state": "Confirmation reçue",
               "lot": "C"
             },
             {
@@ -235,7 +258,7 @@
         {
           "id": "stale",
           "name": "Plan périmé",
-          "summary": "Parcours cible de refus avant écriture lorsque l’intention approuvée ne correspond plus à l’état observé.",
+          "summary": "Le refus avant écriture lorsque le plan approuvé ne correspond plus à l’état observé, dans le workflow durable optionnel.",
           "currentFact": "Livré avec stateDir : plan persistant, apply distinct, revalidation de la source et de la cible avant mutation, puis refus PLAN_STALE en cas de dérive.",
           "steps": [
             {
@@ -261,7 +284,7 @@
         {
           "id": "disconnect",
           "name": "Coupure",
-          "summary": "Parcours cible après réponse perdue ou arrêt au voisinage d’une écriture : l’état doit pouvoir rester explicitement inconnu.",
+          "summary": "Après une réponse perdue ou un arrêt près d’une écriture, le workflow durable conserve explicitement l’incertitude avant réconciliation.",
           "currentFact": "Livré : état durable consultable, erreurs structurées et réconciliation conservatrice des réponses perdues. Une promotion non prouvée reste SATISFIED_UNOWNED et le rollback reste explicite, jamais automatique.",
           "steps": [
             {
@@ -323,12 +346,12 @@
         {
           "id": "restore",
           "name": "Restauration",
-          "summary": "Parcours cible de rollback conditionnel. Une modification tierce détectée bloque la restauration automatique.",
+          "summary": "La restauration explicite et conditionnelle du workflow durable. Une modification tierce détectée bloque la restauration.",
           "currentFact": "Livré : rollback explicite des seuls fichiers APPLIED avec sauvegarde vérifiée et préconditions ; aucune restauration automatique ni écrasement d’une dérive tierce.",
           "steps": [
             {
               "name": "Journal",
-              "text": "Retrouver l’opération et la version antérieure conservée avec une rétention définie.",
+              "text": "Retrouver l’opération et la sauvegarde locale conservée pour les fichiers dont la mutation a été durablement acquittée.",
               "state": "Version identifiée",
               "lot": "D"
             },
@@ -591,7 +614,7 @@
       ],
       "quality": [
         {
-          "area": "CI actuelle — f842823",
+          "area": "CI historique — f842823",
           "result": "6 combinaisons OS/Node réussies",
           "level": "verified",
           "scope": "Run 34326855200 : Linux/macOS/Windows × Node 22/24 et chaîne d’approvisionnement.",
@@ -599,7 +622,7 @@
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
-          "area": "Runtime actuel : catégories séparées",
+          "area": "Runtime historique : catégories séparées",
           "result": "Suites runtime réussies",
           "level": "verified",
           "scope": "672 assertions smoke + 6 tests de transports chiffrés réels + 14 CLI + 53 contrat/cancellation + 29 ressources + 123 état + 100 workflow.",
@@ -623,7 +646,7 @@
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/commit/ab9c03a71571ce2843f050d7c80eeea7b82ebf96"
         },
         {
-          "area": "Artefact local actuel",
+          "area": "Artefact local historique",
           "result": "81 fichiers exacts",
           "level": "verified",
           "scope": "Archive f842823 : fichiers réguliers, octets identiques aux sources, intégrité et empreinte avant/après vérifiées.",
@@ -639,15 +662,15 @@
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/commit/ab9c03a71571ce2843f050d7c80eeea7b82ebf96"
         },
         {
-          "area": "Documentation et contrôles release",
+          "area": "Documentation et contrôles release historiques",
           "result": "17 paires · 69 contrôles release",
           "level": "verified",
           "scope": "235 liens locaux ; 11 tests du générateur et guide FR/EN autonome déterministe.",
-          "limit": "La CI 34326855200 qualifie sa révision documentaire ; cette actualisation du guide est vérifiée localement, séparément de cette CI.",
+          "limit": "La CI 34326855200 qualifie sa propre révision documentaire ; elle ne qualifie pas cette actualisation du guide.",
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
-          "area": "Dépendances de production",
+          "area": "Audit historique des dépendances de production",
           "result": "0 vulnérabilité signalée",
           "level": "verified",
           "scope": "Audit local après Hono 4.13.2 → 4.13.5 : 108 dépendances",
@@ -949,15 +972,15 @@
           "path": "docs/SCRIPTED-EVALUATIONS.md"
         }
       ],
-      "sourceNote": "Audit du 8 septembre 2026, actualisé au 9 septembre sur les faits livrés jusqu’à f842823. Les comparaisons GitHub restent des inspections statiques épinglées. Aucun concurrent ni modèle exécuté ; figures ChatGPT conservées comme vues cibles.",
+      "sourceNote": "Revue de cohérence du 8 novembre 2026 sur la révision ececff144c567b2b40154e4570d62bf7f3375e47. Les résultats de tests et comparaisons ci-dessous conservent leurs révisions historiques. Aucun concurrent ni modèle exécuté pour cette revue ; les illustrations finales sont rendues par le script déterministe du dépôt.",
       "illustrations": [
         {
           "id": "architecture-cible",
           "file": "assets/architecture-cible.png",
-          "title": "Architecture cible — ftp-deploy-mcp",
-          "alt": "Illustration conceptuelle : agent IA, MCP stdio, moteur de contrôle local avec politiques et plans et journal, adaptateurs FTP FTPS SFTP et serveur distant. La configuration locale alimente le moteur.",
-          "caption": "Vue cible conceptuelle · ChatGPT Image · 9 septembre 2026. Les composants projetés restent soumis aux critères de la feuille de route.",
-          "provenance": "Générée avec ChatGPT Image le 9 septembre 2026, dans une session commencée le 8 septembre. Image examinée visuellement ; illustration de l’intention architecturale, sans valeur de preuve fonctionnelle. Le prompt original ci-dessous est conservé sans traduction.",
+          "title": "Architecture durable optionnelle — ftp-deploy-mcp",
+          "alt": "Architecture avec stateDir : agent IA, MCP stdio, moteur de contrôle local avec politiques, plans et journal, configuration locale, adaptateurs FTP FTPS SFTP et serveur distant.",
+          "caption": "Rendu déterministe du workflow durable optionnel avec stateDir. La restauration reste explicite et limitée aux fichiers durablement acquittés ; ce schéma n’est pas une preuve d’exécution.",
+          "provenance": "Ressource finale produite par scripts/visuals/render_brand_assets.py, avec géométrie et textes contrôlés. Le prompt conceptuel historique ci-dessous est conservé verbatim comme archive de conception ; il ne décrit pas la méthode de production de cette image finale. La planche de direction ChatGPT Image n’est pas intégrée aux pixels du rendu.",
           "prompt": "Use case: infographic-diagram.\nCreate a high-resolution widescreen technical architecture illustration for a professional French engineering documentation portal for the open-source project ftp-deploy-mcp. Exact title: \"Architecture cible\". Subtitle: \"ftp-deploy-mcp\".\nThe diagram is a TARGET CONCEPT, not a claim of delivered functionality. Precise left-to-right system flow: a box \"Agent IA\", arrow labelled \"MCP stdio\" into a locally hosted control engine; inside the engine two clearly separated components \"Politiques\" and \"Plan & journal\"; output to an adapter block labelled \"FTP / FTPS / SFTP\", then arrow to \"Serveur distant\". Beneath the local engine a small protected vault block \"Configuration locale\" connects only to the engine, never to Agent IA. Show an understated dashed trust boundary around the local engine, configuration and journal, excluding the remote server. Arrows must be visually clear and not tangled.\nStyle: exceptionally clean enterprise architecture board inspired by precise Visio diagrams, refined flat vector-like shapes with just slight physical depth, warm ivory background, navy typography and crisp blue/teal connectors, restrained professional editorial aesthetic. Generous whitespace, no shiny neon, no mascots, no decorative charts, no clouds, no vendor logos, no watermarks, no extra labels. Large legible exact French labels. All boxes and connectors comfortably within image margins. This will be embedded next to interactive SVG technical diagrams, so prioritize coherent readable topology over artistic complexity."
         }
       ]
@@ -966,12 +989,14 @@
       "schemaVersion": 1,
       "project": "ftp-deploy-mcp",
       "version": "0.3.2",
-      "updated": "22 October 2026",
+      "updated": "8 November 2026",
       "repository": "https://github.com/alebgl77/ftp-deploy-mcp",
-      "head": "f38a76c774d73fde7c7b36a3f4adbb22736f318c",
-      "scope": "Architecture overview · historical evidence by revision",
+      "head": "ececff144c567b2b40154e4570d62bf7f3375e47",
+      "scope": "Base architecture and optional durable workflow · historical evidence by revision",
+      "baseToolCount": 10,
+      "durableToolCount": 4,
       "toolCount": 14,
-      "summary": "Plan, confirm, apply, inspect and restore with a bounded durable journal and explicit guarantees.",
+      "summary": "Transfer with 10 base tools, or plan, confirm and restore with 4 durable tools enabled by stateDir.",
       "deliveryNote": "Current distribution: 0.3.2. The test totals, CI runs and artifact checks below retain their named historical revisions; they do not qualify this later source commit. With stateDir, four durable tools complement the ten legacy tools: immutable plan, signed MCP input_required confirmation, explicit resume, write-free paginated status and conservative rollback. The guarantee is observable_state_reconciled, never exactly-once or multi-file atomic.",
       "metrics": [
         {
@@ -1020,7 +1045,8 @@
             "Remote content remains data, never authorization.",
             "A plan_id or confirm: true is not proof of human consent."
           ],
-          "source": "src/index.js"
+          "source": "src/index.js",
+          "optional": false
         },
         {
           "id": "host",
@@ -1035,9 +1061,10 @@
           "responsibility": "Starts the Node process, supplies configuration and bounds local access. The intended product remains a local MCP stdio server.",
           "constraints": [
             "Multiuser isolation has not been qualified.",
-            "Host consent and external policies belong to the target design."
+            "Durable mutations require confirmation through an MCP input_required-compatible client; policies remain defined in local configuration."
           ],
-          "source": "src/index.js"
+          "source": "src/index.js",
+          "optional": false
         },
         {
           "id": "core",
@@ -1049,18 +1076,20 @@
           "w": 215,
           "h": 90,
           "current": true,
-          "responsibility": "Exposes ten tools with EN/FR text, validates inputs and results, redacts secrets and returns structured errors. MCP cancellation, opt-in progress and locks remain tied to actual worker settlement.",
+          "responsibility": "Exposes 10 base tools and, with stateDir, 4 durable tools with EN/FR text. Validates inputs and results, redacts secrets and returns structured errors. MCP cancellation, opt-in progress and locks remain tied to actual worker settlement.",
           "constraints": [
-            "Nine tools advertise success/error oneOf; ftp_read retains text-only success. request_id is not a durable identifier.",
+            "Among the ten base tools, nine advertise success/error oneOf; ftp_read retains text-only success. request_id is not a durable identifier.",
             "25000-byte JSON result limit; no conversion to tokens.",
             "At most 64 admitted calls per isolate sharing the module; slots and locks remain held through actual settlement. No multiprocess coordination or transport-buffer bound."
           ],
           "source": "src/tools.js",
           "extraSources": [
+            "src/durable-tools.js",
             "src/tool-registry.js",
             "src/admission.js",
             "docs/ERROR-CONTRACT.md"
-          ]
+          ],
+          "optional": false
         },
         {
           "id": "policy",
@@ -1078,26 +1107,35 @@
             "readOnly prohibits remote mutations; ftp_download can write locally.",
             "Scanning: maxScanEntries 100000 (max 1000000), maxScanDepth 64 (max 256). The root counts as one entry."
           ],
-          "source": "src/config.js"
+          "source": "src/config.js",
+          "optional": false
         },
         {
           "id": "state",
           "name": "Plans & durable journal",
-          "short": "Target · conditions · operations",
+          "short": "stateDir option · persistent state",
           "zone": "Plans, state and jobs",
           "x": 555,
           "y": 285,
           "w": 230,
           "h": 90,
           "current": true,
-          "responsibility": "Stores a privacy-safe immutable plan, remote identity, preconditions, idempotency-key hash and journaled file state. Supports status, explicit resume and conservative rollback.",
+          "responsibility": "With stateDir, stores an immutable plan, remote identity, preconditions, idempotency-key hash and journaled file state. Supports paginated status, explicit resume and conservative rollback.",
           "constraints": [
-            "Persist outside the web root and without secret content.",
+            "stateDir must remain outside deployment roots; file backups remain local.",
             "A crash between a remote write and the journal requires reconciliation.",
             "Idempotency does not mean exactly once."
           ],
-          "source": "src/tools.js",
-          "roadmap": "C"
+          "source": "src/durable/state.js",
+          "roadmap": "C",
+          "optional": true,
+          "extraSources": [
+            "src/durable/plan.js",
+            "src/durable/confirmation.js",
+            "src/durable/engine.js",
+            "src/durable/status.js",
+            "src/state/store.mjs"
+          ]
         },
         {
           "id": "adapters",
@@ -1120,7 +1158,8 @@
             "src/adapters/sftp.js",
             "src/transfers.js",
             "docs/TRANSFERS.md"
-          ]
+          ],
+          "optional": false
         },
         {
           "id": "remote",
@@ -1138,20 +1177,27 @@
             "Hashes do not neutralize a malicious server or every race condition.",
             "A local mutex does not protect against multiple processes."
           ],
-          "source": "README.md"
+          "source": "README.md",
+          "optional": false
         }
       ],
       "scenarios": [
         {
           "id": "success",
           "name": "Success",
-          "summary": "The complete target flow, from a plan to retrievable status. This illustration describes expected behavior; it is not a test execution.",
-          "currentFact": "Delivered: bounded selection without network in dry run; local admission and locks; SHA256, temporary file, readback and verified promotion. This sequence’s plan and journal remain targets.",
+          "summary": "The optional durable flow, from a plan to retrievable status. This sequence illustrates documented behavior; it runs no tests.",
+          "currentFact": "Delivered with stateDir: persisted plan, signed MCP confirmation, source and target revalidation, temporary transfer, SHA256 readback, verified promotion and paginated status. The ten base tools retain their separate flow without a durable journal or rollback.",
           "steps": [
             {
               "name": "Plan",
               "text": "Freeze the selection, local hashes, target identity, policies and expiration.",
               "state": "Plan prepared",
+              "lot": "C"
+            },
+            {
+              "name": "Confirmation",
+              "text": "Present the request to an MCP input_required-compatible client and wait for its signed confirmation before any mutation.",
+              "state": "Confirmation received",
               "lot": "C"
             },
             {
@@ -1195,7 +1241,7 @@
         {
           "id": "stale",
           "name": "Stale plan",
-          "summary": "The target refusal flow before writing when approved intent no longer matches the observed state.",
+          "summary": "Refusal before writing when the approved plan no longer matches observed state, within the optional durable workflow.",
           "currentFact": "Delivered with stateDir: persisted plan, separate apply, source and target revalidation before mutation, and PLAN_STALE refusal on drift.",
           "steps": [
             {
@@ -1221,7 +1267,7 @@
         {
           "id": "disconnect",
           "name": "Connection loss",
-          "summary": "The target flow after a lost response or a stop near a write: the state must be allowed to remain explicitly unknown.",
+          "summary": "After a lost response or a stop near a write, the durable workflow explicitly preserves uncertainty before reconciliation.",
           "currentFact": "Delivered: queryable durable status, structured errors and conservative lost-response reconciliation. An unproven promotion remains SATISFIED_UNOWNED and rollback stays explicit, never automatic.",
           "steps": [
             {
@@ -1283,12 +1329,12 @@
         {
           "id": "restore",
           "name": "Restoration",
-          "summary": "The target conditional rollback flow. A detected third-party modification blocks automatic restoration.",
+          "summary": "Explicit, conditional restoration in the durable workflow. A detected third-party modification blocks restoration.",
           "currentFact": "Delivered: explicit rollback of APPLIED files only, with verified backups and preconditions; no automatic restore or overwrite of third-party drift.",
           "steps": [
             {
               "name": "Journal",
-              "text": "Retrieve the operation and the previous version retained under a defined retention policy.",
+              "text": "Retrieve the operation and local backup retained for files whose mutation was durably acknowledged.",
               "state": "Version identified",
               "lot": "D"
             },
@@ -1551,7 +1597,7 @@
       ],
       "quality": [
         {
-          "area": "Current CI — f842823",
+          "area": "Historical CI — f842823",
           "result": "6 OS/Node combinations passed",
           "level": "verified",
           "scope": "Run 34326855200: Linux/macOS/Windows × Node 22/24 and supply chain.",
@@ -1559,7 +1605,7 @@
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
-          "area": "Current runtime: separate categories",
+          "area": "Historical runtime: separate categories",
           "result": "Runtime suites passed",
           "level": "verified",
           "scope": "672 smoke assertions + 6 real encrypted-transport tests + 14 CLI + 53 contract/cancellation + 29 resource + 123 state + 100 workflow tests.",
@@ -1583,7 +1629,7 @@
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/commit/ab9c03a71571ce2843f050d7c80eeea7b82ebf96"
         },
         {
-          "area": "Current local artifact",
+          "area": "Historical local artifact",
           "result": "81 exact files",
           "level": "verified",
           "scope": "f842823 archive: regular files, source-byte identity, verified integrity and before/after hash.",
@@ -1599,15 +1645,15 @@
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/commit/ab9c03a71571ce2843f050d7c80eeea7b82ebf96"
         },
         {
-          "area": "Documentation and release checks",
+          "area": "Historical documentation and release checks",
           "result": "17 pairs · 69 release checks",
           "level": "verified",
           "scope": "235 local links; 11 generator tests and a deterministic standalone FR/EN guide.",
-          "limit": "CI 34326855200 qualifies its documentation revision; this guide refresh is verified locally, separately from that CI.",
+          "limit": "CI 34326855200 qualifies its own documentation revision; it does not qualify this guide update.",
           "url": "https://github.com/alebgl77/ftp-deploy-mcp/actions/runs/34326855200"
         },
         {
-          "area": "Production dependencies",
+          "area": "Historical production dependency audit",
           "result": "0 reported vulnerabilities",
           "level": "verified",
           "scope": "Local audit after Hono 4.13.2 → 4.13.5: 108 dependencies",
@@ -1909,15 +1955,15 @@
           "path": "docs/SCRIPTED-EVALUATIONS.md"
         }
       ],
-      "sourceNote": "Audit dated 8 September 2026, updated on 9 September with delivered facts through f842823. GitHub comparisons remain pinned static inspections. No competitor or model executed; ChatGPT figures remain target views.",
+      "sourceNote": "Coherence review on 8 November 2026 at revision ececff144c567b2b40154e4570d62bf7f3375e47. Test results and comparisons below retain their historical revisions. No competitor or model executed for this review; final illustrations are rendered by the repository’s deterministic script.",
       "illustrations": [
         {
           "id": "architecture-cible",
           "file": "assets/architecture-target.png",
-          "title": "Target architecture — ftp-deploy-mcp",
-          "alt": "Concept illustration: AI agent, MCP stdio, local control engine with policies and plans and journal, FTP FTPS SFTP adapters and remote server. Local configuration feeds the engine.",
-          "caption": "Target concept · ChatGPT Image · 9 September 2026. Proposed components remain subject to the roadmap’s acceptance criteria.",
-          "provenance": "English counterpart generated with ChatGPT Image on 9 September 2026 from the French illustration, in a session that began on 8 September. Visually inspected; illustrates architectural intent and provides no functional evidence. The original editing prompt is preserved verbatim below, including its quoted French source labels.",
+          "title": "Optional durable architecture — ftp-deploy-mcp",
+          "alt": "Architecture with stateDir: AI agent, MCP stdio, local control engine with policies, plans and journal, local configuration, FTP FTPS SFTP adapters and remote server.",
+          "caption": "Deterministic rendering of the optional durable workflow with stateDir. Rollback remains explicit and limited to durably acknowledged files; this diagram is not execution evidence.",
+          "provenance": "Final asset produced by scripts/visuals/render_brand_assets.py with controlled geometry and copy. The historical concept prompt below is preserved verbatim as a design archive; it does not describe how this final image is produced. Pixels from the ChatGPT Image direction board are not embedded in the rendering.",
           "prompt": "Edit the referenced technical architecture illustration into its English-language counterpart. Keep the exact same architecture topology, layout, arrows, icons, trust boundary, colors, typography style, ivory background, visual proportions and project name. Replace ALL French text with the following exact English text: 'Architecture cible' -> 'Target architecture'; 'Agent IA' -> 'AI agent'; 'Moteur de contrôle local' -> 'Local control engine'; 'Politiques' -> 'Policies'; 'Plan & journal' -> 'Plan & journal'; 'Serveur distant' -> 'Remote server'; 'Configuration locale' -> 'Local configuration'. Preserve 'ftp-deploy-mcp', 'MCP stdio' and 'FTP / FTPS / SFTP' exactly. Ensure large readable English labels fit their boxes, no French words remaining, no additional labels or claims, no watermark. This is a target-concept architecture for a bilingual professional offline documentation portal; the software is not thereby claimed delivered. Widescreen output, crisp legible enterprise Visio-style diagram."
         }
       ]

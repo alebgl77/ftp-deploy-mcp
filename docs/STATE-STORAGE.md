@@ -35,7 +35,8 @@ Import the following from `src/state/index.mjs`:
 
 ```js
 validateStateLimits(input = {})
-openStateStore({ stateDir, localRoots, limits, signal, fault, create = true })
+openStateStore({ stateDir, localRoots, limits, signal, fault,
+                 create = true, readOnly = false })
 StateError // .code and .stage; no native detail/cause or persisted stack
 ```
 
@@ -46,7 +47,12 @@ Identity and containment are checked again on opens. No supplied directory
 means `STATE_DISABLED` and no creation. `create:false` makes an absent or empty
 uninitialized directory fail with `STATE_INVALID/domain_uninitialized`, without
 mkdir, lock or record writes. Nonempty uninitialized state is corrupt. A valid
-existing domain still takes admission when opened.
+existing domain takes admission when opened in writable mode.
+
+`readOnly:true` requires `create:false`. Opening then validates the existing
+domain without creating a lock or record. Mutating methods, endpoint locking
+and opening a writable journal are refused with `STATE_INVALID/read_only`.
+This mode supports the write-free status path used by `ftp_deploy_status`.
 
 Store methods:
 
@@ -59,9 +65,18 @@ store.claim({ planId, keyHash, targetHash, reservation, initialEvent,
               validateEvent, reduce }) // -> verified claim envelope
 store.lookupClaim({ planId }) // or exactly { operationId }; envelope or null
 store.openJournal(operationId, { validateEvent, reduce }) // -> writer
+store.readStatusSnapshot(selector, callbacksForPlan) // -> detached snapshot
 store.inventory() // bounded counts, actualBytes and reservedBytes
 store.close() // await owned work and close owned backup readers
 ```
+
+`readStatusSnapshot` accepts exactly `{planId}` or `{operationId}`. When a claim
+exists, `callbacksForPlan(planBytes)` synchronously returns the journal
+`{validateEvent, reduce}` callbacks from an independent plan Buffer. The result
+is `{planId, planBytes, claim, journalMetadata}`; the last two fields are null
+for an unclaimed plan. It checks two admission-free inventories and the exact
+replayed journal head. A changed snapshot fails with `STATE_BUSY` rather than
+returning mixed evidence. It does not create locks or write state.
 
 IDs are lowercase canonical UUID v4 values: plain domain UUID, `pln_<uuid>` and
 `op_<uuid>`. Hashes are lowercase SHA256. Plans/claims bind version, domain and

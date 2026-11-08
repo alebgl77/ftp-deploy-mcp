@@ -76,14 +76,17 @@ the optional durable workflow; legacy `ftp_deploy` has no transaction or rollbac
 
 </div>
 
-Explore the current and target architecture diagrams and illustrative scenarios
+Explore the base and optional durable architecture diagrams and illustrative scenarios
 in the bilingual [interactive HTML guide](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/index.html).
 The guide and its
 [English](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.md) / [French](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.fr.md)
 build instructions are in the repository, outside the npm package. After
 cloning, open `site/index.html` locally and use its language selector.
 
-### Animated verified deployment flow
+### Animated durable deployment flow
+
+This flow requires `stateDir`. Rollback is separately confirmed and limited to
+durably acknowledged files; the base `ftp_deploy` tool has no rollback.
 
 <div align="center">
 
@@ -120,7 +123,7 @@ Windows users can run `install.cmd` and macOS/Linux users can run
 the first connection.
 
 For a tagged version, check out that exact tag before installing. `npm ci` uses
-the sole authoritative `package-lock.json`, with six exact direct pins and the
+the sole authoritative `package-lock.json`, with five exact direct pins and the
 reviewed graph. Keep it with the sources. `--ignore-scripts` disables automatic
 dependency lifecycle scripts; setup is a separate, explicit action.
 
@@ -393,9 +396,11 @@ per-entry `size_bytes` and `modified_at` fields:
 The existing human-readable `content` text is retained for compatibility.
 On success, every tool except `ftp_read` also advertises an MCP
 `outputSchema` and returns matching `structuredContent`; `ftp_read` remains a
-bounded text-only tool on success. Each of the nine structured schemas accepts
-either its strict success shape or a strict `{error}` envelope. Tool execution
-errors return `isError: true` with localized text and structured code, request UUID,
+bounded text-only tool on success. Among the ten base tools, the nine structured
+schemas accept either their strict success shape or a strict `{error}` envelope.
+With `stateDir`, the four durable tools publish their own success/error schemas.
+Base-tool execution errors return `isError: true` with localized text and
+structured code, request UUID,
 effect observations and safe-retry guidance. Unknown tools remain protocol errors.
 See the [error contract](./docs/ERROR-CONTRACT.md).
 

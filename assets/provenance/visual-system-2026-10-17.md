@@ -10,6 +10,14 @@ and the paired 1942 × 809 site architecture images.
 
 ## Brand invariants
 
+Coherence update, 8 November 2026: the architecture and flow images now name
+the optional `stateDir` workflow. Confirmation precedes remote writes;
+rollback is a separate conditional path for durably acknowledged files.
+The animation displays IN PROGRESS before the completed state. The guide uses
+the same gate mark, sans-serif typography and graphite/cyan/green direction,
+with darker cyan/green text on light surfaces for legibility. Historical
+concept prompts remain unchanged below; final pixels come from the renderer.
+
 - Concept: verified transfer under local control.
 - Mark: an abstract open gate crossed by a forward path that resolves into a
   verification tick; it is intentionally neither a padlock nor a shield.
@@ -59,7 +67,7 @@ The renderer uses Segoe UI, Segoe UI Bold, and Cascadia Mono through Pillow at
 2× resolution before LANCZOS downsampling. Logo and wordmarks remain editable
 SVG. Each GIF contains 70 frames at 100 ms per frame: 7.0 seconds at 10 fps,
 infinite loop. English and French share geometry, frame count, timing, and loop
-behavior. Only progress and active/completed state styling changes. The final
+behavior. Progress, active/completed states and the outcome label change. The final
 frame is also the static reduced-motion PNG fallback.
 
 These images are documentation aids, not security certification or proof of

@@ -34,33 +34,35 @@ COPY = {
     "en": {
         "banner_tagline": "Controlled deployment for AI agents",
         "banner_protocols": "FTP  /  FTPS  /  SFTP  ·  MCP server",
-        "architecture_title": "Verified deployment architecture",
-        "architecture_subtitle": "Local policy first. Remote mutation follows an explicit plan.",
-        "architecture_steps": ("MCP CLIENT", "LOCAL CONTROL", "PLAN", "APPLY", "VERIFY", "ROLLBACK"),
-        "recovery": "SAFE RECOVERY",
-        "flow_title": "Verified deployment flow",
-        "flow_subtitle": "Six deliberate gates. One verified final state.",
+        "architecture_title": "Optional durable deployment",
+        "architecture_subtitle": "Enable stateDir. Confirm each apply or rollback through MCP.",
+        "architecture_steps": ("MCP CLIENT", "LOCAL CONTROL", "PLAN", "CONFIRM", "TRANSFER", "PROMOTE"),
+        "recovery": "CONDITIONAL ROLLBACK",
+        "flow_title": "Durable deployment with stateDir",
+        "flow_subtitle": "Confirm the plan. Verify each file before promotion.",
         "flow_steps": ("SCAN", "PLAN", "APPROVE", "TRANSFER", "VERIFY", "PROMOTE"),
         "states": ("READY", "ACTIVE", "DONE"),
         "deployed": "DEPLOYED",
-        "rollback": "ROLLBACK AVAILABLE",
-        "site_title": "Target architecture",
+        "pending": "IN PROGRESS",
+        "rollback": "ACKNOWLEDGED FILES ONLY",
+        "site_title": "Optional durable architecture (stateDir)",
         "site_nodes": ("AI agent", "Local control engine", "Policies", "Plan & journal", "Local configuration", "Remote server"),
     },
     "fr": {
         "banner_tagline": "Déploiement contrôlé pour agents IA",
         "banner_protocols": "FTP  /  FTPS  /  SFTP  ·  Serveur MCP",
-        "architecture_title": "Architecture de déploiement vérifié",
-        "architecture_subtitle": "Politique locale d’abord. Toute mutation distante suit un plan explicite.",
-        "architecture_steps": ("CLIENT MCP", "CONTRÔLE LOCAL", "PLANIFIER", "APPLIQUER", "VÉRIFIER", "RESTAURER"),
-        "recovery": "REPRISE SÛRE",
-        "flow_title": "Flux de déploiement vérifié",
-        "flow_subtitle": "Six contrôles explicites. Un état final vérifié.",
+        "architecture_title": "Déploiement durable optionnel",
+        "architecture_subtitle": "Activer stateDir. Confirmer chaque application ou restauration via MCP.",
+        "architecture_steps": ("CLIENT MCP", "CONTRÔLE LOCAL", "PLANIFIER", "CONFIRMER", "TRANSFÉRER", "PROMOUVOIR"),
+        "recovery": "RESTAURATION CONDITIONNELLE",
+        "flow_title": "Déploiement durable avec stateDir",
+        "flow_subtitle": "Confirmer le plan. Vérifier chaque fichier avant promotion.",
         "flow_steps": ("ANALYSER", "PLANIFIER", "APPROUVER", "TRANSFÉRER", "VÉRIFIER", "PROMOUVOIR"),
         "states": ("PRÊT", "ACTIF", "TERMINÉ"),
         "deployed": "DÉPLOYÉ",
-        "rollback": "RESTAURATION DISPONIBLE",
-        "site_title": "Architecture cible",
+        "pending": "EN COURS",
+        "rollback": "FICHIERS CONFIRMÉS SEULEMENT",
+        "site_title": "Architecture durable optionnelle (stateDir)",
         "site_nodes": ("Agent IA", "Moteur de contrôle local", "Politiques", "Plan & journal", "Configuration locale", "Serveur distant"),
     },
 }
@@ -259,38 +261,23 @@ def render_architecture(locale):
     label(draw, (64, 150), text["architecture_subtitle"], 26, fill=OFF_WHITE, anchor="la", max_width=1450)
     rule(draw, (64, 205, 1536, 205), fill=CYAN, width=2)
 
-    y1, y2, mid = 342, 498, 420
-    client = (54, y1, 214, y2)
-    control = (244, y1, 454, y2)
-    stage_boxes = [(494, y1, 644, y2), (684, y1, 834, y2), (874, y1, 1024, y2), (1064, y1, 1214, y2)]
-    target = (1254, 300, 1546, 540)
-    arrow(draw, (214, mid), (244, mid), fill=CYAN)
-    arrow(draw, (454, mid), (494, mid), fill=CYAN)
-    for left, right in zip(stage_boxes, stage_boxes[1:]):
-        arrow(draw, (left[2], mid), (right[0], mid), fill=CYAN)
-    arrow(draw, (1214, mid), (1254, mid), fill=GREEN)
-
-    architecture_font = 18 if locale == "fr" else 22
-    architecture_card(draw, client, steps[0], outline=CYAN, font_size=architecture_font)
-    architecture_card(draw, control, steps[1], outline=CYAN, icon="gate", font_size=architecture_font)
-    for index, bounds in enumerate(stage_boxes):
-        architecture_card(draw, bounds, steps[index + 2], outline=GREEN if index >= 2 else OFF_WHITE, font_size=architecture_font)
-
-    rounded(draw, target, fill=SURFACE, outline=GREEN, radius=16, width=2)
-    for index, protocol in enumerate(("FTP", "FTPS", "SFTP")):
-        row = (1276, 322 + index * 72, 1524, 378 + index * 72)
-        rounded(draw, row, fill=GRAPHITE, outline=CYAN if index < 2 else GREEN, radius=12, width=2)
-        label(draw, ((row[0] + row[2]) / 2, (row[1] + row[3]) / 2), protocol, 22, fill=OFF_WHITE, bold=True, mono=True, anchor="mm", fit_bounds=row, padding=12)
-
-    recovery = (684, 636, 1014, 716)
+    # A plan is confirmed before any remote mutation. Transfer and promotion
+    # run against the remote server; rollback is a separately confirmed branch.
+    boxes = [(64, 290, 354, 410), (434, 290, 784, 410), (864, 290, 1154, 410),
+             (864, 490, 1154, 610), (434, 490, 784, 610), (64, 490, 354, 610)]
+    for index, bounds in enumerate(boxes):
+        architecture_card(draw, bounds, steps[index], outline=CYAN if index < 4 else GREEN, font_size=24)
+    for a, b in [((354, 350), (434, 350)), ((784, 350), (864, 350)),
+                 ((1009, 410), (1009, 490)), ((864, 550), (784, 550)), ((434, 550), (354, 550))]:
+        arrow(draw, a, b, fill=CYAN)
+    label(draw, (609, 650), "FTP / FTPS / SFTP + SHA256", 22, fill=OFF_WHITE, anchor="mm")
+    recovery = (830, 730, 1536, 810)
     rounded(draw, recovery, fill=SURFACE, outline=GREEN, radius=16, width=2)
-    label(draw, (849, 676), text["recovery"], 22, fill=OFF_WHITE, bold=True, anchor="mm", max_width=290)
-    arrow(draw, (1139, 498), (1014, 676), fill=GREEN)
-    arrow(draw, (684, 676), (569, 498), fill=GREEN)
-
-    rounded(draw, (64, 810, 1536, 842), fill=SURFACE, outline=OFF_WHITE, radius=12, width=2)
-    rule(draw, (96, 826, 420, 826), fill=CYAN, width=4)
-    rule(draw, (1180, 826, 1504, 826), fill=GREEN, width=4)
+    label(draw, (1183, 770), text["recovery"], 26, fill=OFF_WHITE, bold=True, anchor="mm", max_width=660)
+    # Conditional return path from the completed operation, not a success stage.
+    rule(draw, (209, 610, 209, 770, 790, 770), fill=GREEN, width=2)
+    arrow(draw, (790, 770), (830, 770), fill=GREEN)
+    label(draw, (500, 730), text["rollback"], 19, fill=OFF_WHITE, anchor="mm", max_width=560)
     return finish(image, (1600, 900))
 
 
@@ -378,13 +365,15 @@ def render_flow(locale, frame=69):
             mode, state = "ready", states[0]
         flow_card(draw, stage_bounds, text["flow_steps"][index], state, mode, locale=locale)
 
-    rollback = (50, 512, 442, 568)
+    rollback = (50, 484, 470, 590)
     deployed = (838, 494, 1150, 574)
     rounded(draw, rollback, fill=SURFACE, outline=OFF_WHITE, radius=16, width=2)
-    label(draw, (246, 540), text["rollback"], 18, fill=OFF_WHITE, bold=True, anchor="mm", max_width=350, fit_bounds=rollback, padding=14)
+    label(draw, (260, 520), text["recovery"], 20, fill=OFF_WHITE, bold=True, anchor="mm", max_width=380, fit_bounds=rollback, padding=14)
+    label(draw, (260, 555), text["rollback"], 14, fill=OFF_WHITE, anchor="mm", max_width=380, fit_bounds=rollback, padding=14)
     rounded(draw, deployed, fill=SURFACE, outline=GREEN if active >= 6 else OFF_WHITE, radius=16, width=2)
-    label(draw, (994, 534), text["deployed"], 24, fill=GREEN if active >= 6 else OFF_WHITE, bold=True, anchor="mm", max_width=270, fit_bounds=deployed, padding=16)
-    arrow(draw, (838, 534), (470, 534), fill=GREEN if active >= 6 else OFF_WHITE)
+    label(draw, (994, 534), text["deployed"] if active >= 6 else text["pending"], 24, fill=GREEN if active >= 6 else OFF_WHITE, bold=True, anchor="mm", max_width=270, fit_bounds=deployed, padding=16)
+    if active >= 6:
+        arrow(draw, (838, 534), (500, 534), fill=GREEN)
     return finish(image, (1200, 675))
 
 

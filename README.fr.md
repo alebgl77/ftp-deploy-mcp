@@ -77,7 +77,7 @@ historique n'a ni transaction ni retour arrière.
 
 </div>
 
-Explorez les schémas d'architecture actuelle et cible et les scénarios illustratifs
+Explorez les schémas d'architecture de base et durable optionnelle et les scénarios illustratifs
 dans le [guide HTML interactif bilingue](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/index.html).
 Le guide et ses instructions
 de reconstruction en [anglais](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/site/README.md) et en
@@ -85,7 +85,10 @@ de reconstruction en [anglais](https://github.com/alebgl77/ftp-deploy-mcp/blob/m
 npm. Après clonage, ouvrez `site/index.html` localement et utilisez son
 sélecteur de langue.
 
-### Flux animé de déploiement vérifié
+### Flux animé de déploiement durable
+
+Ce flux exige `stateDir`. La restauration est confirmée séparément et limitée
+aux fichiers confirmés durablement ; l'outil de base `ftp_deploy` n'a pas de rollback.
 
 <div align="center">
 
@@ -122,7 +125,7 @@ remplacer les étapes 3–4. Relisez chaque serveur généré avant la première
 connexion.
 
 Pour une version étiquetée, sélectionnez son tag exact avant l'installation.
-`npm ci` utilise le seul fichier de référence `package-lock.json`, avec six
+`npm ci` utilise le seul fichier de référence `package-lock.json`, avec cinq
 dépendances directes épinglées exactement et le graphe revu. Conservez-le avec
 les sources. `--ignore-scripts` désactive les scripts automatiques de cycle de
 vie des dépendances ; le setup est une action explicite distincte.
@@ -402,9 +405,11 @@ requis `size_bytes` et `modified_at` de chaque entrée :
 Le texte historique, lisible par un humain dans `content`, est conservé pour
 compatibilité. En cas de succès, tous les outils sauf `ftp_read` annoncent
 aussi un `outputSchema` MCP et renvoient un `structuredContent` correspondant ;
-`ftp_read` conserve un succès texte borné. Chacun des neuf schémas structurés
-accepte soit sa forme stricte de succès, soit une enveloppe stricte `{error}`.
-Les erreurs d’exécution renvoient `isError: true`, un texte traduit, un code,
+`ftp_read` conserve un succès texte borné. Parmi les dix outils de base, les neuf
+schémas structurés acceptent leur forme stricte de succès ou une enveloppe
+stricte `{error}`. Avec `stateDir`, les quatre outils durables publient leurs
+propres schémas de succès et d'erreur. Les erreurs d'exécution des outils de
+base renvoient `isError: true`, un texte traduit, un code,
 un UUID de requête, les effets observés et une indication de reprise sûre.
 Un outil inconnu reste une erreur de protocole. Voir le
 [contrat d’erreur](./docs/ERROR-CONTRACT.fr.md).

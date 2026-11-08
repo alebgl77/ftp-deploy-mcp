@@ -5,6 +5,10 @@
 `ftp_upload`, `ftp_deploy` et `ftp_download` vérifient chaque fichier avant
 de le promouvoir vers sa destination demandée. Les noms des outils et les champs
 des réponses réussies restent identiques.
+Ce guide couvre ces trois outils de base. Les outils facultatifs de déploiement
+durable suivent un parcours distinct de planification, application, statut et
+retour arrière ; voir le [modèle de sécurité](./SECURITY-MODEL.fr.md) et le
+[modèle de workflow](./WORKFLOW-MODEL.fr.md).
 
 ## Envoi et déploiement
 
@@ -102,9 +106,11 @@ ni les bits de permissions spéciaux.
 
 Les relectures de vérification augmentent le trafic réseau et la latence.
 Un transfert réussi vérifie le contenu d'un fichier complet ; il ne constitue
-ni une optimisation de performances ni une transaction du site. Il n'existe
-pas de journal durable des transferts, de retour arrière automatique ou de
-nouvelle tentative automatique d'une mutation au résultat incertain.
+ni une optimisation de performances ni une transaction du site. Le parcours
+historique de transfert n'a pas de journal durable, de retour arrière automatique
+ou de nouvelle tentative d'une mutation au résultat incertain. Le workflow de
+déploiement durable, configuré séparément, journalise son propre état de
+planification, d'application et de retour arrière.
 
 L'annulation et les délais arrêtent les étapes suivantes et ferment le
 transport. Ils n'annulent pas une promotion déjà acceptée par le serveur ;
@@ -119,10 +125,19 @@ L'identité de création conserve en interne la racine et le chemin canoniques
 initiaux. Le nettoyage peut donc laisser ce temporaire sous l'ancienne racine
 pour inspection manuelle, afin de préserver un fichier tiers sous la nouvelle.
 
-Les verrous protègent un seul processus Node.js. Ils ne coordonnent pas les
-processus distincts, les écritures distantes ou les autres programmes partageant
-un hôte. La validation ne prétend pas protéger contre les courses malveillantes
-sur les chemins ou les sources par le même utilisateur du système d'exploitation.
+Sans `stateDir`, les verrous de mutation coordonnent un seul processus Node.js.
+Avec `stateDir`, les mutations distantes historiques acquièrent aussi un verrou
+persistant dérivé de l'alias exact du serveur configuré, avant l'ouverture de
+l'adaptateur. Il coordonne les processus coopérants partageant le même `stateDir`
+canonique et le même alias, y compris les appels durables d'application et de
+retour arrière. Les alias ou répertoires d'état distincts et les programmes
+externes ne sont pas coordonnés. `requirePlan:true` refuse les mutations distantes
+historiques. Les verrous de destination des téléchargements restent locaux au
+processus. Un verrou persistant laissé par un crash exige une récupération hors
+ligne ; il n'est pas repris à l'expiration d'un délai. Voir le
+[modèle de sécurité](./SECURITY-MODEL.fr.md). La validation ne prétend pas protéger
+contre les courses malveillantes sur les chemins ou les sources par le même
+utilisateur du système d'exploitation.
 Les fichiers sélectionnés et les entrées visitées ont des quotas distincts. Le
 parcours local asynchrone borne les entrées et la profondeur ; les fermetures
 restent attendues après annulation. Le processus admet au plus 64 appels et
@@ -136,5 +151,6 @@ FCHMOD restrictif, son FSTAT de confirmation et les WRITE séquentiels bornés ;
 le CLOSE reste attendu en cas d'échec ou d'annulation. La promotion lit les
 droits existants dans le résultat privé de `safePath` de l'adaptateur.
 Le mode initial du temporaire circule uniquement entre l'adaptateur et le
-module de transfert. Ces détails internes pourront servir à de futurs travaux ;
-cette version ne les persiste pas dans un journal de retour arrière.
+module de transfert. Le module de transfert historique ne persiste pas ces
+détails dans un journal de retour arrière. Les outils durables utilisent leurs
+propres contrats de plan et de journal.

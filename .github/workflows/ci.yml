@@ -49,6 +49,9 @@ jobs:
       - name: Validate bilingual documentation
         run: node scripts/check-docs.mjs
 
+      - name: Check runtime and guide coherence
+        run: node scripts/check-coherence.mjs
+
       - name: Check generated bilingual guide
         run: node scripts/build-guide.mjs --check
 

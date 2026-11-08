@@ -25,11 +25,18 @@ Les éléments traduits comprennent les aides générale et par sous-commande,
 les questions et choix de l’installation, les libellés et conseils des tests
 de connexion, les diagnostics doctor, les avertissements d’import FileZilla
 et les messages de démarrage ou d’erreur fatale, les titres et descriptions
-MCP et les descriptions des paramètres. Les messages propres au projet pour
-la configuration, les chemins, la sécurité, les transports et transferts,
-les succès métier et les enveloppes d’erreur utilisent la langue choisie.
-Les codes publics et clés des résultats restent stables ; voir le
-[contrat d’erreur](./ERROR-CONTRACT.fr.md).
+MCP et les descriptions des paramètres. Pour les dix outils de base, les
+messages propres au projet pour la configuration, les chemins, la sécurité,
+les transports et transferts, les succès métier et les enveloppes d’erreur
+utilisent la langue choisie. Les codes publics et clés des résultats restent
+stables ; voir le [contrat d’erreur](./ERROR-CONTRACT.fr.md).
+
+Les quatre outils durables optionnels ont aussi des titres, descriptions et
+métadonnées de paramètres traduits. Leurs textes de succès, erreurs et demandes
+de confirmation propres au workflow restent actuellement en anglais, même
+avec `--lang fr`. Les erreurs communes du registre utilisent toujours la langue
+choisie. La suite bilingue scriptée vérifie les dix outils de base ; elle ne
+qualifie pas une localisation complète du workflow durable.
 
 Les détails natifs d’erreurs système ou réseau restent des données provenant
 de leur source. Le contenu distant, les noms de serveurs, identifiants,

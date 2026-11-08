@@ -4,6 +4,9 @@
 
 `ftp_upload`, `ftp_deploy` and `ftp_download` verify each file before promoting
 it to its requested destination. Tool names and success fields remain unchanged.
+This guide covers these three base tools. The optional durable deployment tools
+use a separate plan/apply/status/rollback workflow; see the
+[security model](./SECURITY-MODEL.md) and [workflow model](./WORKFLOW-MODEL.md).
 
 ## Upload and deployment
 
@@ -105,9 +108,16 @@ canonical root and path internally. Cleanup may therefore leave the owned
 temporary under the old root for manual inspection instead of risking an
 unrelated file under the new root.
 
-Locks protect only one Node.js process. They do not coordinate separate
-processes, remote writers or other programs sharing a host. Validation does not
-claim protection against malicious same-OS-user path or source-file races.
+Without `stateDir`, mutation locks coordinate only one Node.js process. With
+`stateDir`, legacy remote mutations also acquire a persistent lock derived from
+the exact configured server alias before opening the adapter. This coordinates
+cooperating processes sharing the same canonical `stateDir` and alias, including
+durable apply/rollback calls. Different aliases or state directories and external
+writers are not coordinated. `requirePlan:true` refuses legacy remote mutations.
+Download destination locks remain process-local. Persistent locks left by a crash
+require offline recovery; they are not stolen after a timeout. See the
+[security model](./SECURITY-MODEL.md). Validation does not claim protection
+against malicious same-OS-user path or source-file races.
 Selected files and visited entries have separate quotas. Asynchronous local
 scanning bounds entries and depth, and awaits directory close after cancellation.
 The process admits at most 64 calls and retains their slots until actual worker
@@ -119,5 +129,6 @@ Internally, SFTP keeps an exclusive handle through initial FSTAT, restrictive
 FCHMOD, confirming FSTAT and sequential bounded WRITE calls; CLOSE remains
 awaited on failure or cancellation. Promotion reads existing mode bits via
 the adapter's private `safePath` result. The initial temporary mode travels
-only between adapter and transfer helper. These are internal details available
-for future work; this release does not persist them in a rollback journal.
+only between adapter and transfer helper. The legacy transfer helper does not
+persist these details in a rollback journal. Durable tools use their separate
+plan and journal contracts.

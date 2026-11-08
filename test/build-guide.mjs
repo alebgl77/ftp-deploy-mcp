@@ -6,8 +6,52 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { runInNewContext } from "node:vm";
+import { validateCoherence } from "../scripts/check-coherence.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+
+test("guide facts stay connected to runtime tools, sources and roadmap dependencies", () => {
+  const data = JSON.parse(readFileSync(path.join(root, "site/project-data.json"), "utf8"));
+  assert.equal(validateCoherence(root, data).baseTools, 10);
+  for (const mutate of [
+    (content) => { content.toolCount += 1; },
+    (content) => { content.nodes.find((node) => node.id === "state").optional = false; },
+    (content) => { content.nodes[0].source = "src/missing.js"; },
+    (content) => { content.roadmap[0].dependencies = [content.roadmap[0].id]; },
+  ]) {
+    const broken = structuredClone(data);
+    mutate(broken.locales.en);
+    assert.throws(() => validateCoherence(root, broken));
+  }
+});
+
+test("base and durable diagrams show the right nodes, connections and text alternative", () => {
+  const template = readFileSync(path.join(root, "site/guide.template.html"), "utf8");
+  const declaration = template.slice(template.indexOf("  const drawArchitecture = "), template.indexOf('  for (const mode of ["current", "target"])'));
+  const data = JSON.parse(readFileSync(path.join(root, "site/project-data.json"), "utf8")).locales.en;
+  const element = (tag, attrs = {}, text) => ({ tag, attrs, text, children: [],
+    addEventListener() {},
+    append(...children) { this.children.push(...children); },
+    replaceChildren(...children) { this.children = children; },
+    setAttribute(key, value) { this.attrs[key] = value; },
+  });
+  for (const architectureView of ["current", "target"]) {
+    const elements = { "architecture-svg": element("svg"), "architecture-text": element("ul") };
+    let selected;
+    runInNewContext(`${declaration}\ndrawArchitecture();`, {
+      data, language: "en", architectureView, selectedNode: "state", t: (key) => key,
+      $: (id) => elements[id], s: element, el: (tag, text) => element(tag, {}, text),
+      set() {}, showNode(id) { selected = id; }, document: { createTextNode: (text) => text },
+    });
+    const children = elements["architecture-svg"].children;
+    const hasState = children.some((child) => child.attrs?.["data-node"] === "state");
+    const hasEdge = children.some((child) => child.attrs?.["data-edge"] === "core-state");
+    assert.equal(hasState, architectureView === "target");
+    assert.equal(hasEdge, hasState, "Every displayed durable state node must connect to the core");
+    assert.equal(elements["architecture-text"].children.length, hasState ? 7 : 6);
+    assert.equal(selected, hasState ? "state" : "core", "Switching modes must not leave a hidden node selected");
+  }
+});
 
 test("illustration URLs preserve PNG bytes and reject active content in the gallery and modal", async () => {
   const template = readFileSync(path.join(root, "site/guide.template.html"), "utf8");

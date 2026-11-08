@@ -4,7 +4,9 @@
 
 This single HTML guide documents the architecture, flows, evidence and roadmap of `ftp-deploy-mcp` in French and English. It works offline and makes no deployment calls.
 
-The overview identifies release 0.3.2 and its optional durable workflow. Evidence
+The overview identifies release 0.3.2 and its optional durable workflow. The
+architecture views compare **Base: 10 tools** with **With stateDir: 14 tools**.
+Both describe available configurations; the second is not a future architecture. Evidence
 cards retain their own commit, run or artifact scope; historical pass counts are
 not a fresh qualification of the current release. Current distribution links and
 guarantees are maintained in the [README](../README.md) and [release guide](../docs/RELEASE.md).
@@ -24,6 +26,7 @@ To validate documentation without rebuilding the tracked HTML:
 
 ```sh
 node scripts/check-docs.mjs
+node scripts/check-coherence.mjs
 node scripts/build-guide.mjs --check
 node --test test/build-guide.mjs
 ```
@@ -31,6 +34,9 @@ node --test test/build-guide.mjs
 `--check` validates both locales and compares the expected HTML byte for byte with `site/index.html`, without writing any file. Missing or stale output fails the check; rebuild and review it before committing. The tests use isolated temporary fixtures to cover translation drift, escaped injection data, modified HTML and deterministic builds. These commands also run in CI and in both manual publication workflows before artifact preparation or registry publication. They require only Node and the checkout, with no browser or additional dependency.
 
 `check-docs.mjs` discovers Markdown language pairs directly in the repository root, `docs`, `evaluations`, `site`, `assets/provenance` and `test/fixtures/transport`. A new document in these directories must have both versions and reciprocal language links. Add any new documentation directory to the script’s explicit list; discovery does not recurse into dependencies or private state. The canonical English `LICENSE` and its French translation are checked separately.
+
+`check-coherence.mjs` compares runtime/package versions and tool counts, checks
+local imports and source paths, and rejects broken or cyclic roadmap references.
 
 ## Languages and interactions
 
@@ -40,11 +46,11 @@ Switching language preserves the architecture view, selected component, zoom, sc
 
 ## Sources and updates
 
-- `project-data.json`: matching `locales.fr` and `locales.en` content, facts, source revision, evidence, work packages, scenarios, commits and image provenance. Update both locales together and keep historical results scoped to their original revision.
+- `project-data.json`: matching `locales.fr` and `locales.en` content, base/durable tool counts, optional component flags, source revision, evidence, work packages, scenarios, commits and image provenance. Update both locales together and keep historical results scoped to their original revision.
 - `i18n.json`: matching interface strings, accessible labels and export labels. `static` keys identify French text in the shared template; values contain each translation. `dynamic` entries use named placeholders.
 - `guide.template.html`: one shared layout, styles and renderer. Data is inserted through `textContent`, without rendering untrusted HTML.
-- `assets/architecture-cible.png` and `assets/architecture-target.png`: French and English ChatGPT Image concept illustrations; both are embedded in the output.
-- `assets/architecture-cible.prompt.txt` and `assets/architecture-target.prompt.txt`: exact original prompts, also copied into the data for offline provenance.
+- `assets/architecture-cible.png` and `assets/architecture-target.png`: French and English deterministic illustrations of the optional durable workflow, produced by `scripts/visuals/render_brand_assets.py`; both are embedded in the output.
+- `assets/architecture-cible.prompt.txt` and `assets/architecture-target.prompt.txt`: historical concept briefs. The data retains earlier concept prompts verbatim as design archives; these records do not describe production of the final deterministic images.
 - `index.html`: generated output. Edit sources and rebuild; escaped JSON and base64 PNGs are embedded.
 - `../scripts/build-guide.mjs`: deterministic assembly. Missing translations, inconsistent keys/array lengths, changed identifiers/statuses/numeric facts, unmatched placeholders, untranslated static labels and invalid image paths/signatures fail the build. Prose still requires bilingual editorial review.
 
@@ -54,4 +60,4 @@ Internal source links use the data's `head` commit; history entries keep their o
 
 **Delivered** means the work package's criteria and evidence are documented. **In progress** denotes incomplete work; **Planned** describes a target addition. Progress counts delivered work packages without weighting their effort or promising a delivery date.
 
-Scenarios are educational sequences, not executed tests. Target illustrations are not functional evidence. A passing CI does not by itself qualify autonomous production deployment or a multiuser service. Transfer guarantees depend on protocol/server capabilities, and process-local locks do not establish multiprocess exclusion.
+Scenarios are educational sequences, not executed tests. Durable workflow illustrations are not functional evidence. They require `stateDir`; rollback remains explicit and limited to durably acknowledged files. A passing CI does not by itself qualify autonomous production deployment or a multiuser service. Transfer guarantees depend on protocol/server capabilities, and process-local locks do not establish multiprocess exclusion.

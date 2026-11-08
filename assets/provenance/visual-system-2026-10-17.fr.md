@@ -11,6 +11,15 @@ repli et GIF de flux de 1200 × 675, ainsi que les deux architectures du site de
 
 ## Invariants de marque
 
+Mise en cohérence du 8 novembre 2026 : les images d'architecture et de flux
+nomment le workflow optionnel `stateDir`. La confirmation précède les écritures
+distantes ; la restauration est une branche conditionnelle séparée, limitée
+aux fichiers confirmés durablement. L'animation affiche EN COURS avant l'état
+terminé. Le guide reprend le même symbole de passage, la typographie sans serif
+et les couleurs graphite/cyan/vert, avec des textes cyan/vert plus foncés sur
+fond clair pour leur lisibilité. Les prompts historiques sont conservés ; les
+pixels finaux proviennent du script de rendu.
+
 - Concept : transfert vérifié sous contrôle local.
 - Symbole : un passage ouvert abstrait traversé par une trajectoire vers
   l’avant qui se résout en validation ; ce n’est ni un cadenas ni un bouclier.
@@ -61,8 +70,8 @@ Le moteur utilise Segoe UI, Segoe UI Bold et Cascadia Mono via Pillow, avec un
 rendu en résolution 2× puis un rééchantillonnage LANCZOS. Le logo et les
 signatures restent des SVG éditables. Chaque GIF contient 70 images de 100 ms :
 7,0 secondes à 10 fps, en boucle infinie. Les versions anglaise et française
-partagent géométrie, nombre d’images, durée et boucle. Seuls la progression et
-l’état actif/terminé évoluent. La dernière image sert aussi de PNG de repli pour
+partagent géométrie, nombre d'images, durée et boucle. La progression,
+l'état actif/terminé et le libellé du résultat évoluent. La dernière image sert aussi de PNG de repli pour
 le mouvement réduit.
 
 Ces images sont des aides documentaires, et non une certification de sécurité

@@ -28,7 +28,7 @@ exécutez `git diff --check`.
 ## Mettre à jour le graphe de dépendances
 
 `package-lock.json` est l'unique fichier de verrouillage de référence ;
-n'ajoutez pas de `npm-shrinkwrap.json` parallèle. Les six dépendances directes de
+n'ajoutez pas de `npm-shrinkwrap.json` parallèle. Les cinq dépendances directes de
 production sont épinglées à une version exacte. L'installation courante utilise
 `npm ci --ignore-scripts` et ne doit pas réécrire le graphe.
 
@@ -43,7 +43,14 @@ dépendances et les contrôles de l'archive exacte et du consommateur isolé du
 [guide de publication](./docs/RELEASE.fr.md). Présentez ensemble les modifications
 des sources, du manifeste et du verrouillage source pour la revue.
 
-La distribution d'installation source contient 90 fichiers, dont ce verrouillage. Le paquet npm distinct contient 89 fichiers sans verrouillage et reste non qualifié après dix dérives observées dans une installation réelle. Les contrôles du graphe installé comparent aussi les dépendances transitives et les peers à l'inventaire source original ; tout écart bloque la publication npm/MCP.
+La distribution d'installation source contient 90 fichiers, dont ce verrouillage.
+Le paquet npm distinct contient 89 fichiers sans verrouillage. Une ancienne
+tentative de qualification avec npm 10.9.8 a changé dix dépendances de production ;
+ce résultat décrit le candidat refusé, pas la disponibilité actuelle au registre.
+Les références des distributions publiées figurent dans le [guide de publication](./docs/RELEASE.fr.md).
+Chaque nouveau candidat doit passer les contrôles du graphe installé face à
+l'inventaire source original, y compris les dépendances transitives et les peers ;
+tout écart bloque la publication npm/MCP.
 
 ## Principes
 
@@ -102,7 +109,7 @@ concernés par le changement ; gardez les assertions existantes activées.
 
 ## Publication (mainteneurs)
 
-N'improvisez pas la première publication à partir de cette courte section.
+N'improvisez pas une publication à partir de cette courte section.
 Suivez le [guide de publication](./docs/RELEASE.fr.md), qui couvre :
 
 - la concordance des versions du paquet, du verrouillage source, du serveur et du tag,
@@ -115,6 +122,6 @@ Suivez le [guide de publication](./docs/RELEASE.fr.md), qui couvre :
 - les vérifications après publication et le rétablissement par une nouvelle
   version corrective.
 
-Le paquet npm et l'entrée du registre MCP ne sont disponibles qu'une fois
-tous les prérequis manuels applicables et toutes les vérifications de ce
-guide satisfaits.
+La disponibilité publiée et la qualification d'un nouveau candidat sont distinctes.
+Consultez ce guide pour les références des distributions actuelles et satisfaites
+tous les prérequis manuels et contrôles applicables avant chaque nouvelle publication.

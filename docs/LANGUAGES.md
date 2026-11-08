@@ -24,10 +24,17 @@ such as `LANG` are not used.
 Translated surfaces include general and subcommand help, setup prompts and
 choices, connection-test labels and hints, doctor diagnostics, FileZilla import
 warnings, server startup/fatal messages, MCP tool titles/descriptions and input
-field descriptions. First-party configuration, path, security, transport and
-transfer messages, business success text and error envelopes use the selected
-language. Public error codes and result field names remain stable; see the
-[error contract](./ERROR-CONTRACT.md).
+field descriptions. For the ten base tools, first-party configuration, path,
+security, transport and transfer messages, business success text and error
+envelopes use the selected language. Public error codes and result field names
+remain stable; see the [error contract](./ERROR-CONTRACT.md).
+
+The four optional durable tools also have translated titles, descriptions and
+input-field metadata. Their workflow-specific success text, errors and
+confirmation prompts currently remain in English, including with `--lang fr`.
+Shared registry errors still use the selected language. The bilingual scripted
+suite checks the ten base tools; it does not qualify complete durable-workflow
+localization.
 
 Native filesystem or network error details remain data from their original
 source. Remote content, server names, identifiers, paths, protocol values,
