@@ -86,5 +86,10 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "cacache@19.0.1": {
+      "glob": "14.0.2"
+    }
   }
 }

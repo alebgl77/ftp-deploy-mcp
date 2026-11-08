@@ -39,6 +39,25 @@ identités plutôt que la disposition des arêtes CycloneDX, car npm peut aplati
 ou dédupliquer les chemins ; le contrôle release-graph séparé valide le graphe
 de production installé par rapport au lockfile faisant autorité.
 
+## Exception pour l’outillage SBOM optionnel
+
+La chaîne de compilation XML optionnelle de `@cyclonedx/cyclonedx-npm@6.0.1`
+utilise `libxmljs2 -> node-gyp -> make-fetch-happen -> cacache@19.0.1 -> glob`.
+Dependabot ne peut pas faire passer sa dépendance `minimatch@9` à la version
+majeure corrigée. Une exception contrôlée sélectionne donc `glob@14.0.2`
+uniquement sous `cacache@19.0.1` ; le lockfile résout un `minimatch` corrigé
+(>=11.0.1). Mettre à jour glob avec sa dépendance compatible évite d’imposer une
+nouvelle API minimatch à l’ancienne implémentation de glob. Cela corrige
+[GHSA-g3hv-75wg-m249](https://github.com/advisories/GHSA-g3hv-75wg-m249) et
+[GHSA-3g3m-2fjr-6pw4](https://github.com/advisories/GHSA-3g3m-2fjr-6pw4).
+
+Le contrôle de publication accepte uniquement cet override exact, exige que les
+paquets concernés restent des dépendances de développement optionnelles et
+refuse toute référence de production vers eux. Tous les autres overrides restent
+interdits. La CI teste la vérification et le nettoyage du cache avec le glob
+corrigé, ainsi que le contrat existant de génération du SBOM. Supprimer cette
+exception lorsque la chaîne amont ne contient plus `cacache@19.0.1`.
+
 ## Prérequis manuels
 
 Effectuez ces étapes hors du dépôt avant de déclencher une publication npm ou MCP :

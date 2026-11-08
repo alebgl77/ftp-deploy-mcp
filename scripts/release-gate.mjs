@@ -16,18 +16,54 @@ export const PRODUCTION_PINS = Object.freeze({
 export const MCP_DEVELOPMENT_PINS = Object.freeze({
   "@modelcontextprotocol/client": "2.3.1", "@modelcontextprotocol/core": "2.3.1",
 });
+// Temporary, reviewed exception for the optional CycloneDX XML build chain.
+// Updating minimatch alone across major versions breaks glob's internal contract.
+export const DEVELOPMENT_OVERRIDES = Object.freeze({
+  "cacache@19.0.1": Object.freeze({ glob: "14.0.2" }),
+});
+
+function validateDevelopmentOverrides(pkg, lock) {
+  const records = Object.entries(lock.packages).filter(([key]) => key);
+  const named = (name) => records.filter(([key]) => key.split("node_modules/").at(-1) === name);
+  const parents = named("cacache").filter(([, record]) => record.version === "19.0.1");
+  if (!parents.length && !Object.hasOwn(pkg, "overrides")) return;
+  assert.deepEqual(pkg.overrides, DEVELOPMENT_OVERRIDES, "Only the reviewed development override is allowed");
+  assert.ok(parents.length, "Remove the development override once its parent is gone");
+  for (const name of ["cacache", "glob", "minimatch"]) {
+    const packages = named(name);
+    assert.ok(packages.length, `Missing overridden development dependency: ${name}`);
+    for (const [key, record] of packages) {
+      assert.equal(record.dev, true, `Development override must not affect production: ${key}`);
+      assert.equal(record.optional, true, `Development override is limited to optional XML tooling: ${key}`);
+      if (name === "glob") assert.equal(record.version, "14.0.2", "The reviewed glob version is required");
+      if (name === "minimatch") {
+        assert.match(record.version, /^\d+\.\d+\.\d+$/, "Stable minimatch version required");
+        const [major, minor, patch] = record.version.split(".").map(Number);
+        assert.ok(major > 11 || (major === 11 && (minor > 0 || patch >= 1)), "minimatch must include the globparts amplification fix");
+      }
+    }
+    // A dev flag alone cannot hide a reference from a production package.
+    for (const record of [pkg, ...records.filter(([, value]) => value.dev !== true).map(([, value]) => value)]) {
+      for (const field of ["dependencies", "optionalDependencies", "peerDependencies"]) {
+        assert.ok(!Object.hasOwn(record[field] ?? {}, name), `Production must not reference overridden ${name}`);
+      }
+    }
+  }
+}
 export function validateDependencies(pkg, lock) {
   assert.equal(lock.lockfileVersion, 3, "package-lock.json must use lockfile version 3");
   const root = lock.packages?.[""];
   assert.ok(root, "Package lock root is required");
   for (const [label, manifest] of [["package.json", pkg], ["Package lock root", root]]) {
-    for (const field of ["optionalDependencies", "peerDependencies", "peerDependenciesMeta", "bundledDependencies", "bundleDependencies", "overrides", "workspaces"]) {
+    for (const field of ["optionalDependencies", "peerDependencies", "peerDependenciesMeta", "bundledDependencies", "bundleDependencies", "workspaces"]) {
       assert.ok(!Object.hasOwn(manifest, field), `${label} must not declare ${field}`);
     }
     for (const hook of ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare", "prepublishOnly", "prepack", "postpack", "publish", "postpublish"]) {
       assert.ok(!Object.hasOwn(manifest.scripts ?? {}, hook), `${label} must not declare the ${hook} lifecycle hook`);
     }
   }
+  assert.ok(!Object.hasOwn(root, "overrides"), "Package lock root must not declare overrides");
+  validateDevelopmentOverrides(pkg, lock);
   assert.deepEqual(pkg.dependencies, PRODUCTION_PINS, "Production dependencies must match the reviewed exact pins");
   assert.deepEqual(root.dependencies, pkg.dependencies, "Package lock root dependency mismatch");
   assert.deepEqual(root.devDependencies, pkg.devDependencies, "Package lock root development dependency mismatch");
