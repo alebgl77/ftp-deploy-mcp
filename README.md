@@ -1,23 +1,8 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/logo.svg" width="96" alt="ftp-deploy-mcp logo">
-
 # ftp-deploy-mcp
 
-**The deploy button for AI coding agents.**
-
-Give Claude Code, Claude Desktop, Cursor, Windsurf, Trae, Antigravity, or any
-MCP client a focused way to list, read, upload, download, and deploy files on
-your own FTP, FTPS, and SFTP servers.
-
-The stdio server implements MCP revision `2026-07-28` through the stable
-modular TypeScript SDK v2 and retains the SDK's legacy negotiation path for
-older MCP clients.
-
-*Version française → [README.fr.md](./README.fr.md)*
-
-CLI and MCP language: English by default; use `--lang fr` or `FTP_MCP_LANG=fr`.
-[Language scope and precedence](./docs/LANGUAGES.md).
+**Deploy a local directory to your server from an MCP client.**
 
 [![CI](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -26,12 +11,61 @@ CLI and MCP language: English by default; use `--lang fr` or `FTP_MCP_LANG=fr`.
 
 <img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/banner-en.png" width="100%" alt="ftp-deploy-mcp — Controlled deployment for your AI agents; FTP, FTPS, SFTP over MCP stdio">
 
+[Installation](#first-source-install) · [MCP tools](#tool-reference) · [Architecture](#architecture-and-scenarios) · [Français](./README.fr.md)
+
 </div>
 
-Purpose-built deployment controls keep credentials out of tool responses,
-support read-only servers and dry runs, and limit local file access with
-`localRoot`. The repository is covered by an extensive end-to-end suite that
-runs against local FTP and SFTP servers. There is no telemetry.
+Connect Claude Code, Claude Desktop, Cursor, Windsurf, Trae, Antigravity or another MCP client to your FTP, FTPS and SFTP servers.
+
+## First source install
+
+With Node.js 22, 24 or 26 installed, run these commands in a terminal.
+
+```sh
+git clone https://github.com/alebgl77/ftp-deploy-mcp.git
+cd ftp-deploy-mcp
+npm ci --omit=dev --ignore-scripts
+npm run setup
+```
+
+1. In the generated configuration, set an absolute `localRoot` and supply your credentials. For SFTP, verify the host-key fingerprint. For FTP or FTPS, review the [protocol matrix](#protocol-and-security-matrix).
+2. Put a test file in `dist` under `localRoot`. Restart your MCP client, then request a dry run using your configured server alias (shown here as `prod`).
+
+```text
+Call ftp_deploy with:
+{"server":"prod","local_dir":"dist","remote_dir":"/","dry_run":true}
+```
+
+Windows users can run `install.cmd` and macOS/Linux users can run
+`./install.sh` instead of the two npm commands. Review every generated server entry before
+the first connection.
+
+<details>
+<summary>Install a tagged release and verify its source archive</summary>
+
+For a tagged version, check out that exact tag before installing. `npm ci` uses
+the sole authoritative `package-lock.json`, with five exact direct pins and the
+reviewed graph. Keep it with the sources. `--ignore-scripts` disables automatic
+dependency lifecycle scripts; setup is a separate, explicit action.
+
+The v0.3.2 source installation asset is named
+`ftp-deploy-mcp-0.3.2-source.tar.gz`: 90 files, including that lockfile. Verify
+its publication and checksums before extracting it in a fresh directory:
+
+```bash
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.2-source.tar.gz
+cd package
+npm ci --omit=dev --ignore-scripts
+node src/index.js setup
+```
+
+This installation archive excludes repository tests and maintainer scripts;
+GitHub's automatic source ZIP/tar contains the complete repository. The separate
+npm `.tgz` contains 89 files without a lockfile and follows npm dependency
+resolution. It provides no locked-install guarantee. See the
+[release guide](./docs/RELEASE.md) for verification and limits.
+
+</details>
 
 > **Availability:** version **0.3.2** is published on
 > [npm](https://www.npmjs.com/package/ftp-deploy-mcp/v/0.3.2) and the
@@ -46,27 +80,6 @@ runs against local FTP and SFTP servers. There is no telemetry.
 Enabling `stateDir` adds four durable tools with MCP confirmation, explicit resume
 and conservative rollback of acknowledged changes. These guarantees belong to
 the optional durable workflow; legacy `ftp_deploy` has no transaction or rollback.
-
-## Documentation
-
-| Document | English | Français |
-|---|---|---|
-| Overview and installation | [README](./README.md) | [README](./README.fr.md) |
-| Changes | [Changelog](./CHANGELOG.md) | [Modifications](./CHANGELOG.fr.md) |
-| Contributing | [Guide](./CONTRIBUTING.md) | [Guide](./CONTRIBUTING.fr.md) |
-| Security policy | [Policy](./SECURITY.md) | [Politique](./SECURITY.fr.md) |
-| Security model | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
-| Release process | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
-| Agent evaluation | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
-| Agent performance and client integration | [Guide](./docs/AGENT-PERFORMANCE.md) | [Guide](./docs/AGENT-PERFORMANCE.fr.md) |
-| Scripted MCP conformance | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
-| CLI and MCP languages | [Guide](./docs/LANGUAGES.md) | [Guide](./docs/LANGUAGES.fr.md) |
-| MCP error contract | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |
-| Verified staged transfers | [Guide](./docs/TRANSFERS.md) | [Guide](./docs/TRANSFERS.fr.md) |
-| Scan and admission limits | [Limits](./docs/RESOURCE-BOUNDS.md) | [Limites](./docs/RESOURCE-BOUNDS.fr.md) |
-| Durable state storage | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
-| Durable workflow model | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
-| MIT license | [Canonical text](./LICENSE) | [Informative translation](./LICENSE.fr.md) |
 
 ## Architecture and scenarios
 
@@ -90,11 +103,11 @@ durably acknowledged files; the base `ftp_deploy` tool has no rollback.
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.gif" width="100%" alt="Animated verified deployment flow: scan, plan, approve, transfer, verify, and promote with a rollback safety path.">
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.png" width="100%" alt="Verified deployment flow: scan, plan, approve, transfer, verify, and promote with a rollback safety path.">
 
 </div>
 
-For reduced motion, view the [static completed-state image](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.png).
+[Play the animated walkthrough (GIF)](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow.gif).
 See the [visual system provenance and generation notes](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/visual-system-2026-10-17.md).
 
 The visual direction was explored with ChatGPT Image; the final README assets
@@ -102,47 +115,38 @@ are rendered deterministically. Their
 [provenance and exact prompts](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/README.md)
 document their illustrative role; they are not a certification.
 
-## First source install
+## Documentation
 
-1. Install a supported Node.js version: 22, 24 or 26 (minimum: 22).
-2. Run `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, then
-   `cd ftp-deploy-mcp`.
-3. Run `npm ci --omit=dev --ignore-scripts`.
-4. Run `npm run setup`, then edit the generated server config: set an absolute
-   `localRoot`, replace credentials, and configure the SFTP host-key pin or the
-   FTP/FTPS safety acknowledgments described below.
-5. Restart the MCP client and try a dry run:
+| Document | English | Français |
+|---|---|---|
+| Overview and installation | [README](./README.md) | [README](./README.fr.md) |
+| Changes | [Changelog](./CHANGELOG.md) | [Modifications](./CHANGELOG.fr.md) |
+| Contributing | [Guide](./CONTRIBUTING.md) | [Guide](./CONTRIBUTING.fr.md) |
+| Security policy | [Policy](./SECURITY.md) | [Politique](./SECURITY.fr.md) |
+| Security model | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
+| Release process | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
+| Agent evaluation | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
+| Agent performance and client integration | [Guide](./docs/AGENT-PERFORMANCE.md) | [Guide](./docs/AGENT-PERFORMANCE.fr.md) |
+| Scripted MCP conformance | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
+| CLI and MCP languages | [Guide](./docs/LANGUAGES.md) | [Guide](./docs/LANGUAGES.fr.md) |
+| MCP error contract | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |
+| Verified staged transfers | [Guide](./docs/TRANSFERS.md) | [Guide](./docs/TRANSFERS.fr.md) |
+| Scan and admission limits | [Limits](./docs/RESOURCE-BOUNDS.md) | [Limites](./docs/RESOURCE-BOUNDS.fr.md) |
+| Durable state storage | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
+| Durable workflow model | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
+| MIT license | [Canonical text](./LICENSE) | [Informative translation](./LICENSE.fr.md) |
 
-```text
-Call ftp_deploy with:
-{"server":"prod","local_dir":"dist","remote_dir":"/","dry_run":true}
-```
+The stdio server implements MCP revision `2026-07-28` through the stable
+modular TypeScript SDK v2 and retains the SDK's legacy negotiation path for
+older MCP clients.
 
-Windows users can run `install.cmd` and macOS/Linux users can run
-`./install.sh` instead of steps 3–4. Review every generated server entry before
-the first connection.
+CLI and MCP language: English by default; use `--lang fr` or `FTP_MCP_LANG=fr`.
+[Language scope and precedence](./docs/LANGUAGES.md).
 
-For a tagged version, check out that exact tag before installing. `npm ci` uses
-the sole authoritative `package-lock.json`, with five exact direct pins and the
-reviewed graph. Keep it with the sources. `--ignore-scripts` disables automatic
-dependency lifecycle scripts; setup is a separate, explicit action.
-
-Once published, the v0.3.2 source installation asset is named
-`ftp-deploy-mcp-0.3.2-source.tar.gz`: 90 files, including that lockfile. Verify
-its publication and checksums before extracting it in a fresh directory:
-
-```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.2-source.tar.gz
-cd package
-npm ci --omit=dev --ignore-scripts
-node src/index.js setup
-```
-
-This installation archive excludes repository tests and maintainer scripts;
-GitHub's automatic source ZIP/tar contains the complete repository. The separate
-npm `.tgz` contains 89 files without a lockfile and follows npm dependency
-resolution. It provides no locked-install guarantee. See the
-[release guide](./docs/RELEASE.md) for verification and limits.
+Purpose-built deployment controls keep credentials out of tool responses,
+support read-only servers and dry runs, and limit local file access with
+`localRoot`. The repository is covered by an extensive end-to-end suite that
+runs against local FTP and SFTP servers. There is no telemetry.
 
 ## Protocol and security matrix
 

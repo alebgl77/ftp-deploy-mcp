@@ -10,7 +10,7 @@ export const MCP_NAME = "io.github.alebgl77/ftp-deploy-mcp";
 export const SCHEMA = "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
 
 export const PRODUCTION_PINS = Object.freeze({
-  "@modelcontextprotocol/server": "2.3.1", "basic-ftp": "6.2.3", "picomatch": "4.0.5",
+  "@modelcontextprotocol/server": "2.3.1", "basic-ftp": "6.2.4", "picomatch": "4.0.5",
   "ssh2-sftp-client": "12.1.1", "zod": "4.6.7",
 });
 export const MCP_DEVELOPMENT_PINS = Object.freeze({
