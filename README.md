@@ -41,29 +41,20 @@ Windows users can run `install.cmd` and macOS/Linux users can run
 the first connection.
 
 <details>
-<summary>Install a tagged release and verify its source archive</summary>
+<summary>Install the tagged v0.3.2 source with its lockfile</summary>
 
-For a tagged version, check out that exact tag before installing. `npm ci` uses
-the sole authoritative `package-lock.json`, with five exact direct pins and the
-reviewed graph. Keep it with the sources. `--ignore-scripts` disables automatic
-dependency lifecycle scripts; setup is a separate, explicit action.
+To install the source used for v0.3.2 in a fresh directory, clone the tag and use its committed lockfile.
 
-The v0.3.2 source installation asset is named
-`ftp-deploy-mcp-0.3.2-source.tar.gz`: 90 files, including that lockfile. Verify
-its publication and checksums before extracting it in a fresh directory:
-
-```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.2-source.tar.gz
-cd package
+```sh
+git clone --branch v0.3.2 --depth 1 https://github.com/alebgl77/ftp-deploy-mcp.git ftp-deploy-mcp-0.3.2
+cd ftp-deploy-mcp-0.3.2
 npm ci --omit=dev --ignore-scripts
-node src/index.js setup
+npm run setup
 ```
 
-This installation archive excludes repository tests and maintainer scripts;
-GitHub's automatic source ZIP/tar contains the complete repository. The separate
-npm `.tgz` contains 89 files without a lockfile and follows npm dependency
-resolution. It provides no locked-install guarantee. See the
-[release guide](./docs/RELEASE.md) for verification and limits.
+GitHub also offers the tagged repository as a source ZIP or tarball on the
+[release page](https://github.com/alebgl77/ftp-deploy-mcp/releases/tag/v0.3.2).
+The npm package uses npm's dependency resolution. See the [release guide](./docs/RELEASE.md) for the distribution and verification details.
 
 </details>
 

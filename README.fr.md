@@ -41,30 +41,20 @@ remplacer les deux commandes npm. Relisez chaque serveur généré avant la prem
 connexion.
 
 <details>
-<summary>Installer une version étiquetée et vérifier son archive</summary>
+<summary>Installer les sources du tag v0.3.2 avec les versions de dépendances verrouillées</summary>
 
-Pour une version étiquetée, sélectionnez son tag exact avant l'installation.
-`npm ci` utilise le seul fichier de référence `package-lock.json`, avec cinq
-dépendances directes épinglées exactement et le graphe revu. Conservez-le avec
-les sources. `--ignore-scripts` désactive les scripts automatiques de cycle de
-vie des dépendances ; le setup est une action explicite distincte.
+Pour installer les sources de la v0.3.2 dans un nouveau dossier, clonez le tag. La commande `npm ci` utilisera le fichier `package-lock.json` de cette version.
 
-Le fichier d'installation source v0.3.2 porte le nom
-`ftp-deploy-mcp-0.3.2-source.tar.gz` : 90 fichiers, dont ce verrouillage. Vérifiez
-sa publication et ses empreintes avant de l'extraire dans un dossier neuf :
-
-```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.2-source.tar.gz
-cd package
+```sh
+git clone --branch v0.3.2 --depth 1 https://github.com/alebgl77/ftp-deploy-mcp.git ftp-deploy-mcp-0.3.2
+cd ftp-deploy-mcp-0.3.2
 npm ci --omit=dev --ignore-scripts
-node src/index.js setup
+npm run setup
 ```
 
-Cette archive d'installation exclut les tests et scripts de maintenance du dépôt ;
-le ZIP/tar automatique de GitHub contient le dépôt complet. Le `.tgz` npm distinct
-contient 89 fichiers sans verrouillage et suit la résolution de dépendances npm.
-Il ne garantit pas une installation verrouillée. Le
-[guide de publication](./docs/RELEASE.fr.md) décrit les contrôles et leurs limites.
+GitHub propose aussi les sources du tag aux formats ZIP et tar.gz sur la
+[page de la release](https://github.com/alebgl77/ftp-deploy-mcp/releases/tag/v0.3.2).
+Le paquet npm suit les règles de résolution de npm. Le [guide de publication](./docs/RELEASE.fr.md) détaille chaque distribution et ses vérifications.
 
 </details>
 
