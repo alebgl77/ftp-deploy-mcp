@@ -1,23 +1,8 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/logo.svg" width="96" alt="logo ftp-deploy-mcp">
-
 # ftp-deploy-mcp
 
-**Le bouton déployer pour les agents de codage IA.**
-
-Donnez à Claude Code, Claude Desktop, Cursor, Windsurf, Trae, Antigravity ou
-tout client MCP un moyen ciblé de lister, lire, téléverser, télécharger et
-déployer des fichiers sur vos propres serveurs FTP, FTPS et SFTP.
-
-Le serveur stdio implémente la révision MCP `2026-07-28` avec le SDK TypeScript
-modulaire v2 stable et conserve la négociation historique du SDK pour les
-anciens clients MCP.
-
-*English version → [README.md](./README.md)*
-
-Langue de la CLI et des outils MCP : anglais par défaut ; utilisez `--lang fr` ou `FTP_MCP_LANG=fr`.
-[Périmètre et priorité des langues](./docs/LANGUAGES.fr.md).
+**Déployez un dossier local sur votre serveur depuis un client MCP.**
 
 [![CI](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/alebgl77/ftp-deploy-mcp/actions/workflows/ci.yml)
 [![Licence : MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -26,12 +11,62 @@ Langue de la CLI et des outils MCP : anglais par défaut ; utilisez `--lang fr` 
 
 <img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/banner-fr.png" width="100%" alt="ftp-deploy-mcp — Déploiement contrôlé pour vos agents IA ; FTP, FTPS, SFTP via MCP stdio">
 
+[Installation](#première-installation-depuis-les-sources) · [Outils MCP](#référence-des-outils) · [Architecture](#architecture-et-scénarios) · [English](./README.md)
+
 </div>
 
-Des contrôles conçus pour le déploiement gardent les identifiants hors des
-réponses d'outils, proposent lecture seule et dry-run, et limitent l'accès aux
-fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
-étendue utilisant des serveurs FTP et SFTP locaux. Aucune télémétrie.
+Connectez Claude Code, Claude Desktop, Cursor, Windsurf, Trae, Antigravity ou un autre client MCP à vos serveurs FTP, FTPS et SFTP.
+
+## Première installation depuis les sources
+
+Avec Node.js 22, 24 ou 26, exécutez ces commandes dans un terminal.
+
+```sh
+git clone https://github.com/alebgl77/ftp-deploy-mcp.git
+cd ftp-deploy-mcp
+npm ci --omit=dev --ignore-scripts
+npm run setup
+```
+
+1. Dans la configuration générée, indiquez un `localRoot` absolu et renseignez vos identifiants. Pour SFTP, vérifiez l’empreinte de la clé d’hôte. Pour FTP ou FTPS, consultez la [matrice des protocoles](#matrice-protocoles-et-sécurité).
+2. Placez un fichier de test dans le dossier `dist` sous `localRoot`. Redémarrez votre client MCP, puis demandez une simulation avec votre alias de serveur (ici `prod`).
+
+```text
+Appelez ftp_deploy avec :
+{"server":"prod","local_dir":"dist","remote_dir":"/","dry_run":true}
+```
+
+Sous Windows, `install.cmd`, et sous macOS/Linux, `./install.sh`, peuvent
+remplacer les étapes 3–4. Relisez chaque serveur généré avant la première
+connexion.
+
+<details>
+<summary>Installer une version étiquetée et vérifier son archive</summary>
+
+Pour une version étiquetée, sélectionnez son tag exact avant l'installation.
+`npm ci` utilise le seul fichier de référence `package-lock.json`, avec cinq
+dépendances directes épinglées exactement et le graphe revu. Conservez-le avec
+les sources. `--ignore-scripts` désactive les scripts automatiques de cycle de
+vie des dépendances ; le setup est une action explicite distincte.
+
+Le fichier d'installation source v0.3.2 porte le nom
+`ftp-deploy-mcp-0.3.2-source.tar.gz` : 90 fichiers, dont ce verrouillage. Vérifiez
+sa publication et ses empreintes avant de l'extraire dans un dossier neuf :
+
+```bash
+tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.2-source.tar.gz
+cd package
+npm ci --omit=dev --ignore-scripts
+node src/index.js setup
+```
+
+Cette archive d'installation exclut les tests et scripts de maintenance du dépôt ;
+le ZIP/tar automatique de GitHub contient le dépôt complet. Le `.tgz` npm distinct
+contient 89 fichiers sans verrouillage et suit la résolution de dépendances npm.
+Il ne garantit pas une installation verrouillée. Le
+[guide de publication](./docs/RELEASE.fr.md) décrit les contrôles et leurs limites.
+
+</details>
 
 > **Disponibilité :** la version **0.3.2** est publiée sur
 > [npm](https://www.npmjs.com/package/ftp-deploy-mcp/v/0.3.2) et dans le
@@ -47,27 +82,6 @@ et des dry-runs. Activer `stateDir` ajoute quatre outils durables avec confirmat
 MCP, reprise explicite et retour arrière prudent des changements acquittés.
 Ces garanties concernent le workflow durable optionnel ; le `ftp_deploy`
 historique n'a ni transaction ni retour arrière.
-
-## Documentation
-
-| Document | English | Français |
-|---|---|---|
-| Présentation et installation | [README](./README.md) | [README](./README.fr.md) |
-| Modifications | [Changelog](./CHANGELOG.md) | [Journal](./CHANGELOG.fr.md) |
-| Contribution | [Guide](./CONTRIBUTING.md) | [Guide](./CONTRIBUTING.fr.md) |
-| Politique de sécurité | [Policy](./SECURITY.md) | [Politique](./SECURITY.fr.md) |
-| Modèle de sécurité | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
-| Publication | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
-| Évaluation d'agents | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
-| Performances et intégration des agents | [Guide](./docs/AGENT-PERFORMANCE.md) | [Guide](./docs/AGENT-PERFORMANCE.fr.md) |
-| Conformité MCP scriptée | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
-| Langues de la CLI et des outils MCP | [Guide](./docs/LANGUAGES.md) | [Guide](./docs/LANGUAGES.fr.md) |
-| Contrat d'erreur MCP | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |
-| Transferts vérifiés par promotion | [Guide](./docs/TRANSFERS.md) | [Guide](./docs/TRANSFERS.fr.md) |
-| Limites de parcours et d'admission | [Limits](./docs/RESOURCE-BOUNDS.md) | [Limites](./docs/RESOURCE-BOUNDS.fr.md) |
-| Stockage d'état durable | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
-| Modèle du workflow durable | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
-| Licence MIT | [Texte canonique](./LICENSE) | [Traduction informative](./LICENSE.fr.md) |
 
 ## Architecture et scénarios
 
@@ -92,11 +106,11 @@ aux fichiers confirmés durablement ; l'outil de base `ftp_deploy` n'a pas de ro
 
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow-fr.gif" width="100%" alt="Flux animé de déploiement vérifié : analyser, planifier, approuver, transférer, vérifier et promouvoir, avec une voie sûre de retour arrière.">
+<img src="https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow-fr.png" width="100%" alt="Flux de déploiement vérifié : analyser, planifier, approuver, transférer, vérifier et promouvoir, avec une voie sûre de retour arrière.">
 
 </div>
 
-Pour réduire les animations, consultez l’[image statique de l’état final](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow-fr.png).
+[Voir le déroulement animé (GIF)](https://raw.githubusercontent.com/alebgl77/ftp-deploy-mcp/main/assets/verified-deployment-flow-fr.gif).
 Consultez les [notes de provenance et de génération du système visuel](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/visual-system-2026-10-17.fr.md).
 
 La direction visuelle a été explorée avec ChatGPT Image ; les visuels finaux du
@@ -104,48 +118,38 @@ README sont rendus de façon déterministe. Leur
 [provenance et leurs prompts exacts](https://github.com/alebgl77/ftp-deploy-mcp/blob/main/assets/provenance/README.fr.md)
 documentent leur rôle illustratif ; ils ne constituent pas une certification.
 
-## Première installation depuis les sources
+## Documentation
 
-1. Installez une version de Node.js prise en charge : 22, 24 ou 26 (minimum : 22).
-2. Lancez `git clone https://github.com/alebgl77/ftp-deploy-mcp.git`, puis
-   `cd ftp-deploy-mcp`.
-3. Lancez `npm ci --omit=dev --ignore-scripts`.
-4. Lancez `npm run setup`, puis modifiez la configuration générée : renseignez
-   un `localRoot` absolu, remplacez les identifiants et configurez le pin de clé
-   d'hôte SFTP ou les acceptations de risque FTP/FTPS décrites plus bas.
-5. Redémarrez le client MCP et essayez un dry-run :
+| Document | English | Français |
+|---|---|---|
+| Présentation et installation | [README](./README.md) | [README](./README.fr.md) |
+| Modifications | [Changelog](./CHANGELOG.md) | [Journal](./CHANGELOG.fr.md) |
+| Contribution | [Guide](./CONTRIBUTING.md) | [Guide](./CONTRIBUTING.fr.md) |
+| Politique de sécurité | [Policy](./SECURITY.md) | [Politique](./SECURITY.fr.md) |
+| Modèle de sécurité | [Model](./docs/SECURITY-MODEL.md) | [Modèle](./docs/SECURITY-MODEL.fr.md) |
+| Publication | [Guide](./docs/RELEASE.md) | [Guide](./docs/RELEASE.fr.md) |
+| Évaluation d'agents | [Instructions](./evaluations/README.md) | [Instructions](./evaluations/README.fr.md) |
+| Performances et intégration des agents | [Guide](./docs/AGENT-PERFORMANCE.md) | [Guide](./docs/AGENT-PERFORMANCE.fr.md) |
+| Conformité MCP scriptée | [Guide](./docs/SCRIPTED-EVALUATIONS.md) | [Guide](./docs/SCRIPTED-EVALUATIONS.fr.md) |
+| Langues de la CLI et des outils MCP | [Guide](./docs/LANGUAGES.md) | [Guide](./docs/LANGUAGES.fr.md) |
+| Contrat d'erreur MCP | [Contract](./docs/ERROR-CONTRACT.md) | [Contrat](./docs/ERROR-CONTRACT.fr.md) |
+| Transferts vérifiés par promotion | [Guide](./docs/TRANSFERS.md) | [Guide](./docs/TRANSFERS.fr.md) |
+| Limites de parcours et d'admission | [Limits](./docs/RESOURCE-BOUNDS.md) | [Limites](./docs/RESOURCE-BOUNDS.fr.md) |
+| Stockage d'état durable | [Library](./docs/STATE-STORAGE.md) | [Bibliothèque](./docs/STATE-STORAGE.fr.md) |
+| Modèle du workflow durable | [Model](./docs/WORKFLOW-MODEL.md) | [Modèle](./docs/WORKFLOW-MODEL.fr.md) |
+| Licence MIT | [Texte canonique](./LICENSE) | [Traduction informative](./LICENSE.fr.md) |
 
-```text
-Appelez ftp_deploy avec :
-{"server":"prod","local_dir":"dist","remote_dir":"/","dry_run":true}
-```
+Le serveur stdio implémente la révision MCP `2026-07-28` avec le SDK TypeScript
+modulaire v2 stable et conserve la négociation historique du SDK pour les
+anciens clients MCP.
 
-Sous Windows, `install.cmd`, et sous macOS/Linux, `./install.sh`, peuvent
-remplacer les étapes 3–4. Relisez chaque serveur généré avant la première
-connexion.
+Langue de la CLI et des outils MCP : anglais par défaut ; utilisez `--lang fr` ou `FTP_MCP_LANG=fr`.
+[Périmètre et priorité des langues](./docs/LANGUAGES.fr.md).
 
-Pour une version étiquetée, sélectionnez son tag exact avant l'installation.
-`npm ci` utilise le seul fichier de référence `package-lock.json`, avec cinq
-dépendances directes épinglées exactement et le graphe revu. Conservez-le avec
-les sources. `--ignore-scripts` désactive les scripts automatiques de cycle de
-vie des dépendances ; le setup est une action explicite distincte.
-
-Une fois publié, le fichier d'installation source v0.3.2 porte le nom
-`ftp-deploy-mcp-0.3.2-source.tar.gz` : 90 fichiers, dont ce verrouillage. Vérifiez
-sa publication et ses empreintes avant de l'extraire dans un dossier neuf :
-
-```bash
-tar --ignore-zeros -xzf ftp-deploy-mcp-0.3.2-source.tar.gz
-cd package
-npm ci --omit=dev --ignore-scripts
-node src/index.js setup
-```
-
-Cette archive d'installation exclut les tests et scripts de maintenance du dépôt ;
-le ZIP/tar automatique de GitHub contient le dépôt complet. Le `.tgz` npm distinct
-contient 89 fichiers sans verrouillage et suit la résolution de dépendances npm.
-Il ne garantit pas une installation verrouillée. Le
-[guide de publication](./docs/RELEASE.fr.md) décrit les contrôles et leurs limites.
+Des contrôles conçus pour le déploiement gardent les identifiants hors des
+réponses d'outils, proposent lecture seule et dry-run, et limitent l'accès aux
+fichiers locaux avec `localRoot`. Le dépôt est couvert par une suite e2e
+étendue utilisant des serveurs FTP et SFTP locaux. Aucune télémétrie.
 
 ## Matrice protocoles et sécurité
 

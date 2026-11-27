@@ -11,15 +11,9 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { createRequestStateCodec, McpServer } from "@modelcontextprotocol/server";
-import { loadConfig, normalizeServer, insecureTransport, configRedactor } from "./config.js";
-import { registerTools } from "./tools.js";
-import { runImport } from "./filezilla.js";
 import { createRedactor } from "./redact.js";
 import { createI18n, extractLanguage } from "./i18n.js";
 import { isAppError, renderError } from "./errors.js";
-import { bindRequestLifecycle, createRequestLifecycleTransport } from "./tool-registry.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, "..", "package.json"), "utf8"));
@@ -52,6 +46,12 @@ function parseArgs(argv, t) {
 
 async function startServer(configFlag, i18n) {
   const { t } = i18n;
+  const { serveStdio, StdioServerTransport } = await import("@modelcontextprotocol/server/stdio");
+  const { createRequestStateCodec, McpServer } = await import("@modelcontextprotocol/server");
+  const { loadConfig, normalizeServer, insecureTransport, configRedactor } = await import("./config.js");
+  const { registerTools } = await import("./tools.js");
+  const { bindRequestLifecycle, createRequestLifecycleTransport } = await import("./tool-registry.js");
+
   const loaded = loadConfig(configFlag);
   outputRedactor = configRedactor(loaded);
 
@@ -132,6 +132,7 @@ async function run(argv, i18n) {
 
   const sub = opts._[0];
   if (sub === "import-filezilla") {
+    const { runImport } = await import("./filezilla.js");
     const code = runImport({
       file: opts.flags.file,
       out: opts.flags.out,
