@@ -37,7 +37,7 @@ Appelez ftp_deploy avec :
 ```
 
 Sous Windows, `install.cmd`, et sous macOS/Linux, `./install.sh`, peuvent
-remplacer les étapes 3–4. Relisez chaque serveur généré avant la première
+remplacer les deux commandes npm. Relisez chaque serveur généré avant la première
 connexion.
 
 <details>
